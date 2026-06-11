@@ -1418,19 +1418,17 @@ function filtrarUIporRol() {
   const esVendedora = _usuarioActual?.rol === 'vendedora';
 
   if (esVendedora) {
-    // Ocultar pestañas principales innecesarias
-    ['nav-contabilidad', 'nav-despachos', 'nav-bodega', 'nav-almacenes'].forEach(id => {
+    // Ocultar TODAS las pestañas innecesarias - SOLO Inventarios y Ventas
+    ['nav-dash', 'nav-contabilidad', 'nav-despachos', 'nav-bodega', 'nav-almacenes'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
 
-    // Cambiar dashboard
+    // Ocultar página de Inicio
     const dash = document.getElementById('page-dash');
-    if (dash) {
-      dash.querySelector('.page-title').textContent = 'Mi turno';
-    }
+    if (dash) dash.style.display = 'none';
 
-    // En Inventarios: solo Control Mensual + Conteo Físico
+    // En Inventarios: SOLO Control Mensual + Conteo Físico
     const invTabs = document.querySelectorAll('[id^="tab-inv-"]');
     invTabs.forEach(tab => {
       if (tab.id.includes('control') || tab.id.includes('conteo')) {
@@ -1440,30 +1438,36 @@ function filtrarUIporRol() {
       }
     });
 
-    // En Conteo Físico: hacer readonly el inventario inicial
+    // En Control Mensual: hacer readonly inventario inicial
     setTimeout(() => {
       document.querySelectorAll('input[id*="inicial"]').forEach(el => {
         el.readOnly = true;
         el.style.background = 'var(--gris-claro)';
         el.style.color = 'var(--gris-medio)';
+        el.style.cursor = 'not-allowed';
       });
-    }, 200);
+    }, 300);
 
     // En Ventas: ocultar pestañas complicadas
-    ['tab-ventas-descuentos', 'tab-ventas-cargar', 'tab-ventas-manual'].forEach(id => {
+    ['tab-ventas-rank', 'tab-ventas-descuentos', 'tab-ventas-cargar', 'tab-ventas-manual'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
 
-    // Renombrar "Visión General" a "Mi desempeño"
-    const tabVG = document.getElementById('tab-ventas-rank');
-    if (tabVG) tabVG.textContent = 'Mi desempeño';
+    // Renombrar pestañas de Ventas
+    const tabPA = document.getElementById('tab-ventas-poralmacen');
+    if (tabPA) tabPA.textContent = 'Ventas y Metas';
 
-    // Mostrar primero la pestaña "Mi desempeño"
+    // Mostrar primero Ventas por Almacén (con metas)
     setTimeout(() => {
-      const tab = document.getElementById('tab-ventas-rank');
+      const tab = document.getElementById('tab-ventas-poralmacen');
       if (tab) tab.click();
     }, 100);
+
+    // Redirigir a Inventarios si intenta ir a Inicio
+    if (window.location.hash === '#' || window.location.hash === '') {
+      showPage('inventarios');
+    }
   }
 }
 
@@ -3639,12 +3643,49 @@ async function cargarVentasPorAlmacen() {
   await llenarSelectAlmacenes();
   await loadCostosData();
   const selAlm = document.getElementById('vpa-almacen');
-  if (selAlm.options.length <= 1) selAlm.innerHTML = '<option value="">Todos los almacenes</option>' +
-    almacenes.map(a=>`<option value="${a.nombre}">${limpiarAlm(a.nombre)}</option>`).join('');
+
+  // Para vendedoras: usar su almacén automáticamente
+  if (_usuarioActual?.rol === 'vendedora' && _usuarioActual?.almacen_id) {
+    const almSelVendedora = almacenes.find(a => a.id === _usuarioActual.almacen_id);
+    if (almSelVendedora) {
+      selAlm.innerHTML = `<option value="${almSelVendedora.nombre}">${almSelVendedora.nombre}</option>`;
+      selAlm.value = almSelVendedora.nombre;
+      selAlm.disabled = true;
+      selAlm.style.opacity = '0.6';
+    }
+  } else if (selAlm.options.length <= 1) {
+    selAlm.innerHTML = '<option value="">Todos los almacenes</option>' +
+      almacenes.map(a=>`<option value="${a.nombre}">${limpiarAlm(a.nombre)}</option>`).join('');
+  }
+
   const pin = document.getElementById('vpa-periodo');
-  if (!pin.options.length) pin.innerHTML = periodoOpciones('', true); // "Todos los meses" por defecto
+  if (!pin.options.length) pin.innerHTML = periodoOpciones('', true);
 
   const almNombre = selAlm.value, periodo = pin.value, cat = document.getElementById('vpa-cat').value;
+
+  // Para vendedoras: cargar meta del período
+  if (_usuarioActual?.rol === 'vendedora' && _usuarioActual?.almacen_id && periodo) {
+    const { data: metaData } = await sb.from('metas_ventas')
+      .select('meta_valor, meta_unidades')
+      .eq('almacen_id', _usuarioActual.almacen_id)
+      .eq('periodo', periodo)
+      .single();
+
+    if (metaData) {
+      const metaHTML = `
+        <div style="background:var(--rosa-suave);padding:14px;border-radius:10px;margin-bottom:12px">
+          <div style="font-size:16px;color:var(--gris-medio);margin-bottom:4px">Meta para este período</div>
+          <div style="font-size:28px;font-weight:700;color:var(--carbon)">${COP(metaData.meta_valor)}</div>
+          <div style="font-size:13px;color:var(--gris-medio);margin-top:4px">${metaData.meta_unidades} unidades</div>
+        </div>
+      `;
+
+      const container = document.getElementById('vpa-tabla');
+      if (container) {
+        container.insertAdjacentHTML('beforebegin', metaHTML);
+      }
+    }
+  }
   document.getElementById('vpa-tabla').innerHTML = '<div class="loader"><div class="spinner"></div></div>';
 
   const ventas = await selectAll('ventas', 'almacen_nombre, referencia, categoria, cantidad, precio_unitario, descuento', q => {
