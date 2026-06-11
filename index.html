@@ -1362,7 +1362,13 @@ async function handleLogin() {
     }
     // Si no hay password_hash, permitir login (para usuarios nuevos en testing)
 
-    _usuarioActual = { email: usuario.email, nombre: usuario.nombre, rol: usuario.rol, id: usuario.id };
+    _usuarioActual = {
+      email: usuario.email,
+      nombre: usuario.nombre,
+      rol: usuario.rol,
+      id: usuario.id,
+      almacen_id: usuario.almacen_id
+    };
     _sesionActiva = true;
     localStorage.setItem('_usuario', JSON.stringify(_usuarioActual));
 
@@ -1410,20 +1416,42 @@ function mostrarApp() {
 
 function filtrarUIporRol() {
   const esVendedora = _usuarioActual?.rol === 'vendedora';
-  const esAdmin = _usuarioActual?.rol === 'admin';
 
   if (esVendedora) {
-    // Ocultar pestañas internas sensibles
-    ['nav-contabilidad', 'nav-despachos', 'nav-bodega'].forEach(id => {
+    // Ocultar pestañas principales innecesarias
+    ['nav-contabilidad', 'nav-despachos', 'nav-bodega', 'nav-almacenes'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
 
-    // Cambiar dashboard a "Vendedora"
+    // Cambiar dashboard
     const dash = document.getElementById('page-dash');
     if (dash) {
       dash.querySelector('.page-title').textContent = 'Mi turno';
     }
+
+    // En Inventarios: ocultar todo excepto Conteo Físico
+    const invTabs = document.querySelectorAll('[id^="tab-inv-"]');
+    invTabs.forEach(tab => {
+      if (tab.id.includes('conteo')) tab.style.display = 'block';
+      else tab.style.display = 'none';
+    });
+
+    // En Ventas: ocultar pestañas complicadas
+    ['tab-ventas-descuentos', 'tab-ventas-cargar', 'tab-ventas-manual'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+
+    // Renombrar "Visión General" a "Mi desempeño"
+    const tabVG = document.getElementById('tab-ventas-rank');
+    if (tabVG) tabVG.textContent = 'Mi desempeño';
+
+    // Mostrar primero la pestaña "Mi desempeño"
+    setTimeout(() => {
+      const tab = document.getElementById('tab-ventas-rank');
+      if (tab) tab.click();
+    }, 100);
   }
 }
 
@@ -1546,7 +1574,10 @@ function showTab(tabId) {
   document.getElementById(tabId).classList.add('active');
   document.getElementById('tab-content-' + tabId.replace('tab-', '')).style.display = 'block';
   if (tabId === 'tab-despacho-hist') cargarHistDespachos();
-  if (tabId === 'tab-ventas-rank') cargarVentasRank();
+  if (tabId === 'tab-ventas-rank') {
+    if (_usuarioActual?.rol === 'vendedora') cargarVentasVendedora();
+    else cargarVentasRank();
+  }
   if (tabId === 'tab-ventas-poralmacen') cargarVentasPorAlmacen();
   if (tabId === 'tab-ventas-descuentos') cargarDescuentos();
   if (tabId === 'tab-ventas-historico') cargarHistoricoVentas();
@@ -3201,6 +3232,81 @@ async function borrarNovedad(id) {
   await loadInvCache(true);
   if (_novCtx) { const el = { dataset: { ref: _novCtx.ref, cat: _novCtx.cat } }; abrirModalNovedad(el); }
   cargarControlMensual();
+}
+
+// ─── VENTAS VENDEDORA (simplificado) ───────────
+async function cargarVentasVendedora() {
+  // Ocultar elementos innecesarios para vendedora
+  ['rank-periodo', 'rank-almacen'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.parentElement.parentElement.style.display = 'none';
+  });
+  document.querySelectorAll('#rank-by-valor, #rank-by-uds, #rank-consolidado').forEach(el => el.style.display = 'none');
+  const rentSection = document.querySelector('[id="rank-insights-card"]').nextElementSibling;
+  if (rentSection) rentSection.style.display = 'none';
+  const rentTable = document.getElementById('rank-rent-tabla');
+  if (rentTable) rentTable.style.display = 'none';
+
+  if (!_usuarioActual?.almacen_id) {
+    document.getElementById('rank-kpis').innerHTML = '<div style="grid-column:1/3;text-align:center;color:var(--gris-medio)">Sin almacén asignado</div>';
+    return;
+  }
+
+  const almId = _usuarioActual.almacen_id;
+  const periodo = periodoActual();
+
+  // Cargar datos
+  const [{ data: ventasmes }, { data: metas }, { data: bodega }] = await Promise.all([
+    sb.from('ventas').select('cantidad, precio_unitario, referencia').eq('almacen_id', almId).eq('periodo', periodo),
+    sb.from('metas_ventas').select('*').eq('almacen_id', almId).eq('periodo', periodo),
+    sb.from('bodega').select('stock')
+  ]);
+
+  const totalVentas = (ventasmes || []).reduce((s,v) => s + v.cantidad * v.precio_unitario, 0);
+  const totalInv = (bodega || []).reduce((s,b) => s + (b.stock || 0), 0);
+  const meta = metas?.length ? metas[0] : null;
+  const pctMeta = meta?.meta_valor > 0 ? Math.round(totalVentas / meta.meta_valor * 100) : 0;
+  const faltante = meta?.meta_valor ? Math.max(0, meta.meta_valor - totalVentas) : 0;
+
+  // KPIs
+  document.getElementById('rank-kpis').innerHTML = `
+    <div class="metric-card"><div class="m-label">Meta mensual</div><div class="m-val">${COP(meta?.meta_valor || 0)}</div></div>
+    <div class="metric-card"><div class="m-label">Venta acumulada</div><div class="m-val">${COP(totalVentas)}</div></div>
+    <div class="metric-card"><div class="m-label">Cumplimiento</div><div class="m-val" style="color:${pctMeta >= 100 ? 'var(--verde)' : pctMeta >= 75 ? '#FF9500' : 'var(--rojo)'}">${pctMeta}%</div></div>
+    <div class="metric-card"><div class="m-label">Inventario disponible</div><div class="m-val">${NUM(totalInv)} uds</div></div>
+  `;
+
+  // Insights
+  const insights = [];
+  if (pctMeta >= 100) insights.push('✓ Ya alcanzaste tu meta');
+  else if (pctMeta >= 75) insights.push(`Vas al ${pctMeta}% de tu meta`);
+  else insights.push(`Te faltan ${COP(faltante)} para alcanzar la meta`);
+  if (totalInv < 20) insights.push('⚠️ Inventario bajo - requiere reposición');
+
+  const insightCard = document.getElementById('rank-insights-card');
+  if (insightCard && insights.length) {
+    insightCard.style.display = 'block';
+    document.getElementById('rank-insights').innerHTML = insights.map(i =>
+      `<div style="background:var(--rosa-suave);padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:6px">${i}</div>`
+    ).join('');
+  }
+
+  // Tabla referencias
+  const refVentas = {};
+  (ventasmes || []).forEach(v => {
+    if (!refVentas[v.referencia]) refVentas[v.referencia] = { uds: 0, total: 0 };
+    refVentas[v.referencia].uds += v.cantidad;
+    refVentas[v.referencia].total += v.cantidad * v.precio_unitario;
+  });
+
+  document.getElementById('rank-ref-tbody').innerHTML = Object.entries(refVentas)
+    .sort((a,b) => b[1].total - a[1].total)
+    .map(([ref, data], i) => `<tr>
+      <td>${i+1}</td>
+      <td><strong>${ref}</strong></td>
+      <td colspan="2" style="text-align:right">${NUM(data.uds)} uds</td>
+      <td style="text-align:right;font-weight:600">${COP(data.total)}</td>
+    </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--gris-medio)">Sin ventas registradas</td></tr>';
 }
 
 // ─── VENTAS: RANKINGS / CONSOLIDADO ───────────
