@@ -1430,12 +1430,24 @@ function filtrarUIporRol() {
       dash.querySelector('.page-title').textContent = 'Mi turno';
     }
 
-    // En Inventarios: ocultar todo excepto Conteo Físico
+    // En Inventarios: solo Control Mensual + Conteo Físico
     const invTabs = document.querySelectorAll('[id^="tab-inv-"]');
     invTabs.forEach(tab => {
-      if (tab.id.includes('conteo')) tab.style.display = 'block';
-      else tab.style.display = 'none';
+      if (tab.id.includes('control') || tab.id.includes('conteo')) {
+        tab.style.display = 'block';
+      } else {
+        tab.style.display = 'none';
+      }
     });
+
+    // En Conteo Físico: hacer readonly el inventario inicial
+    setTimeout(() => {
+      document.querySelectorAll('input[id*="inicial"]').forEach(el => {
+        el.readOnly = true;
+        el.style.background = 'var(--gris-claro)';
+        el.style.color = 'var(--gris-medio)';
+      });
+    }, 200);
 
     // En Ventas: ocultar pestañas complicadas
     ['tab-ventas-descuentos', 'tab-ventas-cargar', 'tab-ventas-manual'].forEach(id => {
@@ -1597,41 +1609,121 @@ function showTab(tabId) {
 function hoy() { return new Date().toISOString().slice(0, 10); }
 
 // ─── DASHBOARD VENDEDORA ──────────────────────
+let _almSeleccionado = null;
+
 async function cargarDashVendedora() {
   try {
+    // Preseleccionar el almacén de la vendedora
+    if (!_almSeleccionado && _usuarioActual?.almacen_id) {
+      _almSeleccionado = _usuarioActual.almacen_id;
+    }
+
     const hoy = new Date().toISOString().slice(0,10);
     const periodo = hoy.slice(0,7);
 
-    // Cargar metas y ventas de hoy
-    const [{ data: metas }, { data: ventasHoy }] = await Promise.all([
-      sb.from('metas_ventas').select('*').eq('periodo', periodo).limit(1),
-      sb.from('ventas').select('cantidad, precio_unitario').eq('fecha', hoy)
+    // Cargar almacenes para selector
+    await llenarSelectAlmacenes();
+
+    // Cargar todas las metas del período
+    const { data: todasMetas } = await sb.from('metas_ventas').select('*').eq('periodo', periodo);
+    const metasMap = {};
+    (todasMetas || []).forEach(m => metasMap[m.almacen_id] = m);
+
+    // Renderizar selector de almacén
+    const almId = _almSeleccionado || _usuarioActual?.almacen_id;
+    const almacenSel = almacenes.find(a => a.id === almId);
+    const almNombre = almacenSel?.nombre || 'Seleccionar almacén';
+
+    document.querySelector('.page-title').innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span>Mi turno</span>
+        <select id="dash-almacen-sel" onchange="cambiarAlmacenDash()" style="padding:10px 12px;border:2px solid var(--rosa);border-radius:8px;font-size:16px;font-weight:600;background:var(--blanco)">
+          ${almacenes.map(a => `<option value="${a.id}" ${a.id === almId ? 'selected' : ''}>${a.nombre}</option>`).join('')}
+        </select>
+      </div>
+    `;
+
+    // Cargar datos del almacén seleccionado
+    const [{ data: ventasAlmMes }, { data: ventasAlmHoy }] = await Promise.all([
+      sb.from('ventas').select('cantidad, precio_unitario').eq('almacen_id', almId).eq('periodo', periodo),
+      sb.from('ventas').select('cantidad, precio_unitario').eq('almacen_id', almId).eq('fecha', hoy)
     ]);
 
-    const meta = metas && metas.length ? metas[0] : null;
-    const ventasHoyCOP = (ventasHoy || []).reduce((a,v) => a + v.cantidad * v.precio_unitario, 0);
-    const ventasHoyUds = (ventasHoy || []).reduce((a,v) => a + v.cantidad, 0);
+    const totalVentaMes = (ventasAlmMes || []).reduce((s,v) => s + v.cantidad * v.precio_unitario, 0);
+    const totalVentaHoy = (ventasAlmHoy || []).reduce((s,v) => s + v.cantidad * v.precio_unitario, 0);
+    const meta = metasMap[almId];
+    const pctMeta = meta?.meta_valor > 0 ? Math.round(totalVentaMes / meta.meta_valor * 100) : 0;
+    const faltante = meta?.meta_valor ? Math.max(0, meta.meta_valor - totalVentaMes) : 0;
 
-    let pctMeta = 0;
-    if (meta && meta.meta_valor > 0) {
-      pctMeta = Math.round(ventasHoyCOP / meta.meta_valor * 100);
-    }
-
-    const colorMeta = pctMeta >= 100 ? 'var(--verde)' : pctMeta >= 75 ? '#FF9500' : 'var(--rojo)';
-    const txtMeta = pctMeta >= 100 ? '✓ Meta alcanzada!' : `${pctMeta}% de la meta`;
-
+    // Renderizar KPIs CON LETRA MÁS GRANDE
     const kpiGrid = document.getElementById('kpi-grid');
     if (kpiGrid) {
       kpiGrid.innerHTML = `
-        <div class="metric-card"><div class="m-label">Meta de hoy</div><div class="m-val">${meta ? COP(meta.meta_valor) : '—'}</div><div class="m-sub">${meta ? meta.meta_unidades + ' unidades' : 'Sin meta'}</div></div>
-        <div class="metric-card"><div class="m-label">Ventas hoy</div><div class="m-val">${COP(ventasHoyCOP)}</div><div class="m-sub">${NUM(ventasHoyUds)} uds</div></div>
-        <div class="metric-card accent"><div class="m-label" style="color:${colorMeta}">Progreso</div><div class="m-val" style="color:${colorMeta}">${txtMeta}</div><div class="m-sub">de meta</div></div>
+        <div style="grid-column:1/3;background:var(--rosa-suave);padding:16px;border-radius:12px">
+          <div style="font-size:18px;color:var(--gris-medio);margin-bottom:6px">Meta mensual</div>
+          <div style="font-size:36px;font-weight:700;color:var(--carbon)">${COP(meta?.meta_valor || 0)}</div>
+        </div>
+
+        <div style="background:var(--blanco);border:2px solid var(--rosa);padding:16px;border-radius:12px">
+          <div style="font-size:18px;color:var(--gris-medio);margin-bottom:6px">Vendido este mes</div>
+          <div style="font-size:36px;font-weight:700;color:var(--carbon)">${COP(totalVentaMes)}</div>
+        </div>
+
+        <div style="background:${pctMeta >= 100 ? 'var(--verde)' : pctMeta >= 75 ? '#FFE5CC' : '#FFE5E3'};padding:16px;border-radius:12px;grid-column:1/3">
+          <div style="font-size:18px;color:var(--carbon);margin-bottom:6px;font-weight:600">Cumplimiento</div>
+          <div style="font-size:48px;font-weight:700;color:${pctMeta >= 100 ? 'var(--verde)' : pctMeta >= 75 ? '#FF9500' : 'var(--rojo)'}">${pctMeta}%</div>
+        </div>
+
+        <div style="background:var(--gris-claro);padding:16px;border-radius:12px">
+          <div style="font-size:18px;color:var(--gris-medio);margin-bottom:6px">Hoy vendiste</div>
+          <div style="font-size:32px;font-weight:700;color:var(--carbon)">${COP(totalVentaHoy)}</div>
+        </div>
+
+        <div style="background:var(--gris-claro);padding:16px;border-radius:12px">
+          <div style="font-size:18px;color:var(--gris-medio);margin-bottom:6px">Te falta</div>
+          <div style="font-size:32px;font-weight:700;color:var(--rojo)">${COP(faltante)}</div>
+        </div>
       `;
+
+      // Insights grandes y accionables
+      const insights = [];
+      if (pctMeta >= 100) {
+        insights.push('✅ FELICIDADES: YA ALCANZASTE TU META');
+      } else if (pctMeta >= 75) {
+        insights.push(`📊 Vas muy bien: ${pctMeta}% de tu meta`);
+        insights.push(`💰 Te faltan solo ${COP(faltante)} para la meta`);
+      } else if (pctMeta >= 50) {
+        insights.push(`⏳ Vamos a mitad de camino: ${pctMeta}%`);
+        insights.push(`💪 Necesitas ${COP(faltante)} más este mes`);
+      } else {
+        insights.push(`⚡ Aumenta el ritmo: solo ${pctMeta}%`);
+        insights.push(`🎯 Objetivo: ${COP(faltante)} antes de fin de mes`);
+      }
+
+      if (totalVentaHoy === 0) {
+        insights.push('📅 Aún sin ventas hoy - ¡empieza fuerte!');
+      } else if (totalVentaHoy > meta?.meta_valor / 30) {
+        insights.push('⭐ Hoy tuviste un buen día');
+      }
+
+      const insightHTML = insights.map(i =>
+        `<div style="background:var(--rosa-suave);padding:14px;border-radius:10px;margin-bottom:8px;font-size:18px;font-weight:600;color:var(--carbon)">${i}</div>`
+      ).join('');
+
+      if (document.getElementById('stock-critico')) {
+        document.getElementById('stock-critico').innerHTML = insightHTML;
+      }
     }
   } catch (err) {
     console.error('Error en dashboard vendedora:', err);
-    const kpiGrid = document.getElementById('kpi-grid');
-    if (kpiGrid) kpiGrid.innerHTML = '<div class="metric-card"><div class="m-label">Error al cargar</div><div class="m-val">—</div></div>';
+  }
+}
+
+function cambiarAlmacenDash() {
+  const sel = document.getElementById('dash-almacen-sel');
+  if (sel) {
+    _almSeleccionado = sel.value;
+    cargarDashVendedora();
   }
 }
 
