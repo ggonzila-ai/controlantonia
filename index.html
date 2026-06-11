@@ -319,6 +319,9 @@
 
     <!-- EXISTENCIAS -->
     <div id="tab-content-bod-existencias">
+      <div id="bodega-alertas-resumen" style="padding:12px 16px;background:var(--rosa-suave);border-radius:var(--radius);margin-bottom:12px;display:none">
+        <div style="font-size:13px;font-weight:600;color:var(--rosa-oscuro)">⚠️ <span id="bodega-count-alerta">0</span> productos con stock bajo</div>
+      </div>
       <div class="section-card" style="border-radius:0;margin-bottom:0;border-bottom:none">
         <div style="padding:12px 16px">
           <input type="text" id="bodega-buscar" placeholder="Buscar referencia…" style="width:100%;padding:10px 14px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:14px;font-family:inherit" oninput="filtrarBodega()">
@@ -327,8 +330,8 @@
       <div class="section-card" style="border-radius:0 0 var(--radius) var(--radius)">
         <div class="tabla-wrap">
           <table>
-            <thead><tr><th>Referencia</th><th>Cat.</th><th>Stock por talla</th><th style="text-align:right">Total</th><th>Estado</th></tr></thead>
-            <tbody id="bodega-tbody"><tr><td colspan="5"><div class="loader"><div class="spinner"></div> Cargando…</div></td></tr></tbody>
+            <thead><tr><th>Referencia</th><th>Cat.</th><th>Stock por talla</th><th style="text-align:right">Total</th><th style="text-align:right">Mín</th><th>Estado</th></tr></thead>
+            <tbody id="bodega-tbody"><tr><td colspan="6"><div class="loader"><div class="spinner"></div> Cargando…</div></td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1348,9 +1351,14 @@ async function handleLogin() {
 
   try {
     const { data: usuario, error: userError } = await sb.from('usuarios').select('*').eq('email', email).eq('activo', true).single();
-    if (userError || !usuario) { throw new Error('Usuario no encontrado o inactivo'); }
+    if (userError || !usuario) { throw new Error('Email o contraseña incorrectos'); }
 
-    // Aquí se validaría la contraseña (por ahora, simplificado)
+    // Validar contraseña con SHA256
+    const passwordHash = await hashSHA256(password);
+    if (passwordHash !== usuario.password_hash) {
+      throw new Error('Email o contraseña incorrectos');
+    }
+
     _usuarioActual = { email: usuario.email, nombre: usuario.nombre, rol: usuario.rol, id: usuario.id };
     _sesionActiva = true;
     localStorage.setItem('_usuario', JSON.stringify(_usuarioActual));
@@ -1362,6 +1370,11 @@ async function handleLogin() {
     errorDiv.style.display = 'block';
     btn.disabled = false; btn.textContent = prev;
   }
+}
+
+async function hashSHA256(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(x => x.toString(16).padStart(2,'0')).join('');
 }
 
 async function handleLogout() {
@@ -1394,11 +1407,20 @@ function mostrarApp() {
 
 function filtrarUIporRol() {
   const esVendedora = _usuarioActual?.rol === 'vendedora';
+  const esAdmin = _usuarioActual?.rol === 'admin';
+
   if (esVendedora) {
-    ['nav-contabilidad', 'nav-despachos'].forEach(id => {
+    // Ocultar pestañas internas sensibles
+    ['nav-contabilidad', 'nav-despachos', 'nav-bodega'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
+
+    // Cambiar dashboard a "Vendedora"
+    const dash = document.getElementById('page-dash');
+    if (dash) {
+      dash.querySelector('.page-title').textContent = 'Mi turno';
+    }
   }
 }
 
@@ -1540,8 +1562,44 @@ function showTab(tabId) {
 
 function hoy() { return new Date().toISOString().slice(0, 10); }
 
+// ─── DASHBOARD VENDEDORA ──────────────────────
+async function cargarDashVendedora() {
+  const hoy = new Date().toISOString().slice(0,10);
+  const periodo = hoy.slice(0,7); // YYYY-MM
+
+  // Obtener meta del almacén de la vendedora para este período
+  const { data: metas } = await sb.from('metas_ventas').select('*').eq('periodo', periodo);
+  const meta = metas && metas.length ? metas[0] : null;
+
+  // Ventas de hoy
+  const { data: ventasHoy } = await sb.from('ventas').select('cantidad, precio_unitario').eq('fecha', hoy);
+  const ventasHoyCOP = (ventasHoy || []).reduce((a,v) => a + v.cantidad * v.precio_unitario, 0);
+  const ventasHoyUds = (ventasHoy || []).reduce((a,v) => a + v.cantidad, 0);
+
+  // Calcular % de meta
+  let pctMeta = 0;
+  if (meta && meta.meta_valor > 0) {
+    pctMeta = Math.round(ventasHoyCOP / meta.meta_valor * 100);
+  }
+
+  const colorMeta = pctMeta >= 100 ? 'var(--verde)' : pctMeta >= 75 ? '#FF9500' : 'var(--rojo)';
+  const txtMeta = pctMeta >= 100 ? '✓ Meta alcanzada!' : `${pctMeta}% de la meta`;
+
+  document.getElementById('kpi-grid').innerHTML = `
+    <div class="metric-card"><div class="m-label">Meta de hoy</div><div class="m-val">${meta ? COP(meta.meta_valor) : '—'}</div><div class="m-sub">${meta ? meta.meta_unidades + ' unidades' : 'Sin meta asignada'}</div></div>
+    <div class="metric-card"><div class="m-label">Ventas hoy</div><div class="m-val">${COP(ventasHoyCOP)}</div><div class="m-sub">${NUM(ventasHoyUds)} unidades</div></div>
+    <div class="metric-card accent"><div class="m-label" style="color:${colorMeta}">Progreso</div><div class="m-val" style="color:${colorMeta}">${txtMeta}</div><div class="m-sub">de la meta diaria</div></div>
+  `;
+}
+
 // ─── DASHBOARD ────────────────────────────────
 async function cargarDash() {
+  // Dashboard diferente para vendedoras
+  if (_usuarioActual?.rol === 'vendedora') {
+    cargarDashVendedora();
+    return;
+  }
+
   // último período con ventas (las ventas pueden no ser del mes calendario en curso)
   await Promise.all([ (almacenes.length ? Promise.resolve() : llenarSelectAlmacenes()), loadInvCache() ]);
   const { data: ultimo } = await sb.from('ventas').select('periodo').order('periodo', { ascending: false }).limit(1);
@@ -1764,6 +1822,7 @@ async function cargarBodega() {
   ]);
   bodegaData = data || [];
   renderBodega(bodegaData);
+  mostrarAlertasStock();
 }
 
 function chipTallas(ref) {
@@ -1781,15 +1840,29 @@ function chipTallas(ref) {
 
 async function renderBodega(items) {
   document.getElementById('bodega-tbody').innerHTML = items.map(p => {
-    const est = p.stock === 0 ? ['badge-err','Sin stock'] : p.stock <= 2 ? ['badge-err','Crítico'] : p.stock <= 5 ? ['badge-warn','Bajo'] : ['badge-ok','OK'];
-    return `<tr>
+    const min = p.stock_minimo || 10;
+    const est = p.stock === 0 ? ['badge-err','Sin stock'] : p.stock <= min ? ['badge-warn','⚠️ Bajo'] : ['badge-ok','✓ OK'];
+    const rowStyle = p.stock <= min ? 'background:var(--rosa-suave)' : '';
+    return `<tr style="${rowStyle}">
       <td><strong>${p.referencia}</strong></td>
       <td><span class="badge badge-rosa">${p.categoria}</span></td>
       <td style="max-width:240px">${chipTallas(p.referencia)}</td>
       <td style="text-align:right;font-weight:700">${NUM(p.stock)}</td>
+      <td style="text-align:right;font-size:12px;color:var(--gris-medio)">Mín: ${NUM(min)}</td>
       <td><span class="badge ${est[0]}">${est[1]}</span></td>
     </tr>`;
-  }).join('') || '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--gris-medio)">Sin referencias en bodega.</td></tr>';
+  }).join('') || '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--gris-medio)">Sin referencias en bodega.</td></tr>';
+}
+
+function mostrarAlertasStock() {
+  const alertas = (bodegaData || []).filter(p => (p.stock || 0) <= (p.stock_minimo || 10));
+  const div = document.getElementById('bodega-alertas-resumen');
+  if (alertas.length > 0) {
+    document.getElementById('bodega-count-alerta').textContent = alertas.length;
+    div.style.display = 'block';
+  } else {
+    div.style.display = 'none';
+  }
 }
 
 function filtrarBodega() {
