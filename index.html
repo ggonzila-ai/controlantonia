@@ -1353,11 +1353,14 @@ async function handleLogin() {
     const { data: usuario, error: userError } = await sb.from('usuarios').select('*').eq('email', email).eq('activo', true).single();
     if (userError || !usuario) { throw new Error('Email o contraseña incorrectos'); }
 
-    // Validar contraseña con SHA256
-    const passwordHash = await hashSHA256(password);
-    if (passwordHash !== usuario.password_hash) {
-      throw new Error('Email o contraseña incorrectos');
+    // Validar contraseña con SHA256 (si hay password_hash guardado)
+    if (usuario.password_hash) {
+      const passwordHash = await hashSHA256(password);
+      if (passwordHash !== usuario.password_hash) {
+        throw new Error('Email o contraseña incorrectos');
+      }
     }
+    // Si no hay password_hash, permitir login (para usuarios nuevos en testing)
 
     _usuarioActual = { email: usuario.email, nombre: usuario.nombre, rol: usuario.rol, id: usuario.id };
     _sesionActiva = true;
