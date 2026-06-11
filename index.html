@@ -666,7 +666,7 @@
       </div>
       <div class="alert alert-info" style="margin-bottom:0;border-radius:var(--radius) var(--radius) 0 0">
         <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-        <div><strong>Inicial + Remisiones − Ventas ± Novedades = Inventario final.</strong> Toca <strong>Inicial</strong> o <strong>Novedades</strong> para editarlos manualmente. La diferencia es Físico − Final (negativo = faltante, positivo = sobrante).</div>
+        <div id="invc-nota"><strong>Inicial + Remisiones − Ventas ± Novedades = Inventario final.</strong> Toca <strong>Inicial</strong> o <strong>Novedades</strong> para editarlos manualmente. La diferencia es Físico − Final (negativo = faltante, positivo = sobrante).</div>
       </div>
       <div class="metrics" id="invc-kpis" style="margin-bottom:14px"></div>
       <div class="section-card">
@@ -1411,64 +1411,40 @@ function mostrarApp() {
   document.getElementById('logout-btn').style.display = 'block';
 
   filtrarUIporRol();
-  setTimeout(() => cargarDash(), 100);
+
+  if (esVendedora()) {
+    showPage('inventarios');   // landing para vendedoras: Inventarios
+  } else {
+    setTimeout(() => cargarDash(), 100);
+  }
 }
 
+function esVendedora() { return _usuarioActual?.rol === 'vendedora'; }
+
 function filtrarUIporRol() {
-  const esVendedora = _usuarioActual?.rol === 'vendedora';
+  if (!esVendedora()) return;
 
-  if (esVendedora) {
-    // Ocultar TODAS las pestañas innecesarias - SOLO Inventarios y Ventas
-    ['nav-dash', 'nav-contabilidad', 'nav-despachos', 'nav-bodega', 'nav-almacenes'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.style.display = 'none';
-    });
+  // Nav inferior: SOLO Inventarios y Ventas
+  ['nav-dash', 'nav-contabilidad', 'nav-despachos', 'nav-bodega', 'nav-almacenes'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.style.display = 'none';
+  });
+  const dash = document.getElementById('page-dash'); if (dash) dash.style.display = 'none';
 
-    // Ocultar página de Inicio
-    const dash = document.getElementById('page-dash');
-    if (dash) dash.style.display = 'none';
+  // Inventarios: ocultar Consolidado; dejar Control mensual + Conteo físico
+  const c = document.getElementById('tab-inv-consolidado'); if (c) c.style.display = 'none';
+  ['tab-inv-control', 'tab-inv-fisico'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.style.display = 'block';
+  });
 
-    // En Inventarios: SOLO Control Mensual + Conteo Físico
-    const invTabs = document.querySelectorAll('[id^="tab-inv-"]');
-    invTabs.forEach(tab => {
-      if (tab.id.includes('control') || tab.id.includes('conteo')) {
-        tab.style.display = 'block';
-      } else {
-        tab.style.display = 'none';
-      }
-    });
+  // Ventas: dejar solo "Ventas y Metas"
+  ['tab-ventas-rank', 'tab-ventas-descuentos', 'tab-ventas-historico', 'tab-ventas-cargar', 'tab-ventas-manual'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.style.display = 'none';
+  });
+  const tabPA = document.getElementById('tab-ventas-poralmacen'); if (tabPA) tabPA.textContent = 'Ventas y Metas';
 
-    // En Control Mensual: hacer readonly inventario inicial
-    setTimeout(() => {
-      document.querySelectorAll('input[id*="inicial"]').forEach(el => {
-        el.readOnly = true;
-        el.style.background = 'var(--gris-claro)';
-        el.style.color = 'var(--gris-medio)';
-        el.style.cursor = 'not-allowed';
-      });
-    }, 300);
-
-    // En Ventas: ocultar pestañas complicadas
-    ['tab-ventas-rank', 'tab-ventas-descuentos', 'tab-ventas-cargar', 'tab-ventas-manual'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.style.display = 'none';
-    });
-
-    // Renombrar pestañas de Ventas
-    const tabPA = document.getElementById('tab-ventas-poralmacen');
-    if (tabPA) tabPA.textContent = 'Ventas y Metas';
-
-    // Mostrar primero Ventas por Almacén (con metas)
-    setTimeout(() => {
-      const tab = document.getElementById('tab-ventas-poralmacen');
-      if (tab) tab.click();
-    }, 100);
-
-    // Redirigir a Inventarios si intenta ir a Inicio
-    if (window.location.hash === '#' || window.location.hash === '') {
-      showPage('inventarios');
-    }
-  }
+  // Nota de Control mensual adaptada (no pueden editar inicial)
+  const nota = document.getElementById('invc-nota');
+  if (nota) nota.innerHTML = '<strong>Inicial + Remisiones − Ventas ± Novedades = Inventario final.</strong> La diferencia es Físico − Final (negativo = faltante, positivo = sobrante). El inventario inicial solo lo edita administración.';
 }
 
 const COP = n => '$' + Math.round(n || 0).toLocaleString('es-CO');
@@ -1570,7 +1546,11 @@ function showPage(id) {
   if (id === 'dash') cargarDash();
   if (id === 'bodega') cargarBodega();
   if (id === 'despachos') { llenarSelectAlmacenes(); llenarSelectDespachoRef(); document.getElementById('d-fecha').value = hoy(); }
-  if (id === 'ventas') { llenarSelectAlmacenes(); llenarSelectRefs(); document.getElementById('vm-fecha').value = hoy(); cargarVentasRank(); }
+  if (id === 'ventas') {
+    llenarSelectAlmacenes(); llenarSelectRefs();
+    const vmf = document.getElementById('vm-fecha'); if (vmf) vmf.value = hoy();
+    if (esVendedora()) showTab('tab-ventas-poralmacen'); else cargarVentasRank();
+  }
   if (id === 'almacenes') iniciarAlmacenes();
   if (id === 'inventarios') iniciarInventarios();
   if (id === 'contabilidad') iniciarContabilidad();
@@ -1603,6 +1583,10 @@ function showTab(tabId) {
   if (tabId === 'tab-bod-costos') cargarCostos();
   if (tabId === 'tab-inv-consolidado') cargarConsolidado();
   if (tabId === 'tab-inv-control') cargarControlMensual();
+  if (tabId === 'tab-inv-fisico' && esVendedora()) {
+    const f = document.getElementById('if-fecha'); if (f && !f.value) f.value = hoy();
+    cargarItemsConteo();
+  }
   if (tabId === 'tab-cont-ingresos') cargarIngresos();
   if (tabId === 'tab-cont-gastos') cargarGastos();
   if (tabId === 'tab-cont-nomina') cargarNomina();
@@ -3175,6 +3159,16 @@ async function iniciarInventarios() {
     mSel.innerHTML = MESES.map((n,i) => `<option value="${i+1}" ${i+1===cm?'selected':''}>${n}</option>`).join('');
     aSel.innerHTML = aniosDisponibles().map(y => `<option value="${y}" ${y===cy?'selected':''}>${y}</option>`).join('');
   }
+
+  if (esVendedora()) {
+    // Fijar y bloquear la tienda de la vendedora en Control mensual y Conteo físico
+    ['invc-almacen', 'if-almacen'].forEach(id => {
+      const s = document.getElementById(id);
+      if (s && _usuarioActual.almacen_id) { s.value = _usuarioActual.almacen_id; s.disabled = true; s.style.opacity = '0.7'; }
+    });
+    showTab('tab-inv-control');   // arranca en Control mensual (no Consolidado)
+    return;
+  }
   cargarConsolidado();
 }
 function invcPeriodo() {
@@ -3231,6 +3225,7 @@ async function cargarControlMensual() {
   tbody.innerHTML = '<tr><td colspan="8"><div class="loader"><div class="spinner"></div></div></td></tr>';
   await loadInvCache();
   const rows = inventarioMensual(almId, periodo);
+  const soloLectura = esVendedora();   // vendedoras NO editan inicial ni novedades
   const t = { ini:0, rem:0, vta:0, aj:0, fin:0, fis:0, dif:0, hasFis:false };
   const html = rows.map(r => {
     t.ini+=r.inicial; t.rem+=r.remisiones; t.vta+=r.ventas; t.aj+=r.ajustes; t.fin+=r.final;
@@ -3240,12 +3235,19 @@ async function cargarControlMensual() {
       difCell = `<span class="${cls}">${txt}</span>`; }
     const da = `data-ref="${escAttr(r.ref)}" data-cat="${escAttr(r.cat)}"`;
     const novTxt = r.ajustes ? ((r.ajustes>0?'+':'')+NUM(r.ajustes)) : '';
+    const novColor = r.ajustes<0?'var(--rojo)':r.ajustes>0?'var(--verde)':'var(--gris-medio)';
+    const iniCell = soloLectura
+      ? `<td style="text-align:right;font-weight:600">${NUM(r.inicial)}</td>`
+      : `<td style="text-align:right"><input type="number" ${da} value="${r.inicial}" onchange="guardarInicialManual(this)" title="Editar inventario inicial" style="width:58px;padding:5px;text-align:right;font-size:13px;border:1px solid var(--borde);border-radius:6px;background:var(--blanco)"></td>`;
+    const novCell = soloLectura
+      ? `<td style="text-align:right;white-space:nowrap"><span style="color:${novColor}">${novTxt||'—'}</span></td>`
+      : `<td style="text-align:right;white-space:nowrap"><span style="color:${novColor}">${novTxt||'—'}</span> <button ${da} onclick="abrirModalNovedad(this)" title="Registrar novedad" style="background:none;border:1px solid var(--borde);border-radius:6px;color:var(--rosa-oscuro);cursor:pointer;font-size:12px;padding:2px 6px">✎</button></td>`;
     return `<tr>
       <td><strong>${r.ref}</strong></td>
-      <td style="text-align:right"><input type="number" ${da} value="${r.inicial}" onchange="guardarInicialManual(this)" title="Editar inventario inicial" style="width:58px;padding:5px;text-align:right;font-size:13px;border:1px solid var(--borde);border-radius:6px;background:var(--blanco)"></td>
+      ${iniCell}
       <td style="text-align:right;color:var(--verde)">${r.remisiones?'+'+NUM(r.remisiones):'—'}</td>
       <td style="text-align:right;color:var(--rosa-oscuro)">${r.ventas?'−'+NUM(r.ventas):'—'}</td>
-      <td style="text-align:right;white-space:nowrap"><span style="color:${r.ajustes<0?'var(--rojo)':r.ajustes>0?'var(--verde)':'var(--gris-medio)'}">${novTxt||'—'}</span> <button ${da} onclick="abrirModalNovedad(this)" title="Registrar novedad" style="background:none;border:1px solid var(--borde);border-radius:6px;color:var(--rosa-oscuro);cursor:pointer;font-size:12px;padding:2px 6px">✎</button></td>
+      ${novCell}
       <td style="text-align:right;font-weight:700">${NUM(r.final)}</td>
       <td style="text-align:right">${r.fisico!=null?NUM(r.fisico):'—'}</td>
       <td style="text-align:right">${difCell}</td>
@@ -3269,6 +3271,7 @@ async function cargarControlMensual() {
 
 // ─── INVENTARIOS: EDICIÓN MANUAL ──────────────
 async function guardarInicialManual(el) {
+  if (esVendedora()) { toast('Solo administración edita el inventario inicial', 'err'); return; }
   const almId = document.getElementById('invc-almacen').value;
   const periodo = invcPeriodo();
   const ref = el.dataset.ref, cat = el.dataset.cat || '';
