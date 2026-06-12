@@ -7,22 +7,44 @@
 <script src="https://unpkg.com/@supabase/supabase-js@2.39.3/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=Parisienne&family=Inter:wght@400;500;600;700&display=swap');
   :root {
-    --rosa: #E8B4B8;
-    --rosa-suave: #F5E6E8;
-    --rosa-oscuro: #C4787E;
-    --carbon: #1C1C1E;
-    --gris-medio: #6B6B6E;
-    --gris-claro: #F2F2F7;
-    --borde: #E5E5EA;
-    --blanco: #FFFFFF;
-    --verde: #34C759;
-    --rojo: #FF3B30;
-    --amarillo: #FF9500;
-    --azul: #007AFF;
+    /* ===== Marca Antonia Sorev ===== */
+    --brand:        #02ABD5;  /* azul de marca — solo decorativo/acento */
+    --brand-dark:   #014A5E;  /* azul oscuro — botones, sidebar, texto sobre claro */
+    --brand-mid:    #016E8A;  /* azul medio — links, iconos interactivos */
+    --brand-light:  #E0F6FC;  /* azul muy claro — hover bg, tags, chips */
+    --brand-border: #A0DDEE;  /* azul claro — bordes de acento */
+
+    --bg-page:      #F4FAFB;
+    --bg-card:      #FFFFFF;
+    --bg-hover:     #EDF6F8;
+    --border-light: #D6EAF0;
+
+    --text-primary:   #152830;
+    --text-secondary: #3D6B78;
+    --text-muted:     #8AB4BE;
+
+    --success-bg:   #D1FAE5;  --success-text: #065F46;
+    --warning-bg:   #FEF3C7;  --warning-text: #92400E;
+    --danger-bg:    #FEE2E2;  --danger-text:  #991B1B;
+
+    /* ===== Compat: nombres antiguos remapeados a la nueva marca ===== */
+    --rosa:        #02ABD5;   /* azul de marca (acento) */
+    --rosa-suave:  #E0F6FC;   /* azul muy claro: hovers, chips */
+    --rosa-oscuro: #014A5E;   /* azul oscuro: botones, activos, títulos */
+    --carbon:      #152830;   /* texto principal */
+    --gris-medio:  #3D6B78;   /* texto secundario (legible 5.7:1) */
+    --gris-claro:  #F4FAFB;   /* fondo de página */
+    --borde:       #D6EAF0;   /* bordes */
+    --blanco:      #FFFFFF;
+    --verde:       #16A34A;   /* verde semántico */
+    --rojo:        #991B1B;   /* rojo semántico legible */
+    --amarillo:    #92400E;
+    --azul:        #016E8A;   /* azul interactivo */
     --radius: 12px;
     --radius-sm: 8px;
-    --sombra: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+    --sombra: 0 1px 2px rgba(20,40,48,0.04), 0 1px 3px rgba(20,40,48,0.06);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif; background: var(--gris-claro); color: var(--carbon); font-size: 15px; min-height: 100vh; }
@@ -196,6 +218,107 @@
   .login-form label { display: block; font-size: 13px; font-weight: 600; color: var(--carbon); margin-bottom: 6px; }
   .login-form input { width: 100%; padding: 10px 12px; border: 1.5px solid var(--borde); border-radius: var(--radius-sm); font-size: 15px; font-family: inherit; background: var(--blanco); }
   .login-form input:focus { outline: none; border-color: var(--rosa); }
+
+  /* ════════════════════════════════════════════════════════════════
+     RESTYLE ANTONIA SOREV — solo estilos, sin tocar lógica ni HTML
+     ════════════════════════════════════════════════════════════════ */
+
+  /* Tipografía: UI en Gilroy → Inter (fallback exacto). Nunca en la marca. */
+  body { font-family: 'Gilroy','Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+         background: var(--bg-page); color: var(--text-primary); }
+
+  /* ---- HEADER (barra superior, clara) ---- */
+  .header { background: var(--bg-card); border-bottom: 1px solid var(--border-light); padding: 12px 20px; }
+  /* Logo oficial Antonia Sorev como imagen (oculta el texto del wordmark) */
+  .header-logo { width: 160px; height: 30px; font-size: 0; color: transparent; text-indent: -9999px;
+    overflow: hidden; background: url('antonia-sorev-logo.png') left center / contain no-repeat; }
+  .header-logo span { display: none; }
+  .header-sync { color: var(--text-secondary); }
+  #header-user { color: var(--text-secondary) !important; }
+  #logout-btn { color: var(--brand-mid) !important; }
+
+  /* ---- NAV inferior (se mantiene ABAJO, estilo claro como el original) ---- */
+  .nav-bottom { background: var(--bg-card); border-top: 1px solid var(--border-light); }
+  .nav-item { color: var(--text-secondary); }
+  .nav-item.active { color: var(--brand-mid); }
+
+  /* ---- CARDS DE MÉTRICAS / RESUMEN ---- */
+  .metric-card { background: var(--brand-light); border: 1px solid var(--brand-border);
+    box-shadow: none; border-radius: var(--radius); padding: 20px; }
+  .metric-card .m-label { color: var(--text-secondary); font-size: 13px; }
+  .metric-card .m-val { color: var(--brand-dark); font-weight: 600; }
+  .metric-card .m-sub { color: var(--text-secondary); }
+  .metric-card.accent { background: var(--brand-dark); border-color: var(--brand-dark); }
+  .metric-card.accent .m-label, .metric-card.accent .m-val, .metric-card.accent .m-sub { color: #ffffff; }
+
+  /* ---- SECTION CARD / PANELES ---- */
+  .section-card { background: var(--bg-card); border: 1px solid var(--border-light); box-shadow: var(--sombra); }
+  .section-header { border-bottom: 1px solid var(--border-light); }
+  .section-title { color: var(--text-primary); font-weight: 600; }
+  .section-title svg { color: var(--brand-mid); }
+
+  /* ---- TABLAS ---- */
+  th { background: var(--brand-light); color: var(--brand-dark); font-weight: 500;
+       font-size: 12px; letter-spacing: .03em; border-bottom: 1px solid var(--brand-border); }
+  td { color: var(--text-primary); border-bottom: 1px solid var(--border-light); }
+  tr:hover td { background: var(--bg-hover); }
+
+  /* ---- BOTONES ---- */
+  .btn-primary { background: var(--brand-dark); color: #ffffff; }
+  .btn-primary:hover, .btn-primary:active { background: #013848; }
+  .btn-secondary { background: transparent; border: 1.5px solid var(--brand); color: var(--brand-dark); }
+  .btn-secondary:hover, .btn-secondary:active { background: var(--brand-light); }
+  .btn-danger { background: transparent; border: 1.5px solid var(--danger-text); color: var(--danger-text); }
+  .btn-danger:hover, .btn-danger:active { background: var(--danger-bg); }
+
+  /* ---- INPUTS / SELECTS / TEXTAREAS ---- */
+  .form-group input, .form-group select, .form-group textarea {
+    border: 1px solid var(--border-light); color: var(--text-primary);
+    background: var(--bg-card); border-radius: var(--radius-sm); }
+  .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+    outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(2,171,213,0.15); }
+  ::placeholder { color: var(--text-muted); opacity: 1; }
+
+  /* ---- TABS ---- */
+  .tabs { background: var(--bg-card); border-bottom: 1px solid var(--border-light); }
+  .tab { color: var(--text-secondary); }
+  .tab.active { color: var(--brand-dark); border-bottom-color: var(--brand); }
+
+  /* ---- BADGES DE ESTADO ---- */
+  .badge { border-radius: 6px; padding: 3px 9px; font-weight: 600; }
+  .badge-ok   { background: var(--success-bg); color: var(--success-text); }
+  .badge-warn { background: var(--warning-bg); color: var(--warning-text); }
+  .badge-err  { background: var(--danger-bg);  color: var(--danger-text); }
+  .badge-info { background: var(--brand-light); color: var(--brand-mid); }
+  .badge-rosa { background: var(--brand-light); color: var(--brand-dark); }
+  .badge-gray { background: var(--bg-hover); color: var(--text-secondary); border: 1px solid var(--border-light); }
+
+  /* ---- ALERTS ---- */
+  .alert-ok   { background: var(--success-bg); color: var(--success-text); border-color: #A7F3D0; }
+  .alert-warn { background: var(--warning-bg); color: var(--warning-text); border-color: #FDE68A; }
+  .alert-err  { background: var(--danger-bg);  color: var(--danger-text);  border-color: #FCA5A5; }
+  .alert-info { background: var(--brand-light); color: var(--brand-mid);    border-color: var(--brand-border); }
+
+  /* ---- DETALLES ---- */
+  .chart-bar-fill { background: var(--brand); }
+  .stock-fill { background: var(--brand); }
+  .spinner { border-top-color: var(--brand); }
+  .page-title { color: var(--text-primary); font-weight: 600; }
+  .page-subtitle { color: var(--text-secondary); }
+  a { color: var(--brand-mid); text-decoration: none; }
+  a:hover { color: var(--brand-dark); text-decoration: underline; }
+  .toast { background: var(--brand-dark); }
+
+  /* ---- LOGIN ("el inicio"): logo oficial ---- */
+  .login-screen { background: var(--bg-page); }
+  .login-container { border: 1px solid var(--border-light); box-shadow: 0 10px 40px rgba(1,74,94,0.10); }
+  .login-logo { height: 72px; font-size: 0; color: transparent; text-indent: -9999px; overflow: hidden;
+    background: url('antonia-sorev-logo.png') center / contain no-repeat; margin-bottom: 28px; }
+  .login-logo span { display: none; }
+  .login-form h2 { color: var(--text-primary); }
+  .login-form input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(2,171,213,0.15); }
+  .login-form .btn-primary { background: var(--brand-dark); color: #ffffff; }
+
 </style>
 </head>
 <body>
@@ -238,62 +361,55 @@
 
   <!-- DASHBOARD -->
   <div class="page active" id="page-dash">
-    <div class="page-title">Resumen</div>
+    <div class="page-title">Inicio</div>
+
+    <!-- KPIs grandes -->
     <div class="metrics" id="kpi-grid">
       <div class="metric-card"><div class="m-label">Cargando...</div><div class="m-val">—</div></div>
       <div class="metric-card"><div class="m-label">Cargando...</div><div class="m-val">—</div></div>
       <div class="metric-card"><div class="m-label">Cargando...</div><div class="m-val">—</div></div>
       <div class="metric-card accent"><div class="m-label">Cargando...</div><div class="m-val">—</div></div>
     </div>
-    <!-- Filtro de análisis comercial -->
-    <div class="section-card">
-      <div style="padding:12px 16px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
-        <div class="form-group" style="margin:0;min-width:120px">
-          <label>Ver por</label>
-          <select id="dash-filtro-tipo" onchange="onDashFiltroTipo()">
-            <option value="mes">Mes</option>
-            <option value="trimestre">Trimestre</option>
-            <option value="anio">Año</option>
-            <option value="rango">Rango de fechas</option>
-          </select>
-        </div>
-        <div id="dash-filtro-campos" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end"></div>
+
+    <!-- ACCESOS RÁPIDOS -->
+    <div style="margin-bottom:16px">
+      <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Accesos rápidos</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+
+        <button onclick="showPage('bodega');setTimeout(()=>showTab('tab-bod-despachos'),100)" style="background:var(--brand-dark);color:#fff;border:none;border-radius:14px;padding:18px 10px;display:flex;flex-direction:column;align-items:center;gap:10px;cursor:pointer;box-shadow:0 4px 12px rgba(1,74,94,0.25);transition:transform .15s;-webkit-tap-highlight-color:transparent" ontouchstart="this.style.transform='scale(0.96)'" ontouchend="this.style.transform='scale(1)'">
+          <svg width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="#fff" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12"/></svg>
+          <span style="font-size:13px;font-weight:700;text-align:center;line-height:1.3">Nuevo<br>Despacho</span>
+        </button>
+
+        <button onclick="showPage('contabilidad');setTimeout(()=>showTab('tab-cont-gastos'),100)" style="background:var(--brand-mid);color:#fff;border:none;border-radius:14px;padding:18px 10px;display:flex;flex-direction:column;align-items:center;gap:10px;cursor:pointer;box-shadow:0 4px 12px rgba(1,110,138,0.25);transition:transform .15s;-webkit-tap-highlight-color:transparent" ontouchstart="this.style.transform='scale(0.96)'" ontouchend="this.style.transform='scale(1)'">
+          <svg width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="#fff" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+          <span style="font-size:13px;font-weight:700;text-align:center;line-height:1.3">Nuevo<br>Gasto</span>
+        </button>
+
+        <button onclick="abrirModalEntrada()" style="background:var(--brand);color:#fff;border:none;border-radius:14px;padding:18px 10px;display:flex;flex-direction:column;align-items:center;gap:10px;cursor:pointer;box-shadow:0 4px 12px rgba(2,171,213,0.30);transition:transform .15s;-webkit-tap-highlight-color:transparent" ontouchstart="this.style.transform='scale(0.96)'" ontouchend="this.style.transform='scale(1)'">
+          <svg width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="#fff" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0l-3-3m3 3l3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/></svg>
+          <span style="font-size:13px;font-weight:700;text-align:center;line-height:1.3">Nueva<br>Entrada</span>
+        </button>
+
       </div>
     </div>
 
-    <!-- Participación por almacén -->
-    <div class="section-card">
+    <!-- INSIGHTS -->
+    <div class="section-card" style="margin-bottom:14px">
       <div class="section-header">
         <div class="section-title">
-          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/></svg>
-          Participación en ventas por almacén
+          <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
+          Alertas e insights
         </div>
-        <span id="dash-part-label" style="font-size:12px;color:var(--gris-medio)"></span>
       </div>
-      <div id="dash-participacion" style="padding:8px 0"><div class="loader"><div class="spinner"></div></div></div>
+      <div id="dash-insights"><div class="loader"><div class="spinner"></div></div></div>
     </div>
 
-    <!-- Ranking de referencias -->
+    <!-- STOCK CRÍTICO -->
     <div class="section-card">
       <div class="section-header">
         <div class="section-title">
-          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.504-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 01-.982-3.172M9.497 14.25a7.454 7.454 0 00.981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 007.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721C7.456 2.41 9.71 2.25 12 2.25c2.291 0 4.545.16 6.75.47v1.516M7.73 9.728a6.726 6.726 0 002.748 1.35m8.272-6.842V4.5c0 2.108-.966 3.99-2.48 5.228m2.48-5.492a46.32 46.32 0 012.916.52 6.003 6.003 0 01-5.395 4.972m0 0a6.726 6.726 0 01-2.749 1.35m0 0a6.772 6.772 0 01-3.044 0"/></svg>
-          Referencias más vendidas
-        </div>
-        <div style="display:flex;gap:6px">
-          <button class="btn btn-sm btn-secondary" id="dash-rank-valor" onclick="setDashRankBy('valor')">Valor</button>
-          <button class="btn btn-sm btn-secondary" id="dash-rank-uds" onclick="setDashRankBy('uds')">Unidades</button>
-        </div>
-      </div>
-      <div class="tabla-wrap"><table>
-        <thead><tr><th>#</th><th>Referencia</th><th>Cat.</th><th style="text-align:right">Uds.</th><th style="text-align:right">Valor</th></tr></thead>
-        <tbody id="dash-rank-tbody"><tr><td colspan="5"><div class="loader"><div class="spinner"></div></div></td></tr></tbody>
-      </table></div>
-    </div>
-    <div class="section-card">
-      <div class="section-header">
-        <div class="section-title">
-          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
+          <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/></svg>
           Stock crítico en bodega
         </div>
       </div>
@@ -315,6 +431,7 @@
       <div class="tab active" id="tab-bod-existencias" onclick="showTab('tab-bod-existencias')">Existencias</div>
       <div class="tab" id="tab-bod-catalogo" onclick="showTab('tab-bod-catalogo')">Catálogo</div>
       <div class="tab" id="tab-bod-costos" onclick="showTab('tab-bod-costos')">Costos</div>
+      <div class="tab" id="tab-bod-despachos" onclick="showTab('tab-bod-despachos')">Despachos</div>
     </div>
 
     <!-- EXISTENCIAS -->
@@ -363,23 +480,11 @@
         <div class="loader"><div class="spinner"></div></div>
       </div>
     </div>
-  </div>
 
-  <!-- DESPACHOS -->
-  <div class="page" id="page-despachos">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-      <div class="page-title" style="margin:0">Despachos</div>
-      <button class="btn btn-primary btn-sm" onclick="showTab('tab-despacho-nuevo')">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-        Nuevo
-      </button>
-    </div>
-    <div class="tabs" style="border-radius:var(--radius) var(--radius) 0 0;overflow:hidden">
-      <div class="tab active" id="tab-despacho-nuevo" onclick="showTab('tab-despacho-nuevo')">Nuevo despacho</div>
-      <div class="tab" id="tab-despacho-hist" onclick="showTab('tab-despacho-hist')">Historial</div>
-    </div>
-    <div class="section-card" style="border-radius:0 0 var(--radius) var(--radius)">
-      <div id="tab-content-despacho-nuevo">
+    <!-- DESPACHOS (integrado en Bodega) -->
+    <div id="tab-content-bod-despachos" style="display:none">
+      <div class="section-card" style="border-radius:0 0 var(--radius) var(--radius);margin-bottom:14px">
+        <div style="padding:14px 16px 0;font-size:12px;font-weight:600;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Nuevo despacho</div>
         <div class="form-section">
           <div class="form-row">
             <div class="form-group">
@@ -411,7 +516,8 @@
           </button>
         </div>
       </div>
-      <div id="tab-content-despacho-hist" style="display:none">
+      <div style="padding:4px 16px 8px;font-size:12px;font-weight:600;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Historial de despachos</div>
+      <div class="section-card">
         <div class="tabla-wrap">
           <table>
             <thead><tr><th>Fecha</th><th>Remisión</th><th>Almacén</th><th>Uds.</th><th></th></tr></thead>
@@ -1048,10 +1154,6 @@
     <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0l-3-3m3 3l3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/></svg>
     Bodega
   </button>
-  <button class="nav-item" id="nav-despachos" onclick="showPage('despachos')">
-    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12"/></svg>
-    Despachos
-  </button>
   <button class="nav-item" id="nav-ventas" onclick="showPage('ventas')">
     <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"/></svg>
     Ventas
@@ -1339,7 +1441,9 @@ async function initAuth() {
   }
 }
 
+let _loginEnCurso = false;
 async function handleLogin() {
+  if (_loginEnCurso) return;                       // evita doble envío
   const email = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value.trim();
   const errorDiv = document.getElementById('login-error');
@@ -1347,10 +1451,17 @@ async function handleLogin() {
 
   if (!email || !password) { errorDiv.textContent = 'Completa email y contraseña'; errorDiv.style.display='block'; return; }
 
-  btn.disabled = true; const prev = btn.textContent; btn.textContent = 'Ingresando…';
+  _loginEnCurso = true;
+  btn.disabled = true; btn.textContent = 'Ingresando…';
+  errorDiv.style.display = 'none';
 
   try {
-    const { data: usuario, error: userError } = await sb.from('usuarios').select('*').eq('email', email).eq('activo', true).single();
+    // Promise.race con timeout: la consulta NUNCA deja el botón colgado en "Ingresando…"
+    const consulta = sb.from('usuarios').select('*').eq('email', email).eq('activo', true).single();
+    const { data: usuario, error: userError } = await Promise.race([
+      consulta,
+      new Promise((_, rej) => setTimeout(() => rej(new Error('__timeout__')), 12000))
+    ]);
     if (userError || !usuario) { throw new Error('Email o contraseña incorrectos'); }
 
     // Validar contraseña con SHA256 (si hay password_hash guardado)
@@ -1375,9 +1486,15 @@ async function handleLogin() {
     errorDiv.style.display = 'none';
     mostrarApp();
   } catch (err) {
-    errorDiv.textContent = err.message || 'Error en el login';
+    errorDiv.textContent = err.message === '__timeout__'
+      ? 'La conexión está lenta. Intenta de nuevo.'
+      : (err.message || 'Error en el login');
     errorDiv.style.display = 'block';
-    btn.disabled = false; btn.textContent = prev;
+  } finally {
+    // SIEMPRE reactivar el botón (en éxito el login ya está oculto; en error queda listo para reintentar)
+    _loginEnCurso = false;
+    btn.disabled = false;
+    btn.textContent = 'Ingresar';
   }
 }
 
@@ -1391,7 +1508,9 @@ async function handleLogout() {
   _usuarioActual = null;
   _sesionActiva = false;
   localStorage.removeItem('_usuario');
-  mostrarLogin();
+  // Recargar a un estado limpio: evita que queden restricciones de un rol
+  // anterior (p.ej. la UI de vendedora) al ingresar con otro usuario sin refrescar.
+  location.reload();
 }
 
 function mostrarLogin() {
@@ -1400,6 +1519,10 @@ function mostrarLogin() {
   document.getElementById('login-email').value = '';
   document.getElementById('login-password').value = '';
   document.getElementById('login-error').style.display = 'none';
+  // Botón siempre fresco al mostrar el login (evita que quede pegado en "Ingresando…")
+  const btn = document.getElementById('login-btn');
+  if (btn) { btn.disabled = false; btn.textContent = 'Ingresar'; }
+  _loginEnCurso = false;
 }
 
 function mostrarApp() {
@@ -1545,7 +1668,6 @@ function showPage(id) {
   const navEl = document.getElementById('nav-' + id); if (navEl) navEl.classList.add('active');
   if (id === 'dash') cargarDash();
   if (id === 'bodega') cargarBodega();
-  if (id === 'despachos') { llenarSelectAlmacenes(); llenarSelectDespachoRef(); document.getElementById('d-fecha').value = hoy(); }
   if (id === 'ventas') {
     llenarSelectAlmacenes(); llenarSelectRefs();
     const vmf = document.getElementById('vm-fecha'); if (vmf) vmf.value = hoy();
@@ -1581,6 +1703,13 @@ function showTab(tabId) {
   if (tabId === 'tab-alm-conc') { llenarSelectAlmacenes(); renderConciliacion(); }
   if (tabId === 'tab-bod-catalogo') cargarCatalogo();
   if (tabId === 'tab-bod-costos') cargarCostos();
+  if (tabId === 'tab-bod-despachos') {
+    llenarSelectAlmacenes();
+    const wrap = document.getElementById('d-items-wrap');
+    if (wrap && !wrap.children.length) llenarSelectDespachoRef();
+    const df = document.getElementById('d-fecha'); if (df && !df.value) df.value = hoy();
+    cargarHistDespachos();
+  }
   if (tabId === 'tab-inv-consolidado') cargarConsolidado();
   if (tabId === 'tab-inv-control') cargarControlMensual();
   if (tabId === 'tab-inv-fisico' && esVendedora()) {
@@ -1749,16 +1878,46 @@ async function cargarDash() {
     <div class="metric-card accent"><div class="m-label">Ventas ${mesNombre(periodoVista)}</div><div class="m-val">${COP(totalVentasCOP)}</div><div class="m-sub">${NUM(totalUndVentas)} unidades</div></div>
     <div class="metric-card"><div class="m-label">Valor en bodega</div><div class="m-val">${COP(valorBodega)}</div><div class="m-sub">precio de costo</div></div>`;
 
-  // Análisis comercial (participación + ranking) con filtro dinámico
-  initDashFiltro();
-
   // Stock crítico
-  const { data: criticos } = await sb.from('bodega').select('referencia, categoria, stock').lte('stock', 5).gt('stock', 0).order('stock');
+  const { data: criticos } = await sb.from('bodega').select('referencia, categoria, stock, stock_minimo').lte('stock', 10).gt('stock', 0).order('stock');
+  const [{ data: bodegaTodos }, { data: gastosUlt }] = await Promise.all([
+    sb.from('bodega').select('stock, costo, stock_minimo'),
+    sb.from('gastos').select('valor, periodo').eq('periodo', periodoVista).limit(100)
+  ]);
+
+  // Calcular insights
+  const insights = [];
+  const sinStock = (bodegaTodos || []).filter(p => p.stock === 0).length;
+  const bajosStock = (criticos || []).length;
+  const valorInv = (bodegaTodos || []).reduce((a, p) => a + p.stock * (p.costo || 0), 0);
+  const totalGastos = (gastosUlt || []).reduce((a, g) => a + (g.valor || 0), 0);
+  const baseSinIva = Math.round(totalVentasCOP / 1.19);
+  const utilidad = baseSinIva - totalGastos;
+
+  if (sinStock > 0) insights.push({ tipo: 'danger', icono: '📦', texto: `${sinStock} referencia${sinStock>1?'s':''} sin stock en bodega`, accion: () => showPage('bodega') });
+  if (bajosStock > 0) insights.push({ tipo: 'warn', icono: '⚠️', texto: `${bajosStock} referencia${bajosStock>1?'s':''} con stock bajo (≤10 uds)`, accion: () => showPage('bodega') });
+  if (!hayApertura) insights.push({ tipo: 'info', icono: '📋', texto: 'Sin inventario inicial cargado — los datos de tiendas no son precisos', accion: () => showPage('inventarios') });
+  if (totalGastos > 0 && utilidad < 0) insights.push({ tipo: 'danger', icono: '📉', texto: `Utilidad negativa en ${mesNombre(periodoVista)}: ${COP(utilidad)}`, accion: () => showPage('contabilidad') });
+  if (totalGastos > 0 && utilidad >= 0) insights.push({ tipo: 'ok', icono: '✅', texto: `Utilidad ${mesNombre(periodoVista)}: ${COP(utilidad)} (margen ${totalVentasCOP>0?Math.round(utilidad/baseSinIva*100):0}%)`, accion: () => showPage('contabilidad') });
+  if (totalGastos === 0) insights.push({ tipo: 'info', icono: '💰', texto: `Sin gastos registrados en ${mesNombre(periodoVista)}`, accion: () => showPage('contabilidad') });
+  if (totalBodega > 0 && totalBodega < 50) insights.push({ tipo: 'warn', icono: '🏭', texto: `Stock total en bodega bajo: ${NUM(totalBodega)} uds — considera nueva producción`, accion: () => abrirModalEntrada() });
+  if (insights.length === 0) insights.push({ tipo: 'ok', icono: '✅', texto: 'Todo en orden — sin alertas activas', accion: null });
+
+  const colores = { ok:'var(--success-bg)', warn:'var(--warning-bg)', danger:'var(--danger-bg)', info:'var(--brand-light)' };
+  const textColors = { ok:'var(--success-text)', warn:'var(--warning-text)', danger:'var(--danger-text)', info:'var(--brand-dark)' };
+  document.getElementById('dash-insights').innerHTML = insights.map(ins => `
+    <div onclick="${ins.accion ? `(${ins.accion.toString()})()` : ''}" style="display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--border-light);cursor:${ins.accion?'pointer':'default'};background:${colores[ins.tipo]}20">
+      <span style="font-size:22px;flex-shrink:0">${ins.icono}</span>
+      <span style="font-size:14px;color:${textColors[ins.tipo]};font-weight:500;flex:1">${ins.texto}</span>
+      ${ins.accion ? `<svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="${textColors[ins.tipo]}" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>` : ''}
+    </div>`).join('');
+
   document.getElementById('stock-critico').innerHTML = criticos && criticos.length ? criticos.map(p => {
-    const pct = p.stock * 15;
-    const color = p.stock <= 2 ? '#FF3B30' : '#FF9500';
+    const minimo = p.stock_minimo || 10;
+    const pct = Math.min(100, Math.round(p.stock / minimo * 100));
+    const color = p.stock <= 2 ? 'var(--danger-text)' : 'var(--warning-text)';
     return `<div class="chart-row" style="padding:10px 16px">
-      <div class="chart-label" style="width:160px">${p.referencia}</div>
+      <div class="chart-label" style="width:160px;color:var(--text-primary);font-weight:500">${p.referencia}</div>
       <div style="flex:1"><div class="stock-bar"><div class="stock-fill" style="width:${pct}%;background:${color}"></div></div></div>
       <div style="width:60px;text-align:right;font-size:12px;font-weight:700;color:${color}">${p.stock} uds</div>
     </div>`;
@@ -2429,7 +2588,7 @@ async function confirmarDespacho() {
   document.getElementById('d-remision').value = '';
   addDespachoItem();
   cargarBodega();
-  showTab('tab-despacho-hist');
+  cargarHistDespachos();
   if (confirm(`Despacho ${remision} guardado. ¿Generar la remisión imprimible (PDF)?`)) imprimirRemision(desp.id);
 }
 
@@ -2484,12 +2643,12 @@ async function imprimirRemision(id) {
 <style>
   *{box-sizing:border-box}@page{size:A4;margin:14mm}
   body{font-family:-apple-system,'Segoe UI',Arial,sans-serif;color:#1a1a1a;margin:0;padding:22px;font-size:13px}
-  .top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2.5px solid #c2185b;padding-bottom:14px;margin-bottom:18px}
-  .brand{font-size:26px;font-weight:800;letter-spacing:.12em}.brand b{color:#c2185b}
+  .top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2.5px solid #014A5E;padding-bottom:14px;margin-bottom:18px}
+  .brand{font-size:26px;font-weight:800;letter-spacing:.12em}.brand b{color:#014A5E}
   .brand .sub{display:block;font-size:11px;font-weight:600;letter-spacing:.18em;color:#888;margin-top:3px}
-  .doc{text-align:right}.doc .t{font-size:14px;font-weight:800;letter-spacing:.06em;color:#c2185b}
+  .doc{text-align:right}.doc .t{font-size:14px;font-weight:800;letter-spacing:.06em;color:#014A5E}
   .doc .rem{font-family:monospace;font-size:20px;font-weight:700;margin-top:4px}.doc .f{font-size:12px;color:#555;margin-top:2px}
-  .meta{display:flex;gap:28px;background:#faf3f6;border:1px solid #f0d9e3;border-radius:8px;padding:12px 16px;margin-bottom:16px}
+  .meta{display:flex;gap:28px;background:#E0F6FC;border:1px solid #A0DDEE;border-radius:8px;padding:12px 16px;margin-bottom:16px}
   .meta .k{color:#999;text-transform:uppercase;letter-spacing:.05em;font-size:10px;font-weight:700}
   .meta .v{font-size:14px;font-weight:700;margin-top:2px}
   table{width:100%;border-collapse:collapse;margin-bottom:6px}
@@ -2503,7 +2662,7 @@ async function imprimirRemision(id) {
   .firmas div{flex:1;border-top:1.5px solid #333;padding-top:6px;font-size:11px;color:#555;text-align:center}
   .pie{margin-top:26px;font-size:10px;color:#bbb;text-align:center}
   .bar{text-align:center;margin-top:22px}
-  .bar button{background:#c2185b;color:#fff;border:0;padding:11px 24px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin:0 4px}
+  .bar button{background:#014A5E;color:#fff;border:0;padding:11px 24px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin:0 4px}
   .bar button.alt{background:#eee;color:#333}
   @media print{body{padding:0}.bar{display:none}}
 </style></head><body>
@@ -3161,10 +3320,16 @@ async function iniciarInventarios() {
   }
 
   if (esVendedora()) {
-    // Fijar y bloquear la tienda de la vendedora en Control mensual y Conteo físico
+    // Selector de tienda ABIERTO (todas las activas, sin Ermita) — las asesoras rotan
+    const opts = '<option value="">Selecciona tu tienda…</option>' +
+      almacenesPortal().map(a => `<option value="${a.id}">${limpiarAlm(a.nombre)}</option>`).join('');
     ['invc-almacen', 'if-almacen'].forEach(id => {
       const s = document.getElementById(id);
-      if (s && _usuarioActual.almacen_id) { s.value = _usuarioActual.almacen_id; s.disabled = true; s.style.opacity = '0.7'; }
+      if (s) {
+        s.innerHTML = opts; s.disabled = false; s.style.opacity = '1';
+        if (_usuarioActual.almacen_id && almacenesPortal().some(a => a.id === _usuarioActual.almacen_id))
+          s.value = _usuarioActual.almacen_id;
+      }
     });
     showTab('tab-inv-control');   // arranca en Control mensual (no Consolidado)
     return;
@@ -3642,7 +3807,142 @@ function sortVpa(col){
   else vpaSort = { col, dir: col==='ref'||col==='cat' ? 'asc' : 'desc' };
   renderVpaTabla();
 }
+// ════════════════════════════════════════════════════════════════
+//  PORTAL VENDEDORAS — ventas simplificadas por tienda (sin financieros)
+//  Acceso a TODAS las tiendas activas; meta = proyección histórica
+//  (mismo mes de 2025 × factor de crecimiento), igual base que el admin.
+// ════════════════════════════════════════════════════════════════
+// Tiendas activas (incluye Cosmocentro; excluye Ermita inactiva). Auto-mantenible.
+function almacenesPortal() {
+  return (almacenes || []).filter(a => a.activo === true);
+}
+// Carga ventas 2026 por tienda/mes (_real2026 / _real2026Alm) sin tocar la UI admin.
+async function loadReal2026() {
+  const data = await selectAll('ventas', 'periodo, almacen_nombre, cantidad, precio_unitario',
+    q => q.gte('periodo', '2026-01').lte('periodo', '2026-12'));
+  _real2026 = {}; _real2026Alm = {};
+  (data || []).forEach(v => {
+    const m = +String(v.periodo).split('-')[1];
+    _real2026[m] = (_real2026[m] || 0) + ventaTotal(v);
+    const a = (_real2026Alm[v.almacen_nombre] = _real2026Alm[v.almacen_nombre] || {});
+    a[m] = (a[m] || 0) + ventaTotal(v);
+  });
+}
+// Factor de crecimiento "auto" (YTD 2026 vs 2025), sin depender del DOM.
+function factorAutoPortal() {
+  let r26 = 0, r25 = 0;
+  Object.keys(HIST25.alm).forEach(nombre => {
+    const a26 = _real2026Alm[nombre] || {};
+    Object.keys(a26).forEach(m => { r26 += a26[m]; r25 += HIST25.alm[nombre][(+m) - 1] || 0; });
+  });
+  return r25 > 0 ? (r26 / r25) : 1;
+}
+// Meta del período = 2025 mismo mes × factor; tiendas nuevas (sin 2025) → promedio 2026.
+function metaCalculada(nombre, periodo) {
+  const mm = +String(periodo).split('-')[1];
+  const hist = HIST25.alm[nombre];
+  if (hist) return Math.round((hist[mm - 1] || 0) * factorAutoPortal());
+  const vals = Object.values((_real2026Alm || {})[nombre] || {});
+  return vals.length ? Math.round(vals.reduce((s, x) => s + x, 0) / vals.length) : 0;
+}
+
+async function cargarPortalVentas() {
+  await llenarSelectAlmacenes();
+  await loadInvCache();
+  await loadHist25();
+  await loadReal2026();
+
+  // Selector de tienda ABIERTO (todas las activas), no bloqueado
+  const selAlm = document.getElementById('vpa-almacen');
+  if (!selAlm.dataset.portal) {
+    selAlm.innerHTML = '<option value="">Selecciona tu tienda…</option>' +
+      almacenesPortal().map(a => `<option value="${a.id}">${limpiarAlm(a.nombre)}</option>`).join('');
+    selAlm.disabled = false; selAlm.style.opacity = '1'; selAlm.dataset.portal = '1';
+    if (_usuarioActual?.almacen_id && almacenesPortal().some(a => a.id === _usuarioActual.almacen_id))
+      selAlm.value = _usuarioActual.almacen_id;
+  }
+  // Ocultar el filtro de categoría y la nota de financieros (no aplican al portal)
+  const catSel = document.getElementById('vpa-cat'); if (catSel) catSel.parentElement.style.display = 'none';
+  const help = document.getElementById('vpa-kpis').nextElementSibling;
+  if (help && help.tagName === 'DIV' && !help.id) help.style.display = 'none';
+
+  // Período por defecto = último mes CON ventas (FdB importa con ~1 mes de rezago);
+  // así no abre vacío y avanza solo cuando entran las ventas del mes nuevo.
+  const mesesConData = Object.keys(_real2026).map(Number).filter(m => _real2026[m] > 0).sort((a, b) => b - a);
+  const defPeriodo = mesesConData.length ? `2026-${String(mesesConData[0]).padStart(2, '0')}` : periodoActual();
+  const pin = document.getElementById('vpa-periodo');
+  if (!pin.options.length) pin.innerHTML = periodoOpciones(defPeriodo, false);
+
+  const almId = selAlm.value, periodo = pin.value || defPeriodo;
+  const kpis = document.getElementById('vpa-kpis'), cont = document.getElementById('vpa-tabla');
+  if (!almId) {
+    kpis.innerHTML = '';
+    cont.innerHTML = '<div style="text-align:center;padding:34px 16px;color:var(--text-secondary)">Selecciona tu tienda para ver las ventas y la meta.</div>';
+    return;
+  }
+  cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  const almNombre = (almacenes.find(a => a.id === almId) || {}).nombre || '';
+
+  const ventas = await selectAll('ventas', 'referencia, cantidad, precio_unitario',
+    q => q.eq('almacen_id', almId).eq('periodo', periodo));
+  const totalCOP = (ventas || []).reduce((s, v) => s + ventaTotal(v), 0);
+  const totalUds = (ventas || []).reduce((s, v) => s + (v.cantidad || 0), 0);
+  const invActual = Math.max(0, inventarioActual(almId).total);   // sin negativos en el portal
+  const rotacion = invActual > 0 ? (totalUds / invActual) : null;
+
+  const meta = metaCalculada(almNombre, periodo);
+  const esNueva = !HIST25.alm[almNombre];
+  const metaSub = meta ? (esNueva ? 'promedio 2026 · tienda nueva' : 'proyección vs ' + mesNombreCorto(periodo).replace('2026', '2025')) : 'sin histórico';
+  const cumpl = meta ? Math.round(totalCOP / meta * 100) : 0;
+  const colC = cumpl >= 100 ? 'var(--success-text)' : cumpl >= 70 ? 'var(--warning-text)' : 'var(--danger-text)';
+  const faltante = meta ? Math.max(0, meta - totalCOP) : 0;
+
+  kpis.innerHTML = `
+    <div class="metric-card accent"><div class="m-label">Venta acumulada · ${mesNombre(periodo)}</div><div class="m-val">${COP(totalCOP)}</div><div class="m-sub">${NUM(totalUds)} uds vendidas</div></div>
+    <div class="metric-card"><div class="m-label">Meta del período</div><div class="m-val">${meta ? COP(meta) : '—'}</div><div class="m-sub">${metaSub}</div></div>
+    <div class="metric-card"><div class="m-label">Cumplimiento</div><div class="m-val" style="color:${colC}">${meta ? cumpl + '%' : '—'}</div><div class="m-sub">${meta ? (cumpl >= 100 ? '¡meta lograda! 🎉' : 'faltan ' + COP(faltante)) : ''}</div></div>
+    <div class="metric-card"><div class="m-label">Inventario disponible</div><div class="m-val">${NUM(invActual)}</div><div class="m-sub">uds en tienda</div></div>
+    <div class="metric-card"><div class="m-label">Rotación</div><div class="m-val">${rotacion != null ? rotacion.toFixed(2) + '×' : '—'}</div><div class="m-sub">ventas ÷ inventario</div></div>`;
+
+  // Referencias más vendidas (uds + valor; sin margen/rentabilidad/utilidad)
+  const refMap = {};
+  (ventas || []).forEach(v => { const k = v.referencia || '—'; (refMap[k] = refMap[k] || { uds: 0, val: 0 }); refMap[k].uds += v.cantidad || 0; refMap[k].val += ventaTotal(v); });
+  const refRows = Object.entries(refMap).sort((a, b) => b[1].val - a[1].val);
+  const refTabla = refRows.length
+    ? `<table><thead><tr><th>#</th><th>Referencia</th><th style="text-align:right">Uds.</th><th style="text-align:right">Valor</th></tr></thead><tbody>${
+        refRows.map(([ref, d], i) => `<tr><td>${i + 1}</td><td><strong>${ref}</strong></td><td style="text-align:right;font-weight:700">${NUM(d.uds)}</td><td style="text-align:right">${COP(d.val)}</td></tr>`).join('')
+      }</tbody></table>`
+    : '<div style="text-align:center;padding:20px;color:var(--text-secondary)">Sin ventas registradas en este período.</div>';
+
+  // Comparativo histórico 2025 vs 2026 (esta tienda)
+  const hist25 = HIST25.alm[almNombre], real26 = _real2026Alm[almNombre] || {};
+  let histTabla;
+  if (hist25) {
+    const filas = MESES.map((mn, i) => {
+      const v25 = hist25[i] || 0, v26 = real26[i + 1] || 0;
+      if (!v25 && !v26) return '';
+      const varp = (v25 && v26) ? Math.round((v26 - v25) / v25 * 100) : null;
+      const col = varp == null ? 'var(--text-secondary)' : (varp >= 0 ? 'var(--success-text)' : 'var(--danger-text)');
+      return `<tr><td>${mn}</td><td style="text-align:right">${v25 ? COP(v25) : '—'}</td><td style="text-align:right;font-weight:700">${v26 ? COP(v26) : '—'}</td><td style="text-align:right;color:${col}">${varp == null ? '—' : (varp >= 0 ? '+' : '') + varp + '%'}</td></tr>`;
+    }).filter(Boolean).join('');
+    histTabla = `<table><thead><tr><th>Mes</th><th style="text-align:right">2025</th><th style="text-align:right">2026</th><th style="text-align:right">Var %</th></tr></thead><tbody>${filas}</tbody></table>`;
+  } else {
+    histTabla = '<div style="text-align:center;padding:18px;color:var(--text-secondary);font-size:13px">Tienda nueva — aún sin histórico 2025 para comparar.</div>';
+  }
+
+  cont.innerHTML = `
+    <div class="section-card" style="margin:0 16px 14px">
+      <div class="section-header"><div class="section-title">🏆 Referencias más vendidas</div></div>
+      <div class="tabla-wrap">${refTabla}</div>
+    </div>
+    <div class="section-card" style="margin:0 16px 16px">
+      <div class="section-header"><div class="section-title">📈 Comparativo histórico · ${limpiarAlm(almNombre)}</div></div>
+      <div class="tabla-wrap">${histTabla}</div>
+    </div>`;
+}
+
 async function cargarVentasPorAlmacen() {
+  if (esVendedora()) return cargarPortalVentas();
   await llenarSelectAlmacenes();
   await loadCostosData();
   const selAlm = document.getElementById('vpa-almacen');
