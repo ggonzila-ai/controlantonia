@@ -388,21 +388,26 @@
 
         <button onclick="abrirModalEntrada()" style="background:var(--brand);color:#fff;border:none;border-radius:14px;padding:18px 10px;display:flex;flex-direction:column;align-items:center;gap:10px;cursor:pointer;box-shadow:0 4px 12px rgba(2,171,213,0.30);transition:transform .15s;-webkit-tap-highlight-color:transparent" ontouchstart="this.style.transform='scale(0.96)'" ontouchend="this.style.transform='scale(1)'">
           <svg width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="#fff" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0l-3-3m3 3l3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/></svg>
-          <span style="font-size:13px;font-weight:700;text-align:center;line-height:1.3">Nueva<br>Entrada</span>
+          <span style="font-size:13px;font-weight:700;text-align:center;line-height:1.25">Nueva entrada<br><span style="font-size:10.5px;font-weight:600;opacity:.92">producción / corte</span></span>
         </button>
 
       </div>
     </div>
 
-    <!-- INSIGHTS -->
+    <!-- INSIGHTS POR ÁREA -->
     <div class="section-card" style="margin-bottom:14px">
-      <div class="section-header">
-        <div class="section-title">
-          <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
-          Alertas e insights
-        </div>
-      </div>
-      <div id="dash-insights"><div class="loader"><div class="spinner"></div></div></div>
+      <div class="section-header"><div class="section-title">📦 Bodega e inventario</div></div>
+      <div id="dash-insights-bodega"><div class="loader"><div class="spinner"></div></div></div>
+    </div>
+
+    <div class="section-card" style="margin-bottom:14px">
+      <div class="section-header"><div class="section-title">🛍️ Ventas</div></div>
+      <div id="dash-insights-ventas"><div class="loader"><div class="spinner"></div></div></div>
+    </div>
+
+    <div class="section-card" style="margin-bottom:14px">
+      <div class="section-header"><div class="section-title">💰 Contabilidad y rentabilidad</div></div>
+      <div id="dash-insights-conta"><div class="loader"><div class="spinner"></div></div></div>
     </div>
 
     <!-- STOCK CRÍTICO -->
@@ -1845,6 +1850,20 @@ function cambiarAlmacenDash() {
 }
 
 // ─── DASHBOARD ────────────────────────────────
+// Render reutilizable de una lista de insights (3 áreas del inicio)
+function pintarDashInsights(elId, insights) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const colores = { ok:'var(--success-bg)', warn:'var(--warning-bg)', danger:'var(--danger-bg)', info:'var(--brand-light)' };
+  const textColors = { ok:'var(--success-text)', warn:'var(--warning-text)', danger:'var(--danger-text)', info:'var(--brand-dark)' };
+  el.innerHTML = insights.length ? insights.map(ins => `
+    <div onclick="${ins.accion ? `(${ins.accion.toString()})()` : ''}" style="display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--border-light);cursor:${ins.accion?'pointer':'default'};background:${colores[ins.tipo]}20">
+      <span style="font-size:22px;flex-shrink:0">${ins.icono}</span>
+      <span style="font-size:14px;color:${textColors[ins.tipo]};font-weight:500;flex:1">${ins.texto}</span>
+      ${ins.accion ? `<svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="${textColors[ins.tipo]}" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>` : ''}
+    </div>`).join('') : '<div style="padding:14px 16px;font-size:13px;color:var(--gris-medio)">Sin datos en este período.</div>';
+}
+
 async function cargarDash() {
   // Dashboard diferente para vendedoras
   if (_usuarioActual?.rol === 'vendedora') {
@@ -1878,39 +1897,91 @@ async function cargarDash() {
     <div class="metric-card accent"><div class="m-label">Ventas ${mesNombre(periodoVista)}</div><div class="m-val">${COP(totalVentasCOP)}</div><div class="m-sub">${NUM(totalUndVentas)} unidades</div></div>
     <div class="metric-card"><div class="m-label">Valor en bodega</div><div class="m-val">${COP(valorBodega)}</div><div class="m-sub">precio de costo</div></div>`;
 
-  // Stock crítico
+  // ── Datos para insights por área ──
   const { data: criticos } = await sb.from('bodega').select('referencia, categoria, stock, stock_minimo').lte('stock', 10).gt('stock', 0).order('stock');
-  const [{ data: bodegaTodos }, { data: gastosUlt }] = await Promise.all([
+  const [{ data: bodegaTodos }, { data: gastosUlt }, { data: periodosRows },
+         { data: nomPagos }, { data: colabs }, { data: temporal }, { data: consPer }] = await Promise.all([
     sb.from('bodega').select('stock, costo, stock_minimo'),
-    sb.from('gastos').select('valor, periodo').eq('periodo', periodoVista).limit(100)
+    sb.from('gastos').select('valor, periodo, categoria').eq('periodo', periodoVista).limit(500),
+    sb.from('ventas').select('periodo').order('periodo', { ascending: false }).limit(5000),
+    sb.from('nomina_pagos').select('valor, colaborador_id').eq('periodo', periodoVista).limit(500),
+    sb.from('colaboradores').select('id, tipo'),
+    sb.from('personal_temporal').select('valor_pagado, fecha_inicio').limit(500),
+    sb.from('consignaciones').select('valor').eq('periodo', periodoVista).limit(500)
   ]);
 
-  // Calcular insights
-  const insights = [];
+  // Período anterior con ventas (para tendencia)
+  const periodosUnicos = [...new Set((periodosRows || []).map(r => r.periodo))].filter(Boolean).sort().reverse();
+  const periodoPrevV = periodosUnicos.find(p => p < periodoVista) || null;
+  let ventasPrevCOP = 0;
+  if (periodoPrevV) {
+    const { data: vp } = await sb.from('ventas').select('cantidad, precio_unitario').eq('periodo', periodoPrevV);
+    ventasPrevCOP = (vp || []).reduce((a, v) => a + v.cantidad * v.precio_unitario, 0);
+  }
+
+  // Métricas base
   const sinStock = (bodegaTodos || []).filter(p => p.stock === 0).length;
   const bajosStock = (criticos || []).length;
-  const valorInv = (bodegaTodos || []).reduce((a, p) => a + p.stock * (p.costo || 0), 0);
+  const baseVtas = baseSinIva(totalVentasCOP);
   const totalGastos = (gastosUlt || []).reduce((a, g) => a + (g.valor || 0), 0);
-  const baseSinIva = Math.round(totalVentasCOP / 1.19);
-  const utilidad = baseSinIva - totalGastos;
+  const tipoById = {}; (colabs || []).forEach(c => tipoById[c.id] = c.tipo);
+  let nominaOper = (nomPagos || []).reduce((a, n) => a + (tipoById[n.colaborador_id] === 'Socia' ? 0 : (n.valor || 0)), 0);
+  nominaOper += (temporal || []).reduce((a, t) => a + ((t.fecha_inicio || '').slice(0, 7) === periodoVista ? (t.valor_pagado || 0) : 0), 0);
+  const recibidoCaja = (consPer || []).reduce((a, c) => a + (c.valor || 0), 0);
+  const egresos = totalGastos + nominaOper;
+  const utilidad = baseVtas - egresos;
+  const margen = baseVtas > 0 ? Math.round(utilidad / baseVtas * 100) : 0;
 
-  if (sinStock > 0) insights.push({ tipo: 'danger', icono: '📦', texto: `${sinStock} referencia${sinStock>1?'s':''} sin stock en bodega`, accion: () => showPage('bodega') });
-  if (bajosStock > 0) insights.push({ tipo: 'warn', icono: '⚠️', texto: `${bajosStock} referencia${bajosStock>1?'s':''} con stock bajo (≤10 uds)`, accion: () => showPage('bodega') });
-  if (!hayApertura) insights.push({ tipo: 'info', icono: '📋', texto: 'Sin inventario inicial cargado — los datos de tiendas no son precisos', accion: () => showPage('inventarios') });
-  if (totalGastos > 0 && utilidad < 0) insights.push({ tipo: 'danger', icono: '📉', texto: `Utilidad negativa en ${mesNombre(periodoVista)}: ${COP(utilidad)}`, accion: () => showPage('contabilidad') });
-  if (totalGastos > 0 && utilidad >= 0) insights.push({ tipo: 'ok', icono: '✅', texto: `Utilidad ${mesNombre(periodoVista)}: ${COP(utilidad)} (margen ${totalVentasCOP>0?Math.round(utilidad/baseSinIva*100):0}%)`, accion: () => showPage('contabilidad') });
-  if (totalGastos === 0) insights.push({ tipo: 'info', icono: '💰', texto: `Sin gastos registrados en ${mesNombre(periodoVista)}`, accion: () => showPage('contabilidad') });
-  if (totalBodega > 0 && totalBodega < 50) insights.push({ tipo: 'warn', icono: '🏭', texto: `Stock total en bodega bajo: ${NUM(totalBodega)} uds — considera nueva producción`, accion: () => abrirModalEntrada() });
-  if (insights.length === 0) insights.push({ tipo: 'ok', icono: '✅', texto: 'Todo en orden — sin alertas activas', accion: null });
+  // Almacén líder y gasto por categoría
+  const porAlm = {};
+  (vent || []).forEach(v => { const k = v.almacen_nombre || '—'; porAlm[k] = (porAlm[k] || 0) + v.cantidad * v.precio_unitario; });
+  const almLider = Object.entries(porAlm).sort((a, b) => b[1] - a[1])[0];
+  const porCatG = {};
+  (gastosUlt || []).forEach(g => { const k = g.categoria || 'Sin categoría'; porCatG[k] = (porCatG[k] || 0) + (g.valor || 0); });
+  const catTop = Object.entries(porCatG).sort((a, b) => b[1] - a[1])[0];
 
-  const colores = { ok:'var(--success-bg)', warn:'var(--warning-bg)', danger:'var(--danger-bg)', info:'var(--brand-light)' };
-  const textColors = { ok:'var(--success-text)', warn:'var(--warning-text)', danger:'var(--danger-text)', info:'var(--brand-dark)' };
-  document.getElementById('dash-insights').innerHTML = insights.map(ins => `
-    <div onclick="${ins.accion ? `(${ins.accion.toString()})()` : ''}" style="display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--border-light);cursor:${ins.accion?'pointer':'default'};background:${colores[ins.tipo]}20">
-      <span style="font-size:22px;flex-shrink:0">${ins.icono}</span>
-      <span style="font-size:14px;color:${textColors[ins.tipo]};font-weight:500;flex:1">${ins.texto}</span>
-      ${ins.accion ? `<svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="${textColors[ins.tipo]}" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>` : ''}
-    </div>`).join('');
+  // ── 1) BODEGA E INVENTARIO ──
+  const insBodega = [];
+  insBodega.push({ tipo: 'info', icono: '📦', texto: `Bodega: ${NUM(totalBodega)} uds · ${COP(valorBodega)} en costo`, accion: () => showPage('bodega') });
+  if (hayApertura) insBodega.push({ tipo: 'info', icono: '🏬', texto: `En tiendas: ${NUM(enTiendas)} uds repartidas`, accion: () => showPage('inventarios') });
+  if (sinStock > 0) insBodega.push({ tipo: 'danger', icono: '🚫', texto: `${sinStock} referencia${sinStock>1?'s':''} sin stock en bodega`, accion: () => showPage('bodega') });
+  if (bajosStock > 0) insBodega.push({ tipo: 'warn', icono: '⚠️', texto: `${bajosStock} referencia${bajosStock>1?'s':''} con stock bajo (≤10 uds)`, accion: () => showPage('bodega') });
+  if (totalBodega > 0 && totalBodega < 50) insBodega.push({ tipo: 'warn', icono: '🏭', texto: `Stock total bajo (${NUM(totalBodega)} uds) — considera nueva producción`, accion: () => abrirModalEntrada() });
+  if (!hayApertura) insBodega.push({ tipo: 'info', icono: '📋', texto: 'Sin inventario inicial cargado — los datos de tiendas no son precisos', accion: () => showPage('inventarios') });
+  if (sinStock === 0 && bajosStock === 0 && totalBodega >= 50) insBodega.push({ tipo: 'ok', icono: '✅', texto: 'Inventario sano — sin alertas de stock', accion: null });
+
+  // ── 2) VENTAS ──
+  const insVentas = [];
+  if (totalUndVentas > 0) {
+    insVentas.push({ tipo: 'ok', icono: '🛍️', texto: `Ventas ${mesNombre(periodoVista)}: ${COP(totalVentasCOP)} · ${NUM(totalUndVentas)} uds`, accion: () => showPage('ventas') });
+    if (periodoPrevV && ventasPrevCOP > 0) {
+      const dv = Math.round((totalVentasCOP - ventasPrevCOP) / ventasPrevCOP * 100);
+      insVentas.push(dv >= 0
+        ? { tipo: 'ok', icono: '📈', texto: `Ventas +${dv}% vs ${mesNombreCorto(periodoPrevV)} (antes ${COP(ventasPrevCOP)})`, accion: () => showPage('ventas') }
+        : { tipo: 'warn', icono: '📉', texto: `Ventas ${dv}% vs ${mesNombreCorto(periodoPrevV)} (antes ${COP(ventasPrevCOP)})`, accion: () => showPage('ventas') });
+    }
+    if (almLider) insVentas.push({ tipo: 'info', icono: '🏆', texto: `Almacén líder: ${almLider[0]} (${COP(almLider[1])})`, accion: () => showPage('almacenes') });
+    insVentas.push({ tipo: 'info', icono: '🏷️', texto: `Precio promedio: ${COP(Math.round(totalVentasCOP / totalUndVentas))} por unidad`, accion: null });
+  } else {
+    insVentas.push({ tipo: 'info', icono: '🛍️', texto: `Sin ventas registradas en ${mesNombre(periodoVista)}`, accion: () => showPage('ventas') });
+  }
+
+  // ── 3) CONTABILIDAD Y RENTABILIDAD ──
+  const insConta = [];
+  if (totalVentasCOP > 0 || egresos > 0) {
+    insConta.push(utilidad >= 0
+      ? { tipo: 'ok', icono: '✅', texto: `Utilidad ${mesNombre(periodoVista)}: ${COP(utilidad)} (margen ${margen}%)`, accion: () => showPage('contabilidad') }
+      : { tipo: 'danger', icono: '📉', texto: `Utilidad negativa ${mesNombre(periodoVista)}: ${COP(utilidad)}`, accion: () => showPage('contabilidad') });
+    if (egresos > 0) insConta.push({ tipo: 'info', icono: '💸', texto: `Egresos: ${COP(egresos)} — gastos ${COP(totalGastos)} · nómina ${COP(nominaOper)}`, accion: () => showPage('contabilidad') });
+    if (catTop && catTop[1] > 0) insConta.push({ tipo: 'info', icono: '📂', texto: `Mayor gasto: ${catTop[0]} (${COP(catTop[1])})`, accion: () => showPage('contabilidad') });
+    if (baseVtas > 0 && margen < 20) insConta.push({ tipo: 'warn', icono: '⚠️', texto: `Margen bajo (${margen}%) — revisa gastos y precios`, accion: () => showPage('contabilidad') });
+  }
+  if (recibidoCaja > 0) insConta.push({ tipo: 'info', icono: '💵', texto: `Recibido en caja ${mesNombre(periodoVista)}: ${COP(recibidoCaja)}`, accion: () => showPage('contabilidad') });
+  if (egresos === 0 && recibidoCaja === 0) insConta.push({ tipo: 'info', icono: '💰', texto: `Sin gastos ni nómina registrados en ${mesNombre(periodoVista)}`, accion: () => showPage('contabilidad') });
+
+  pintarDashInsights('dash-insights-bodega', insBodega);
+  pintarDashInsights('dash-insights-ventas', insVentas);
+  pintarDashInsights('dash-insights-conta', insConta);
 
   document.getElementById('stock-critico').innerHTML = criticos && criticos.length ? criticos.map(p => {
     const minimo = p.stock_minimo || 10;
