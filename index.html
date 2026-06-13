@@ -1499,18 +1499,8 @@
     <div class="modal-handle"></div>
     <div class="modal-title">Nuevo corte</div>
     <div class="form-group">
-      <label>Referencia a producir</label>
-      <select id="c-ref"><option value="">Seleccionar…</option></select>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Nombre de la tela</label>
-        <input type="text" id="c-tela" placeholder="Ej: Algodón licrado">
-      </div>
-      <div class="form-group">
-        <label>Consumo (metros x prenda)</label>
-        <input type="number" id="c-consumo" step="0.01" placeholder="0.9" oninput="recalcCorte()">
-      </div>
+      <label>Nombre de la tela</label>
+      <input type="text" id="c-tela" placeholder="Ej: Algodón licrado">
     </div>
     <label style="display:block">¿Cómo se compra la tela?</label>
     <div style="display:flex;gap:8px;margin:6px 0 12px">
@@ -1545,6 +1535,25 @@
         <input type="number" id="c-rendimiento" step="0.01" placeholder="3.5" oninput="recalcCorte()">
       </div>
     </div>
+
+    <div class="form-row" style="margin-top:14px;margin-bottom:0">
+      <div class="form-group">
+        <label>Largo del trazo (m)</label>
+        <input type="number" id="c-largo" step="0.01" placeholder="6" oninput="onLargoTrazo()">
+      </div>
+      <div class="form-group">
+        <label>Capas / tendidos</label>
+        <input type="number" id="c-capas" min="1" placeholder="10" oninput="recalcCorte()">
+      </div>
+    </div>
+    <div id="c-capas-hint" style="font-size:11.5px;color:var(--brand);font-weight:600;margin:6px 0 0"></div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:16px 0 8px">
+      <label style="margin:0">Composición del trazo</label>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="addCorteRef()">+ Referencia</button>
+    </div>
+    <div id="c-refs-wrap"></div>
+
     <div style="background:#eef9fc;border:1px solid var(--borde);border-radius:12px;padding:12px;margin:14px 0">
       <div id="c-resumen" style="font-size:13px;color:var(--gris-medio);font-weight:600;line-height:1.7">Completa los datos para ver el estimado.</div>
     </div>
@@ -1565,9 +1574,9 @@
     <div class="modal-handle"></div>
     <div class="modal-title">Terminar corte → bodega</div>
     <div id="t-info" style="background:#eef9fc;border:1px solid var(--borde);border-radius:12px;padding:12px;margin-bottom:14px;font-size:13px;line-height:1.6"></div>
-    <div style="font-size:12px;font-weight:600;color:var(--gris-medio);margin-bottom:8px">Prendas cortadas por talla</div>
-    <div id="t-tallas-wrap" style="margin-bottom:12px"></div>
-    <div id="t-resumen" style="background:var(--rosa-suave);border-radius:12px;padding:12px;margin-bottom:14px;font-size:13px;font-weight:700;color:var(--rosa-oscuro)">Ingresa las prendas cortadas por talla.</div>
+    <div style="font-size:12px;font-weight:600;color:var(--gris-medio);margin-bottom:8px">Prendas buenas por referencia y talla</div>
+    <div id="t-items-wrap" style="margin-bottom:12px"></div>
+    <div id="t-resumen" style="background:var(--rosa-suave);border-radius:12px;padding:12px;margin-bottom:14px;font-size:13px;font-weight:700;color:var(--rosa-oscuro);line-height:1.7">Ingresa las prendas buenas por talla.</div>
     <div style="display:flex;gap:10px">
       <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-terminar')">Cancelar</button>
       <button class="btn btn-primary" style="flex:2" onclick="confirmarTerminarCorte()">Agregar a bodega</button>
@@ -2786,6 +2795,7 @@ async function guardarEntrada() {
 let cortesData = [];
 let _corteTipo = 'metro';
 let _terminarCorte = null;
+let _ciSeq = 0;
 
 function setAreaProd(area) {
   const ab = document.getElementById('area-bodega'), ac = document.getElementById('area-corte');
@@ -2815,9 +2825,8 @@ function setTipoCorte(tipo) {
   recalcCorte();
 }
 
-// Calcula el costo y rendimiento del corte según los inputs del modal
-function calcCorte() {
-  const cons = parseFloat(document.getElementById('c-consumo').value) || 0;
+// Tela del corte → metros disponibles + costo total
+function telaCorte() {
   let cantidad = 0, precio = 0, metrosDisp = 0, rend = 0;
   if (_corteTipo === 'kilo') {
     cantidad = parseFloat(document.getElementById('c-kilos').value) || 0;
@@ -2829,67 +2838,157 @@ function calcCorte() {
     precio = parseFloat(document.getElementById('c-precio-metro').value) || 0;
     metrosDisp = cantidad;
   }
-  const costoTotal = Math.round(cantidad * precio);
-  const prendasEst = cons > 0 ? Math.floor(metrosDisp / cons) : 0;
-  const costoPrenda = prendasEst > 0 ? Math.round(costoTotal / prendasEst) : 0;
-  return { cantidad, precio, rend, cons, metrosDisp, costoTotal, prendasEst, costoPrenda };
+  return { cantidad, precio, rend, metrosDisp, costoTotal: Math.round(cantidad * precio) };
+}
+
+function onLargoTrazo() {
+  const t = telaCorte();
+  const largo = parseFloat(document.getElementById('c-largo').value) || 0;
+  const capasEl = document.getElementById('c-capas');
+  if (largo > 0 && t.metrosDisp > 0 && !capasEl.value) capasEl.value = Math.floor(t.metrosDisp / largo);
+  recalcCorte();
+}
+
+// --- Composición del trazo (una tarjeta por referencia) ---
+function addCorteRef(pre) {
+  const i = _ciSeq++;
+  const opts = '<option value="">Referencia…</option>' + bodegaData.map(p => `<option value="${p.referencia}">${p.referencia}</option>`).join('');
+  const card = document.createElement('div');
+  card.id = 'cref-' + i;
+  card.dataset.idx = i;
+  card.style.cssText = 'border:1px solid var(--borde);border-radius:10px;padding:10px;margin-bottom:8px';
+  card.innerHTML = `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <select id="cref-ref-${i}" onchange="onCorteRefSel(${i})" style="flex:1;padding:9px;border:1.5px solid var(--borde);border-radius:8px;font-size:14px;font-family:inherit;background:#fff">${opts}</select>
+      <button type="button" onclick="removeCorteRef(${i})" style="background:none;border:none;color:var(--rojo);font-size:18px;cursor:pointer;padding:4px">✕</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+      <div style="flex:1;min-width:120px">
+        <div style="font-size:11px;color:var(--gris-medio);margin-bottom:3px">Tipo</div>
+        <select id="cref-tipo-${i}" style="width:100%;padding:8px;border:1.5px solid var(--borde);border-radius:8px;font-size:13px;font-family:inherit;background:#fff">
+          <option value="principal">Principal</option>
+          <option value="aprovechamiento">Aprovechamiento</option>
+        </select>
+      </div>
+      <div style="flex:1;min-width:120px">
+        <div style="font-size:11px;color:var(--gris-medio);margin-bottom:3px">Consumo (m x prenda)</div>
+        <input type="number" id="cref-cons-${i}" step="0.01" placeholder="1.1" oninput="recalcCorte()" style="width:100%;padding:8px;border:1.5px solid var(--borde);border-radius:8px;font-size:13px">
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--gris-medio);margin-bottom:4px">Cantidad por capa, por talla:</div>
+    <div id="cref-tallas-${i}" style="font-size:12px;color:var(--gris-medio)">Elige una referencia…</div>`;
+  document.getElementById('c-refs-wrap').appendChild(card);
+  if (pre?.referencia) { document.getElementById('cref-ref-' + i).value = pre.referencia; onCorteRefSel(i); }
+  return i;
+}
+
+function removeCorteRef(i) { const el = document.getElementById('cref-' + i); if (el) el.remove(); recalcCorte(); }
+
+function onCorteRefSel(i) {
+  const ref = document.getElementById('cref-ref-' + i).value;
+  const p = bodegaData.find(x => x.referencia === ref);
+  if (p && p.tela_consumo && !document.getElementById('cref-cons-' + i).value) document.getElementById('cref-cons-' + i).value = p.tela_consumo;
+  const tallas = ordenarTallas(parseTallas(p?.tallas));
+  const wrap = document.getElementById('cref-tallas-' + i);
+  if (!ref) { wrap.innerHTML = 'Elige una referencia…'; recalcCorte(); return; }
+  if (!tallas.length) { wrap.innerHTML = '<span style="color:var(--rojo)">Sin tallas; edítala en el Catálogo.</span>'; recalcCorte(); return; }
+  wrap.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(56px,1fr));gap:6px">
+    ${tallas.map(t => `<div style="text-align:center">
+      <div style="font-size:10px;color:var(--gris-medio);margin-bottom:2px">${t}</div>
+      <input type="number" min="0" placeholder="0" class="cref-cant" data-idx="${i}" data-talla="${t}" oninput="recalcCorte()" style="width:100%;padding:6px;text-align:center;font-size:13px;font-weight:700;border:1.5px solid var(--borde);border-radius:7px">
+    </div>`).join('')}
+  </div>`;
+  recalcCorte();
+}
+
+// Lee la composición actual del trazo (refs con tallas y cantidades por capa)
+function getTrazoRefs() {
+  return [...document.querySelectorAll('#c-refs-wrap > div')].map(card => {
+    const i = card.dataset.idx;
+    const ref = document.getElementById('cref-ref-' + i)?.value || '';
+    const tallas = {};
+    [...document.querySelectorAll(`.cref-cant[data-idx="${i}"]`)].forEach(inp => { const v = parseInt(inp.value) || 0; if (v > 0) tallas[inp.dataset.talla] = v; });
+    return {
+      referencia: ref,
+      tipo: document.getElementById('cref-tipo-' + i)?.value || 'principal',
+      consumo: parseFloat(document.getElementById('cref-cons-' + i)?.value) || 0,
+      tallas
+    };
+  }).filter(r => r.referencia && Object.keys(r.tallas).length);
 }
 
 function recalcCorte() {
-  const c = calcCorte();
+  const t = telaCorte();
+  const largo = parseFloat(document.getElementById('c-largo').value) || 0;
+  const capas = parseInt(document.getElementById('c-capas').value) || 0;
+  const hint = document.getElementById('c-capas-hint');
+  hint.textContent = (largo > 0 && t.metrosDisp > 0) ? `Con ${NUM(Math.round(t.metrosDisp))} m y trazo de ${largo} m caben ≈ ${NUM(Math.floor(t.metrosDisp / largo))} capas.` : '';
+  const refs = getTrazoRefs();
   const r = document.getElementById('c-resumen');
-  if (c.costoTotal > 0 && c.prendasEst > 0) {
-    r.innerHTML = `💰 Costo total tela: <b>${COP(c.costoTotal)}</b><br>📏 Rinde ≈ <b>${NUM(Math.round(c.metrosDisp))} m</b> → <b>${NUM(c.prendasEst)} prendas</b> estimadas<br>🏷️ Costo por prenda ≈ <b>${COP(c.costoPrenda)}</b>`;
-  } else if (c.costoTotal > 0) {
-    r.innerHTML = `💰 Costo total tela: <b>${COP(c.costoTotal)}</b><br><span style="color:var(--gris-medio)">Ingresa el consumo por prenda para estimar las prendas.</span>`;
-  } else {
-    r.textContent = 'Completa los datos para ver el estimado.';
+  if (t.costoTotal <= 0) { r.textContent = 'Completa los datos de la tela para ver el estimado.'; return; }
+  let html = `💰 Costo total tela: <b>${COP(t.costoTotal)}</b>`;
+  if (t.metrosDisp > 0) html += ` · ${NUM(Math.round(t.metrosDisp))} m disponibles`;
+  if (!capas || !refs.length) { r.innerHTML = html + '<br><span style="color:var(--gris-medio)">Pon las capas y la composición del trazo.</span>'; return; }
+  const porRef = refs.map(rf => ({ ...rf, und: Object.values(rf.tallas).reduce((a, n) => a + n, 0) * capas }));
+  const totalUnd = porRef.reduce((a, p) => a + p.und, 0);
+  const totalFabric = porRef.reduce((a, p) => a + p.und * p.consumo, 0);
+  const usaConsumo = porRef.every(p => p.consumo > 0) && totalFabric > 0;
+  const metrosUsados = largo * capas;
+  if (largo > 0) {
+    html += `<br>🧵 Trazo ${largo} m × ${NUM(capas)} capas = ${NUM(Math.round(metrosUsados))} m usados`;
+    if (t.metrosDisp > 0 && metrosUsados > t.metrosDisp * 1.02) html += ` <span style="color:var(--rojo)">⚠️ excede la tela</span>`;
   }
+  html += `<br>👕 ${NUM(totalUnd)} prendas<br>`;
+  html += porRef.map(p => {
+    const cpp = usaConsumo ? Math.round(t.costoTotal * p.consumo / totalFabric) : (totalUnd > 0 ? Math.round(t.costoTotal / totalUnd) : 0);
+    return `• ${p.referencia}${p.tipo === 'aprovechamiento' ? ' (aprov.)' : ''}: ${NUM(p.und)} und → ${COP(cpp)}/u`;
+  }).join('<br>');
+  r.innerHTML = html;
 }
 
 function abrirModalCorte() {
   if (!bodegaData.length) { toast('Abre la bodega primero para cargar las referencias', 'err'); return; }
-  document.getElementById('c-ref').innerHTML = '<option value="">Seleccionar…</option>' + bodegaData.map(p => `<option value="${p.referencia}">${p.referencia}</option>`).join('');
-  ['c-tela','c-consumo','c-metros','c-precio-metro','c-kilos','c-precio-kilo','c-rendimiento','c-notas'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('c-ref').onchange = () => {
-    const p = bodegaData.find(x => x.referencia === document.getElementById('c-ref').value);
-    if (!p) return;
-    document.getElementById('c-tela').value = p.tela_nombre || '';
-    document.getElementById('c-consumo').value = p.tela_consumo || '';
-    if (p.tela_tipo_precio === 'kilo') {
-      setTipoCorte('kilo');
-      document.getElementById('c-precio-kilo').value = p.tela_precio_kilo || '';
-      document.getElementById('c-rendimiento').value = p.tela_rendimiento || '';
-    } else {
-      setTipoCorte('metro');
-      document.getElementById('c-precio-metro').value = p.tela_precio_metro || '';
-    }
-    recalcCorte();
-  };
+  ['c-tela','c-metros','c-precio-metro','c-kilos','c-precio-kilo','c-rendimiento','c-largo','c-capas','c-notas'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('c-capas-hint').textContent = '';
+  document.getElementById('c-refs-wrap').innerHTML = '';
+  _ciSeq = 0;
+  addCorteRef();
   setTipoCorte('metro');
   document.getElementById('c-resumen').textContent = 'Completa los datos para ver el estimado.';
   document.getElementById('modal-corte').classList.add('open');
 }
 
 async function guardarCorte() {
-  const ref = document.getElementById('c-ref').value;
-  if (!ref) { toast('Selecciona una referencia', 'err'); return; }
-  const c = calcCorte();
-  if (c.costoTotal <= 0) { toast('Ingresa cantidad y precio de la tela', 'err'); return; }
-  const p = bodegaData.find(x => x.referencia === ref);
+  const t = telaCorte();
+  if (t.costoTotal <= 0) { toast('Ingresa cantidad y precio de la tela', 'err'); return; }
+  const largo = parseFloat(document.getElementById('c-largo').value) || 0;
+  const capas = parseInt(document.getElementById('c-capas').value) || 0;
+  if (!capas) { toast('Ingresa cuántas capas / tendidos', 'err'); return; }
+  const refs = getTrazoRefs();
+  if (!refs.length) { toast('Agrega al menos una referencia con tallas', 'err'); return; }
+  const nombres = refs.map(r => r.referencia);
+  if (new Set(nombres).size !== nombres.length) { toast('Hay una referencia repetida en el trazo', 'err'); return; }
+  const items = refs.map(rf => ({
+    referencia: rf.referencia, tipo: rf.tipo, consumo: rf.consumo || null,
+    tallas_capa: rf.tallas,
+    prendas_estimadas: Object.values(rf.tallas).reduce((a, n) => a + n, 0) * capas
+  }));
+  const totalEst = items.reduce((a, it) => a + it.prendas_estimadas, 0);
+  const principal = refs.find(r => r.tipo === 'principal') || refs[0];
   const row = {
-    referencia: ref,
-    categoria: p?.categoria || null,
+    referencia: principal.referencia,
     tela_nombre: document.getElementById('c-tela').value.trim() || null,
     tipo_precio: _corteTipo,
-    cantidad_tela: c.cantidad,
-    precio_unitario: c.precio,
-    rendimiento: _corteTipo === 'kilo' ? (c.rend || null) : null,
-    consumo: c.cons || null,
-    prendas_estimadas: c.prendasEst || null,
-    costo_total: c.costoTotal,
+    cantidad_tela: t.cantidad,
+    precio_unitario: t.precio,
+    rendimiento: _corteTipo === 'kilo' ? (t.rend || null) : null,
+    largo_trazo: largo || null,
+    capas,
+    costo_total: t.costoTotal,
+    prendas_estimadas: totalEst || null,
     estado: 'en_proceso',
-    notas: document.getElementById('c-notas').value.trim() || null
+    notas: document.getElementById('c-notas').value.trim() || null,
+    items
   };
   const { error } = await sb.from('cortes').insert(row);
   if (error) { toast('Error al guardar el corte', 'err'); return; }
@@ -2924,23 +3023,34 @@ function corteCard(c) {
     ? '<span style="background:var(--success-bg);color:var(--success-text);font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap">✓ Terminado</span>'
     : '<span style="background:var(--warning-bg);color:var(--warning-text);font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap">En proceso</span>';
   const telaLinea = c.tipo_precio === 'kilo'
-    ? `${NUM(c.cantidad_tela)} kg × ${COP(c.precio_unitario)}${c.rendimiento ? ` · rinde ${c.rendimiento} m/kg` : ''}`
+    ? `${NUM(c.cantidad_tela)} kg × ${COP(c.precio_unitario)}${c.rendimiento ? ` · ${c.rendimiento} m/kg` : ''}`
     : `${NUM(c.cantidad_tela)} m × ${COP(c.precio_unitario)}`;
-  const prendasLinea = term
-    ? `${NUM(c.prendas_cortadas || 0)} prendas · costo/prenda <b>${COP(c.costo_por_prenda || 0)}</b>`
-    : `≈ ${NUM(c.prendas_estimadas || 0)} prendas estimadas`;
+  const items = Array.isArray(c.items) ? c.items : [];
+  const itemsLinea = items.map(it => {
+    const tag = it.tipo === 'aprovechamiento' ? ' <span style="color:var(--brand)">(aprov.)</span>' : '';
+    if (term) {
+      const det = Object.entries(it.tallas_buenas || {}).map(([t, n]) => `${t}:${n}`).join(' ');
+      return `• ${it.referencia}${tag}: ${NUM(it.prendas_buenas || 0)} und${det ? ` (${det})` : ''}${it.imperfectos ? ` · ${it.imperfectos} imperf.` : ''} → <b>${COP(it.costo_por_prenda || 0)}</b>/u`;
+    }
+    const det = Object.entries(it.tallas_capa || {}).map(([t, n]) => `${t}:${n}×${c.capas || 0}`).join(' ');
+    return `• ${it.referencia}${tag}: ≈ ${NUM(it.prendas_estimadas || 0)} und${det ? ` (${det})` : ''}`;
+  }).join('<br>');
+  const trazoLinea = c.largo_trazo ? `📐 Trazo ${c.largo_trazo} m × ${NUM(c.capas || 0)} capas<br>` : '';
+  const impLinea = term && c.imperfectos_total ? `⚠️ ${NUM(c.imperfectos_total)} imperfectos en total<br>` : '';
+  const titulo = items.length > 1 ? `${c.referencia} <span style="font-size:11px;color:var(--gris-medio);font-weight:600">+${items.length - 1} ref</span>` : (c.referencia || 'Corte');
   const acciones = term ? '' : `<div style="display:flex;gap:8px;margin-top:10px">
       <button class="btn btn-primary btn-sm" style="flex:1" onclick="abrirTerminarCorte('${c.id}')">✓ Terminar → bodega</button>
       <button class="btn btn-secondary btn-sm" onclick="eliminarCorte('${c.id}')">🗑️</button>
     </div>`;
   return `<div style="padding:14px 16px;border-bottom:1px solid var(--border-light)">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">
-      <div style="font-weight:700;font-size:15px">${c.referencia}</div>${badge}
+      <div style="font-weight:700;font-size:15px">${titulo}</div>${badge}
     </div>
     <div style="font-size:12.5px;color:var(--gris-medio);line-height:1.8">
       🧵 ${c.tela_nombre || 'Tela'} · ${telaLinea}<br>
-      💰 Tela: <b>${COP(c.costo_total || 0)}</b> · ${prendasLinea}<br>
-      📅 ${_fmtFechaCorte(c.fecha)}${c.notas ? ` · ${c.notas}` : ''}
+      💰 Tela: <b>${COP(c.costo_total || 0)}</b><br>
+      ${trazoLinea}${itemsLinea}<br>
+      ${impLinea}📅 ${_fmtFechaCorte(c.fecha)}${c.notas ? ` · ${c.notas}` : ''}
     </div>${acciones}
   </div>`;
 }
@@ -2962,61 +3072,92 @@ function abrirTerminarCorte(id) {
   const c = cortesData.find(x => x.id === id);
   if (!c) return;
   _terminarCorte = c;
-  const p = bodegaData.find(x => x.referencia === c.referencia);
-  document.getElementById('t-info').innerHTML = `<b>${c.referencia}</b><br>🧵 ${c.tela_nombre || 'Tela'} · 💰 <b>${COP(c.costo_total || 0)}</b> en tela<br>≈ ${NUM(c.prendas_estimadas || 0)} prendas estimadas`;
-  const tallas = ordenarTallas(parseTallas(p?.tallas));
-  const wrap = document.getElementById('t-tallas-wrap');
-  if (!tallas.length) {
-    wrap.innerHTML = '<div class="alert alert-warn" style="margin:0">Esta referencia no tiene tallas definidas. Edítala en el Catálogo.</div>';
-  } else {
-    wrap.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:8px">
-      ${tallas.map(t => `<div style="text-align:center">
-        <div style="font-size:11px;color:var(--gris-medio);margin-bottom:3px">${t}</div>
-        <input type="number" min="0" placeholder="0" class="t-talla-inp" data-talla="${t}" oninput="recalcTerminar()" style="width:100%;padding:8px;text-align:center;font-size:15px;font-weight:700;border:1.5px solid var(--borde);border-radius:var(--radius-sm)">
-      </div>`).join('')}
+  document.getElementById('t-info').innerHTML = `🧵 ${c.tela_nombre || 'Tela'} · 💰 <b>${COP(c.costo_total || 0)}</b> en tela${c.largo_trazo ? ` · 📐 ${c.largo_trazo} m × ${NUM(c.capas || 0)} capas` : ''}`;
+  const items = Array.isArray(c.items) ? c.items : [];
+  document.getElementById('t-items-wrap').innerHTML = items.map((it, idx) => {
+    const p = bodegaData.find(x => x.referencia === it.referencia);
+    const tallasDef = ordenarTallas([...new Set([...parseTallas(p?.tallas), ...Object.keys(it.tallas_capa || {})])]);
+    const tag = it.tipo === 'aprovechamiento'
+      ? '<span style="background:var(--brand-light);color:var(--brand-dark);font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px">aprovechamiento</span>'
+      : '<span style="background:var(--rosa-suave);color:var(--rosa-oscuro);font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px">principal</span>';
+    const tallasHtml = tallasDef.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(56px,1fr));gap:6px;margin-bottom:8px">
+        ${tallasDef.map(t => {
+          const est = (it.tallas_capa?.[t] || 0) * (c.capas || 0);
+          return `<div style="text-align:center"><div style="font-size:10px;color:var(--gris-medio);margin-bottom:2px">${t}</div>
+            <input type="number" min="0" value="${est || ''}" placeholder="0" class="t-cant" data-idx="${idx}" data-talla="${t}" oninput="recalcTerminar()" style="width:100%;padding:6px;text-align:center;font-size:13px;font-weight:700;border:1.5px solid var(--borde);border-radius:7px"></div>`;
+        }).join('')}
+      </div>` : '<div class="alert alert-warn" style="margin:0 0 8px">Sin tallas; edítala en el Catálogo.</div>';
+    return `<div style="border:1px solid var(--borde);border-radius:10px;padding:10px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div style="font-weight:700;font-size:14px">${it.referencia}</div>${tag}</div>
+      ${tallasHtml}
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:11.5px;color:var(--gris-medio)">Imperfectos (no entran a bodega):</span>
+        <input type="number" min="0" placeholder="0" class="t-imp" data-idx="${idx}" oninput="recalcTerminar()" style="width:64px;padding:6px;text-align:center;font-size:13px;border:1.5px solid var(--borde);border-radius:7px">
+      </div>
     </div>`;
-  }
-  document.getElementById('t-resumen').textContent = 'Ingresa las prendas cortadas por talla.';
+  }).join('');
+  document.getElementById('t-resumen').textContent = 'Confirma las prendas buenas por talla.';
   document.getElementById('modal-terminar').classList.add('open');
+  recalcTerminar();
+}
+
+// Reparto del costo de la tela por consumo entre las referencias (sobre prendas buenas)
+function _terminarCalc() {
+  const c = _terminarCorte;
+  const items = Array.isArray(c?.items) ? c.items : [];
+  const per = items.map((it, idx) => {
+    const tallas = {};
+    [...document.querySelectorAll(`.t-cant[data-idx="${idx}"]`)].forEach(inp => { const v = parseInt(inp.value) || 0; if (v > 0) tallas[inp.dataset.talla] = v; });
+    const good = Object.values(tallas).reduce((a, n) => a + n, 0);
+    const imperf = parseInt(document.querySelector(`.t-imp[data-idx="${idx}"]`)?.value) || 0;
+    return { referencia: it.referencia, tipo: it.tipo, consumo: it.consumo || 0, tallas, good, imperf };
+  });
+  const totalGood = per.reduce((a, p) => a + p.good, 0);
+  const totalFabric = per.reduce((a, p) => a + p.good * p.consumo, 0);
+  const usaConsumo = per.filter(p => p.good > 0).every(p => p.consumo > 0) && totalFabric > 0;
+  per.forEach(p => {
+    if (p.good <= 0) { p.costoTotal = 0; p.costoPrenda = 0; return; }
+    p.costoTotal = usaConsumo ? Math.round((c.costo_total || 0) * (p.good * p.consumo) / totalFabric) : Math.round((c.costo_total || 0) * p.good / totalGood);
+    p.costoPrenda = Math.round(p.costoTotal / p.good);
+  });
+  return { per, totalGood, totalImperf: per.reduce((a, p) => a + p.imperf, 0) };
 }
 
 function recalcTerminar() {
-  const total = [...document.querySelectorAll('.t-talla-inp')].reduce((a, i) => a + (parseInt(i.value) || 0), 0);
-  const c = _terminarCorte;
   const r = document.getElementById('t-resumen');
-  if (total > 0 && c) {
-    const costoPrenda = Math.round((c.costo_total || 0) / total);
-    r.innerHTML = `${NUM(total)} prendas → costo por prenda = ${COP(c.costo_total || 0)} ÷ ${total} = <b>${COP(costoPrenda)}</b>`;
-  } else {
-    r.textContent = 'Ingresa las prendas cortadas por talla.';
-  }
+  const { per, totalGood, totalImperf } = _terminarCalc();
+  if (totalGood <= 0) { r.textContent = 'Confirma las prendas buenas por talla.'; return; }
+  r.innerHTML = `${NUM(totalGood)} prendas buenas${totalImperf ? ` · ${NUM(totalImperf)} imperfectos` : ''}<br>` +
+    per.filter(p => p.good > 0).map(p => `• ${p.referencia}: ${NUM(p.good)} und → <b>${COP(p.costoPrenda)}</b>/u`).join('<br>');
 }
 
 async function confirmarTerminarCorte() {
   const c = _terminarCorte;
   if (!c) return;
-  const movs = [...document.querySelectorAll('.t-talla-inp')].map(i => ({ talla: i.dataset.talla, cant: parseInt(i.value) || 0 })).filter(m => m.cant > 0);
-  if (!movs.length) { toast('Ingresa al menos una prenda', 'err'); return; }
-  const total = movs.reduce((a, m) => a + m.cant, 0);
-  const costoPrenda = Math.round((c.costo_total || 0) / total);
-  for (const m of movs) {
-    const { error } = await sb.rpc('mov_bodega_talla', { p_ref: c.referencia, p_talla: m.talla, p_delta: m.cant });
-    if (error) { toast('Error al ingresar ' + m.talla, 'err'); return; }
+  const { per, totalGood, totalImperf } = _terminarCalc();
+  if (totalGood <= 0) { toast('Ingresa al menos una prenda buena', 'err'); return; }
+  for (const p of per) {
+    if (p.good <= 0) continue;
+    for (const [talla, cant] of Object.entries(p.tallas)) {
+      const { error } = await sb.rpc('mov_bodega_talla', { p_ref: p.referencia, p_talla: talla, p_delta: cant });
+      if (error) { toast('Error al ingresar ' + p.referencia + ' ' + talla, 'err'); return; }
+    }
+    const upd = { costo: p.costoPrenda, tela_tipo_precio: c.tipo_precio };
+    if (c.tela_nombre) upd.tela_nombre = c.tela_nombre;
+    if (p.consumo) upd.tela_consumo = p.consumo;
+    if (c.tipo_precio === 'kilo') {
+      if (c.precio_unitario) upd.tela_precio_kilo = c.precio_unitario;
+      if (c.rendimiento) upd.tela_rendimiento = c.rendimiento;
+      if (c.precio_unitario && c.rendimiento) upd.tela_precio_metro = Math.round((c.precio_unitario / c.rendimiento) * 100) / 100;
+    } else {
+      if (c.precio_unitario) upd.tela_precio_metro = c.precio_unitario;
+    }
+    await sb.from('bodega').update(upd).eq('referencia', p.referencia);
   }
-  const upd = { costo: costoPrenda, tela_tipo_precio: c.tipo_precio };
-  if (c.tela_nombre) upd.tela_nombre = c.tela_nombre;
-  if (c.consumo) upd.tela_consumo = c.consumo;
-  if (c.tipo_precio === 'kilo') {
-    if (c.precio_unitario) upd.tela_precio_kilo = c.precio_unitario;
-    if (c.rendimiento) upd.tela_rendimiento = c.rendimiento;
-    if (c.precio_unitario && c.rendimiento) upd.tela_precio_metro = Math.round((c.precio_unitario / c.rendimiento) * 100) / 100;
-  } else {
-    if (c.precio_unitario) upd.tela_precio_metro = c.precio_unitario;
-  }
-  await sb.from('bodega').update(upd).eq('referencia', c.referencia);
-  await sb.from('cortes').update({ estado: 'terminado', prendas_cortadas: total, costo_por_prenda: costoPrenda, fecha_fin: hoy() }).eq('id', c.id);
+  const itemsFin = per.map(p => ({ referencia: p.referencia, tipo: p.tipo, consumo: p.consumo || null, tallas_buenas: p.tallas, prendas_buenas: p.good, imperfectos: p.imperf, costo_total: p.costoTotal, costo_por_prenda: p.costoPrenda }));
+  await sb.from('cortes').update({ estado: 'terminado', items: itemsFin, prendas_cortadas: totalGood, imperfectos_total: totalImperf, fecha_fin: hoy() }).eq('id', c.id);
   cerrarModal('modal-terminar');
-  toast(`✓ ${NUM(total)} prendas de ${c.referencia} agregadas a bodega`);
+  toast(`✓ ${NUM(totalGood)} prendas agregadas a bodega`);
   _terminarCorte = null;
   cargarCortes();
   cargarBodega();
