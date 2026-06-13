@@ -2559,8 +2559,13 @@ function renderCostos() {
 
 function abrirModalCostos(ref) {
   const c = _costos[ref] || {};
-  let insumos = (_insumos[ref]||[]).map(i=>({ nombre:i.nombre, valor:i.valor||0 }));
-  if (!insumos.length) insumos = INSUMOS_DEFAULT.map(n=>({ nombre:n, valor:0 })); // sembrar por defecto
+  let insumos = (_insumos[ref]||[]).map(i=>{
+    // legado: si no hay precio_iva pero hay valor (sin IVA, consumo 1), reconstruimos el precio con IVA
+    let precio_iva = i.precio_iva, consumo = (i.consumo!=null) ? i.consumo : 1;
+    if ((precio_iva==null || precio_iva===0) && i.valor) precio_iva = Math.round((i.valor||0)*(1+IVA_RATE));
+    return { nombre:i.nombre, precio_iva: precio_iva||0, consumo: consumo||1 };
+  });
+  if (!insumos.length) insumos = INSUMOS_DEFAULT.map(n=>({ nombre:n, precio_iva:0, consumo:1 })); // sembrar por defecto
   _costoEdit = { ref, insumos };
   document.getElementById('costos-modal-title').textContent = 'Costos · ' + ref;
   document.getElementById('costo-precio').value = c.precio_venta || '';
@@ -2573,10 +2578,25 @@ function abrirModalCostos(ref) {
 
 function renderInsumoRows() {
   document.getElementById('costo-insumos').innerHTML = _costoEdit.insumos.map((i,idx)=>`
-    <div class="costo-insumo-row" style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
-      <input type="text" class="ci-nombre" value="${(i.nombre||'').replace(/"/g,'&quot;')}" placeholder="Insumo" style="flex:1;padding:9px 10px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:14px;font-family:inherit">
-      <input type="number" class="ci-valor" value="${i.valor||''}" placeholder="0" oninput="recalcCostos()" style="width:96px;padding:9px 10px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:14px;font-family:inherit;text-align:right">
-      <button onclick="removeInsumoRow(${idx})" style="background:none;border:none;color:var(--rojo);cursor:pointer;font-size:16px;padding:2px 6px">✕</button>
+    <div class="costo-insumo-row" style="border:1px solid var(--borde);border-radius:8px;padding:8px;margin-bottom:8px">
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+        <input type="text" class="ci-nombre" value="${(i.nombre||'').replace(/"/g,'&quot;')}" placeholder="Insumo (ej: Tela, Resorte)" style="flex:1;padding:8px 10px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:14px;font-family:inherit">
+        <button onclick="removeInsumoRow(${idx})" style="background:none;border:none;color:var(--rojo);cursor:pointer;font-size:16px;padding:2px 6px">✕</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <div style="flex:1;min-width:92px">
+          <div style="font-size:10px;color:var(--gris-medio);margin-bottom:2px">Precio compra c/IVA</div>
+          <input type="number" class="ci-precio" value="${i.precio_iva||''}" placeholder="12000" oninput="recalcCostos()" style="width:100%;padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;text-align:right">
+        </div>
+        <div style="flex:1;min-width:74px">
+          <div style="font-size:10px;color:var(--gris-medio);margin-bottom:2px">Consumo x prenda</div>
+          <input type="number" step="0.01" class="ci-consumo" value="${i.consumo!=null?i.consumo:1}" placeholder="1" oninput="recalcCostos()" style="width:100%;padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;text-align:right">
+        </div>
+        <div style="flex:1;min-width:96px;text-align:right">
+          <div style="font-size:10px;color:var(--gris-medio);margin-bottom:2px">= por prenda (sin IVA)</div>
+          <div class="ci-valor-calc" style="font-weight:800;font-size:14px;color:var(--brand-dark)">$0</div>
+        </div>
+      </div>
     </div>`).join('');
 }
 
@@ -2584,26 +2604,36 @@ function syncInsumosDesdeDOM() {
   const rows = document.querySelectorAll('#costo-insumos .costo-insumo-row');
   _costoEdit.insumos = Array.from(rows).map(r=>({
     nombre: r.querySelector('.ci-nombre').value.trim(),
-    valor: parseInt(r.querySelector('.ci-valor').value)||0
+    precio_iva: parseInt(r.querySelector('.ci-precio').value)||0,
+    consumo: parseFloat(r.querySelector('.ci-consumo').value)||0
   }));
 }
 
-function addInsumoRow() { syncInsumosDesdeDOM(); _costoEdit.insumos.push({ nombre:'', valor:0 }); renderInsumoRows(); recalcCostos(); }
+function addInsumoRow() { syncInsumosDesdeDOM(); _costoEdit.insumos.push({ nombre:'', precio_iva:0, consumo:1 }); renderInsumoRows(); recalcCostos(); }
 function removeInsumoRow(idx) { syncInsumosDesdeDOM(); _costoEdit.insumos.splice(idx,1); renderInsumoRows(); recalcCostos(); }
 
 function recalcCostos() {
   const precio = parseInt(document.getElementById('costo-precio').value)||0;
   const prod = parseInt(document.getElementById('costo-produccion').value)||0;
   const com = parseInt(document.getElementById('costo-comercial').value)||0;
-  let mp = 0;
-  document.querySelectorAll('#costo-insumos .ci-valor').forEach(inp => mp += parseInt(inp.value)||0);
+  let mp = 0, mpIva = 0;
+  document.querySelectorAll('#costo-insumos .costo-insumo-row').forEach(r=>{
+    const pi = parseInt(r.querySelector('.ci-precio').value)||0;
+    const cons = parseFloat(r.querySelector('.ci-consumo').value)||0;
+    const conIva = Math.round(pi*cons);
+    const sinIva = baseSinIva(conIva);
+    const cell = r.querySelector('.ci-valor-calc');
+    if (cell) cell.innerHTML = `${COP(sinIva)}<div style="font-size:9px;color:var(--gris-medio);font-weight:400">${COP(conIva)} c/IVA</div>`;
+    mp += sinIva; mpIva += conIva;
+  });
   const comision = comisionDe(precio);
   const costoTotal = mp + prod + com + comision;
   const margen = precio - costoTotal;
   const pct = precio ? Math.round(margen/precio*100) : 0;
   const col = pct>=40?'var(--verde)':pct>=20?'var(--amarillo)':'var(--rojo)';
   document.getElementById('costo-calc').innerHTML = `
-    <div style="display:flex;justify-content:space-between;padding:2px 0"><span>Total materia prima</span><strong>${COP(mp)}</strong></div>
+    <div style="display:flex;justify-content:space-between;padding:2px 0"><span>Materia prima (sin IVA)</span><strong>${COP(mp)}</strong></div>
+    <div style="display:flex;justify-content:space-between;padding:2px 0;font-size:11px;color:var(--gris-medio)"><span>Materia prima con IVA</span><span>${COP(mpIva)}</span></div>
     <div style="display:flex;justify-content:space-between;padding:2px 0"><span>Comisión Feria del Brasier (16%)</span><strong>${COP(comision)}</strong></div>
     <div style="display:flex;justify-content:space-between;padding:2px 0;border-top:1px solid var(--borde);margin-top:4px;padding-top:6px"><span>Costo total unitario</span><strong>${COP(costoTotal)}</strong></div>
     <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:15px"><span style="font-weight:600">Margen bruto</span><strong style="color:${col}">${COP(margen)} · ${pct}%</strong></div>`;
@@ -2621,9 +2651,12 @@ async function guardarCostos() {
     { referencia: ref, precio_venta, costo_produccion, costo_comercial, updated_at: new Date().toISOString() },
     { onConflict: 'referencia' });
   if (e1) { btn.disabled=false; btn.textContent=prev; toast('No se pudo guardar el costo: '+detalleError(e1), 'err'); console.error(e1); return; }
-  // 2) reemplazar insumos (borrar + insertar los actuales con nombre)
+  // 2) reemplazar insumos (con precio c/IVA, consumo y valor sin IVA calculado)
   await sb.from('referencia_insumos').delete().eq('referencia', ref);
-  const rows = _costoEdit.insumos.filter(i=>i.nombre).map((i,idx)=>({ referencia:ref, nombre:i.nombre, valor:i.valor||0, orden:idx }));
+  const rows = _costoEdit.insumos.filter(i=>i.nombre).map((i,idx)=>{
+    const valor = baseSinIva(Math.round((i.precio_iva||0)*(i.consumo||0)));
+    return { referencia:ref, nombre:i.nombre, precio_iva:i.precio_iva||0, consumo:i.consumo||0, valor, orden:idx };
+  });
   if (rows.length) {
     const { error: e2 } = await sb.from('referencia_insumos').insert(rows);
     if (e2) { btn.disabled=false; btn.textContent=prev; toast('Costo guardado, pero falló al guardar insumos: '+detalleError(e2), 'err'); console.error(e2); }
@@ -2634,20 +2667,25 @@ async function guardarCostos() {
   await loadCostosData(); renderCostos();
 }
 
-// Pone el costo de tela calculado en un corte como el insumo "Tela" de la referencia (en Costos)
-async function actualizarTelaEnCostos(ref, costoTela) {
-  const valor = Math.round(costoTela || 0);
+// El costo de tela de un corte alimenta el insumo "Tela" en Costos (compra con IVA → se cuesta sin IVA)
+async function actualizarTelaEnCostos(ref, costoTela, consumo) {
+  const conIva = Math.round(costoTela || 0);       // costo de tela por prenda, con IVA (precio de compra)
+  const cons = consumo > 0 ? consumo : 1;
+  const precio_iva = cons > 0 ? Math.round(conIva / cons) : conIva;  // precio por metro con IVA implícito
+  const valor = baseSinIva(conIva);                // costo por prenda sin IVA (para costear)
   const { data: existing } = await sb.from('referencia_insumos').select('id,nombre').eq('referencia', ref);
   const list = existing || [];
   if (!list.length) {
-    // sembrar los insumos por defecto, con la Tela = costo del corte
-    const rows = INSUMOS_DEFAULT.map((n, idx) => ({ referencia: ref, nombre: n, valor: n.toLowerCase() === 'tela' ? valor : 0, orden: idx }));
+    const rows = INSUMOS_DEFAULT.map((n, idx) => {
+      const esTela = n.toLowerCase() === 'tela';
+      return { referencia: ref, nombre: n, precio_iva: esTela ? precio_iva : 0, consumo: esTela ? cons : 1, valor: esTela ? valor : 0, orden: idx };
+    });
     await sb.from('referencia_insumos').insert(rows);
     return;
   }
   const tela = list.find(i => (i.nombre || '').trim().toLowerCase() === 'tela');
-  if (tela) await sb.from('referencia_insumos').update({ valor }).eq('id', tela.id);
-  else await sb.from('referencia_insumos').insert({ referencia: ref, nombre: 'Tela', valor, orden: 0 });
+  if (tela) await sb.from('referencia_insumos').update({ precio_iva, consumo: cons, valor }).eq('id', tela.id);
+  else await sb.from('referencia_insumos').insert({ referencia: ref, nombre: 'Tela', precio_iva, consumo: cons, valor, orden: 0 });
 }
 
 async function quitarCodigo(codigo) {
@@ -3273,7 +3311,7 @@ async function confirmarTerminarCorte() {
     }
     await sb.from('bodega').update(upd).eq('referencia', p.referencia);
     // El costo de tela del corte queda como el insumo "Tela" en los Costos de la referencia
-    await actualizarTelaEnCostos(p.referencia, p.costoPrenda);
+    await actualizarTelaEnCostos(p.referencia, p.costoPrenda, p.consumo);
   }
   const itemsFin = per.map(p => ({ referencia: p.referencia, tipo: p.tipo, consumo: p.consumo || null, tallas_buenas: p.tallas, prendas_buenas: p.good, imperfectos: p.imperf, costo_total: p.costoTotal, costo_por_prenda: p.costoPrenda }));
   await sb.from('cortes').update({ estado: 'terminado', items: itemsFin, prendas_cortadas: totalGood, imperfectos_total: totalImperf, fecha_fin: hoy() }).eq('id', c.id);
