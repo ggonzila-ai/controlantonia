@@ -567,6 +567,7 @@
       <div class="tab" id="tab-ventas-poralmacen" onclick="showTab('tab-ventas-poralmacen')">Ventas por Almacén</div>
       <div class="tab" id="tab-ventas-descuentos" onclick="showTab('tab-ventas-descuentos')">Descuentos</div>
       <div class="tab" id="tab-ventas-historico" onclick="showTab('tab-ventas-historico')">Comparativo histórico</div>
+      <div class="tab" id="tab-ventas-abc" onclick="showTab('tab-ventas-abc')">Curva ABC</div>
       <div class="tab" id="tab-ventas-cargar" onclick="showTab('tab-ventas-cargar')">Cargar informe</div>
       <div class="tab" id="tab-ventas-manual" onclick="showTab('tab-ventas-manual')">Manual</div>
     </div>
@@ -686,13 +687,42 @@
           <div style="font-size:12px;font-weight:600;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">🏆 Ranking de rentabilidad</div>
           <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">
             <button class="btn btn-sm btn-primary" id="rrent-by-utilidad" onclick="setRrentBy('utilidad')">Utilidad</button>
-            <button class="btn btn-sm btn-secondary" id="rrent-by-margenPct" onclick="setRrentBy('margenPct')">Margen %</button>
+            <button class="btn btn-sm btn-secondary" id="rrent-by-margenPct" onclick="setRrentBy('margenPct')">Mayor margen</button>
+            <button class="btn btn-sm btn-secondary" id="rrent-by-menor" onclick="setRrentBy('menor')">Menor margen</button>
             <button class="btn btn-sm btn-secondary" id="rrent-by-cant" onclick="setRrentBy('cant')">Uds.</button>
             <button class="btn btn-sm btn-secondary" id="rrent-by-total" onclick="setRrentBy('total')">Ventas</button>
           </div>
         </div>
         <div style="padding:0 16px 6px;font-size:11px;color:var(--gris-medio)">Identifica qué referencias generan más utilidad, no solo cuáles venden más. Usa los costos de Bodega → Costos.</div>
         <div class="tabla-wrap" id="rank-rent-tabla"><div style="padding:16px;text-align:center;color:var(--gris-medio);font-size:13px">Cargando…</div></div>
+      </div>
+
+      <!-- CURVA ABC -->
+      <div id="tab-content-ventas-abc" style="display:none">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--borde);display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <div class="form-group" style="margin:0;min-width:140px">
+            <label>Período</label>
+            <select id="abc-periodo" onchange="cargarABC()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"></select>
+          </div>
+          <div class="form-group" style="margin:0;min-width:140px">
+            <label>Almacén</label>
+            <select id="abc-almacen" onchange="cargarABC()"><option value="">Todos</option></select>
+          </div>
+          <div class="form-group" style="margin:0;min-width:130px">
+            <label>Clasificar por</label>
+            <select id="abc-metrica" onchange="cargarABC()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)">
+              <option value="total">Ventas ($)</option>
+              <option value="utilidad">Utilidad</option>
+            </select>
+          </div>
+        </div>
+        <div style="padding:8px 16px;font-size:11px;color:var(--gris-medio)">Clase <strong>A</strong> ≈ 80% del total (pocas referencias clave) · <strong>B</strong> ≈ siguiente 15% · <strong>C</strong> ≈ último 5%. Úsala para priorizar producción, inventario y reposición. La utilidad usa Bodega → Costos.</div>
+        <div class="metrics" id="abc-kpis" style="margin:6px 16px 14px"></div>
+        <div class="section-card" id="abc-insights-card" style="margin:0 16px 14px;display:none">
+          <div class="section-header"><div class="section-title">💡 Insights ABC</div></div>
+          <div id="abc-insights" style="padding:6px 0"></div>
+        </div>
+        <div class="tabla-wrap" id="abc-tabla"><div class="loader"><div class="spinner"></div></div></div>
       </div>
 
       <!-- VENTAS POR ALMACÉN -->
@@ -1743,7 +1773,7 @@ function filtrarUIporRol() {
   });
 
   // Ventas: dejar solo "Ventas y Metas"
-  ['tab-ventas-rank', 'tab-ventas-descuentos', 'tab-ventas-historico', 'tab-ventas-cargar', 'tab-ventas-manual'].forEach(id => {
+  ['tab-ventas-rank', 'tab-ventas-descuentos', 'tab-ventas-historico', 'tab-ventas-abc', 'tab-ventas-cargar', 'tab-ventas-manual'].forEach(id => {
     const el = document.getElementById(id); if (el) el.style.display = 'none';
   });
   const tabPA = document.getElementById('tab-ventas-poralmacen'); if (tabPA) tabPA.textContent = 'Ventas y Metas';
@@ -1882,6 +1912,7 @@ function showTab(tabId) {
   if (tabId === 'tab-ventas-poralmacen') cargarVentasPorAlmacen();
   if (tabId === 'tab-ventas-descuentos') cargarDescuentos();
   if (tabId === 'tab-ventas-historico') cargarHistoricoVentas();
+  if (tabId === 'tab-ventas-abc') cargarABC();
   if (tabId === 'tab-if-res') cargarResultadosConteo();
   if (tabId === 'tab-alm-conc') { llenarSelectAlmacenes(); renderConciliacion(); }
   if (tabId === 'tab-bod-catalogo') cargarCatalogo();
@@ -4530,13 +4561,18 @@ async function cargarVentasRank() {
 let _rrentRows = [], rrentBy = 'utilidad';
 function setRrentBy(b){ rrentBy=b; renderRankingRentabilidad(); }
 function renderRankingRentabilidad() {
-  ['utilidad','margenPct','cant','total'].forEach(k=>{
+  ['utilidad','margenPct','menor','cant','total'].forEach(k=>{
     const el=document.getElementById('rrent-by-'+k); if(el) el.className='btn btn-sm '+(rrentBy===k?'btn-primary':'btn-secondary');
   });
-  const key = rrentBy==='cant' ? 'uds' : rrentBy;
-  const rows = _rrentRows.slice().sort((a,b)=>{
-    const x=a[key]==null?-Infinity:a[key], y=b[key]==null?-Infinity:b[key]; return y-x;
-  }).slice(0,40);
+  let rows;
+  if (rrentBy==='menor') {
+    rows = _rrentRows.filter(r=>r.margenPct!=null).sort((a,b)=>a.margenPct-b.margenPct).slice(0,40);
+  } else {
+    const key = rrentBy==='cant' ? 'uds' : rrentBy;
+    rows = _rrentRows.slice().sort((a,b)=>{
+      const x=a[key]==null?-Infinity:a[key], y=b[key]==null?-Infinity:b[key]; return y-x;
+    }).slice(0,40);
+  }
   const cont = document.getElementById('rank-rent-tabla');
   if (!rows.length) { cont.innerHTML='<div style="padding:16px;text-align:center;color:var(--gris-medio);font-size:13px">Sin datos.</div>'; return; }
   const sinCostos = _rrentRows.filter(r=>r.margen==null).length;
@@ -4553,6 +4589,78 @@ function renderRankingRentabilidad() {
         <td style="text-align:right;font-weight:700">${r.utilidad!=null?COP(r.utilidad):'<span style="color:var(--gris-medio)">—</span>'}</td>
       </tr>`).join('')}</tbody>
   </table>${sinCostos?`<div style="padding:8px 16px;font-size:11px;color:var(--gris-medio)">${sinCostos} referencia(s) sin costos definidos (margen/utilidad en —). Defínelos en Bodega → Costos.</div>`:''}`;
+}
+
+// ─── CURVA ABC ────────────────────────────────
+let _abcRows = [];
+async function cargarABC() {
+  await llenarSelectAlmacenes();
+  const pin = document.getElementById('abc-periodo');
+  if (!pin.options.length) {
+    const { data } = await sb.from('ventas').select('periodo').order('periodo', { ascending: false }).limit(1);
+    const def = (data && data[0] && data[0].periodo) || periodoActual();
+    pin.innerHTML = periodoOpciones(def, true);
+  }
+  const asel = document.getElementById('abc-almacen');
+  if (asel.options.length <= 1) asel.innerHTML = '<option value="">Todos los almacenes</option>' + almacenes.map(a => `<option value="${a.nombre}">${limpiarAlm(a.nombre)}</option>`).join('');
+  const periodo = pin.value;
+  const metrica = document.getElementById('abc-metrica').value;
+  const almFiltro = asel.value;
+  document.getElementById('abc-tabla').innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  const ventas = await selectAll('ventas', 'almacen_nombre, referencia, categoria, cantidad, precio_unitario, periodo', q => periodo ? q.eq('periodo', periodo) : q);
+  await loadCostosData();
+  const all = (ventas || []).filter(v => !almFiltro || v.almacen_nombre === almFiltro);
+  const refMap = {};
+  all.forEach(v => { const k = v.referencia; (refMap[k] = refMap[k] || { ref: k, cat: v.categoria, uds: 0, total: 0 }); refMap[k].uds += v.cantidad; refMap[k].total += ventaTotal(v); });
+  let rows = Object.values(refMap).map(r => {
+    const m = margenReferencia(r.ref);
+    return { ...r, utilidad: m ? Math.round(m.margen * r.uds) : null, margenPct: m ? Math.round(m.margenPct * 100) : null };
+  });
+  const sortKey = metrica === 'utilidad' ? 'utilidad' : 'total';
+  rows.sort((a, b) => (b[sortKey] || 0) - (a[sortKey] || 0));
+  const granTotal = rows.reduce((s, r) => s + (r[sortKey] || 0), 0);
+  let cum = 0;
+  rows.forEach(r => { const part = granTotal ? (r[sortKey] || 0) / granTotal : 0; cum += part; r.part = part; r.cum = cum; r.abc = cum <= 0.8 ? 'A' : cum <= 0.95 ? 'B' : 'C'; });
+  _abcRows = rows;
+  const clases = { A: { n: 0, v: 0 }, B: { n: 0, v: 0 }, C: { n: 0, v: 0 } };
+  rows.forEach(r => { clases[r.abc].n++; clases[r.abc].v += (r[sortKey] || 0); });
+  document.getElementById('abc-kpis').innerHTML = ['A', 'B', 'C'].map(c => {
+    const col = c === 'A' ? 'var(--verde)' : c === 'B' ? 'var(--amarillo)' : 'var(--gris-medio)';
+    const pctRefs = rows.length ? Math.round(clases[c].n / rows.length * 100) : 0;
+    const pctVal = granTotal ? Math.round(clases[c].v / granTotal * 100) : 0;
+    return `<div class="metric-card"><div class="m-label" style="color:${col}">Clase ${c}</div><div class="m-val">${clases[c].n}</div><div class="m-sub">${pctRefs}% refs · ${pctVal}% ${metrica === 'utilidad' ? 'util.' : 'ventas'}</div></div>`;
+  }).join('');
+  document.getElementById('abc-tabla').innerHTML = rows.length ? `<table>
+    <thead><tr><th>#</th><th>Referencia</th><th>ABC</th><th style="text-align:right">Part.</th><th style="text-align:right">Acum.</th><th style="text-align:right">Ventas</th><th style="text-align:right">Uds.</th><th style="text-align:right">Utilidad</th></tr></thead>
+    <tbody>${rows.map((r, i) => {
+      const cls = r.abc === 'A' ? 'badge-ok' : r.abc === 'B' ? 'badge-warn' : 'badge-gray';
+      return `<tr>
+        <td style="color:var(--gris-medio);font-weight:700">${i + 1}</td>
+        <td><strong>${r.ref}</strong> <span class="badge badge-rosa" style="font-size:9px">${r.cat || '—'}</span></td>
+        <td><span class="badge ${cls}">${r.abc}</span></td>
+        <td style="text-align:right">${(r.part * 100).toFixed(1)}%</td>
+        <td style="text-align:right;color:var(--gris-medio)">${Math.round(r.cum * 100)}%</td>
+        <td style="text-align:right;font-weight:700">${COP(r.total)}</td>
+        <td style="text-align:right">${NUM(r.uds)}</td>
+        <td style="text-align:right">${r.utilidad != null ? COP(r.utilidad) : '<span style="color:var(--gris-medio)">—</span>'}</td>
+      </tr>`;
+    }).join('')}</tbody></table>` : '<div style="padding:20px;text-align:center;color:var(--gris-medio);font-size:13px">Sin ventas en este período.</div>';
+  renderABCInsights(rows);
+}
+
+function renderABCInsights(rows) {
+  const card = document.getElementById('abc-insights-card');
+  const cont = document.getElementById('abc-insights');
+  if (!rows.length) { card.style.display = 'none'; return; }
+  const ins = [];
+  const A = rows.filter(r => r.abc === 'A');
+  if (A.length) ins.push(['⭐ Estratégicas (A)', `${A.length} referencias concentran ~80% de las ventas: ${A.slice(0, 5).map(r => r.ref).join(', ')}${A.length > 5 ? '…' : ''}. Prioriza su producción, inventario y reposición — no pueden faltar.`]);
+  const pot = rows.filter(r => r.abc === 'B' && r.margenPct != null && r.margenPct >= 35).sort((a, b) => b.margenPct - a.margenPct).slice(0, 4);
+  if (pot.length) ins.push(['🚀 Con potencial (B)', `Buen margen y podrían subir a A si vendes más: ${pot.map(r => r.ref + ' (' + r.margenPct + '%)').join(', ')}.`]);
+  const C = rows.filter(r => r.abc === 'C');
+  if (C.length) ins.push(['🔻 Bajo impacto (C)', `${C.length} referencias aportan ~5% de las ventas. Evalúa reducir inventario/producción o replantear las de bajo margen.`]);
+  cont.innerHTML = ins.map(([t, d]) => `<div style="padding:9px 16px;border-bottom:1px solid var(--border-light);font-size:13px"><strong>${t}</strong><div style="color:var(--gris-medio);margin-top:2px">${d}</div></div>`).join('');
+  card.style.display = '';
 }
 
 // Insights automáticos de Visión General (se recalculan según el período).
