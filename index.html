@@ -1176,10 +1176,11 @@
 
       <div class="section-card">
         <div class="section-header"><div class="section-title">💵 Flujo de caja</div><span style="font-size:11px;color:var(--gris-medio)">vender ≠ recibir</span></div>
-        <div style="padding:10px 16px;font-size:11px;color:var(--gris-medio)"><strong>Desfase de ~30 días:</strong> Lo <strong>recibido</strong> en junio = ventas de mayo menos comisión (entra últimos días de junio). Lo <strong>esperado</strong> en junio = ventas de junio (entra últimos días de julio). Así ves cuándo entra realmente el dinero para cubrir gastos.</div>
+        <div style="padding:10px 16px;font-size:11px;color:var(--gris-medio)"><strong>Desfase de ~30 días:</strong> Lo <strong>recibido</strong> en junio = ventas de mayo menos comisión (entra últimos días de junio). Lo <strong>esperado</strong> en junio = ventas de junio (entra últimos días de julio). El <strong>acumulado</strong> es el saldo de caja sumado período a período.</div>
+        <div id="cont-rep-flujo-alerta"></div>
         <div class="tabla-wrap"><table>
-          <thead><tr><th>Período</th><th style="text-align:right">Recibido</th><th style="text-align:right">Esperado<span style="display:block;font-size:9px;font-weight:400">próx. mes</span></th><th style="text-align:right">Gastos</th><th style="text-align:right">Saldo caja</th></tr></thead>
-          <tbody id="cont-rep-flujo"><tr><td colspan="5"><div class="loader"><div class="spinner"></div></div></td></tr></tbody>
+          <thead><tr><th>Período</th><th style="text-align:right">Recibido</th><th style="text-align:right">Esperado<span style="display:block;font-size:9px;font-weight:400">próx. mes</span></th><th style="text-align:right">Gastos</th><th style="text-align:right">Saldo caja</th><th style="text-align:right">Acumulado</th></tr></thead>
+          <tbody id="cont-rep-flujo"><tr><td colspan="6"><div class="loader"><div class="spinner"></div></div></td></tr></tbody>
         </table></div>
         <div id="cont-rep-pendiente"></div>
       </div>
@@ -1194,11 +1195,13 @@
       </div>
 
       <div class="section-card">
-        <div class="section-header"><div class="section-title">Rentabilidad por almacén</div><span style="font-size:11px;color:var(--gris-medio)">base − comisión</span></div>
+        <div class="section-header"><div class="section-title">🏆 Rentabilidad por almacén</div><span style="font-size:11px;color:var(--gris-medio)">utilidad estimada</span></div>
+        <div style="padding:8px 16px;font-size:11px;color:var(--gris-medio)">Utilidad = base − comisión 16% − nómina − gastos. <strong>Nómina y gastos se prorratean</strong> según la participación de cada almacén en las ventas (son costos de toda la empresa).</div>
         <div class="tabla-wrap"><table>
-          <thead><tr><th>Almacén</th><th style="text-align:right">Base</th><th style="text-align:right">Comisión 16%</th><th style="text-align:right">Neto</th></tr></thead>
-          <tbody id="cont-rep-alm-tbody"><tr><td colspan="4"><div class="loader"><div class="spinner"></div></div></td></tr></tbody>
+          <thead><tr><th>Almacén</th><th style="text-align:right">Ventas</th><th style="text-align:right">Comisión</th><th style="text-align:right">Nómina*</th><th style="text-align:right">Gastos*</th><th style="text-align:right">Utilidad</th><th style="text-align:right">Margen</th></tr></thead>
+          <tbody id="cont-rep-alm-tbody"><tr><td colspan="7"><div class="loader"><div class="spinner"></div></div></td></tr></tbody>
         </table></div>
+        <div id="cont-rep-alm-insights" style="border-top:1px solid var(--borde)"></div>
       </div>
       <div class="section-card">
         <div class="section-header"><div class="section-title">Gastos por categoría</div></div>
@@ -6042,7 +6045,8 @@ async function cargarReportes() {
       <td style="text-align:right">${o.margen}%</td>
     </tr>`).join('') || '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--gris-medio)">Sin datos.</td></tr>';
 
-  // ── Flujo de caja por bucket ──
+  // ── Flujo de caja por bucket (con acumulado) ──
+  let _acc=0; bArr.forEach(o=>{ _acc+=o.saldoCaja; o.acum=_acc; });
   document.getElementById('cont-rep-flujo').innerHTML = bArr.slice().reverse().map(o=>`
     <tr>
       <td><strong>${o.label}</strong></td>
@@ -6050,7 +6054,14 @@ async function cargarReportes() {
       <td style="text-align:right;color:var(--gris-medio)">${o.esperado?COP(o.esperado):'—'}</td>
       <td style="text-align:right">${COP(o.gastosOp)}</td>
       <td style="text-align:right;font-weight:700" class="${o.saldoCaja<0?'diff-neg':'diff-pos'}">${COP(o.saldoCaja)}</td>
-    </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--gris-medio)">Sin datos.</td></tr>';
+      <td style="text-align:right;font-weight:600" class="${o.acum<0?'diff-neg':''}">${COP(o.acum)}</td>
+    </tr>`).join('') || '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--gris-medio)">Sin datos.</td></tr>';
+  // Alerta de tensión de caja
+  const _tension = bArr.filter(o=>o.saldoCaja<0), _accNeg = bArr.filter(o=>o.acum<0);
+  const _alertaEl = document.getElementById('cont-rep-flujo-alerta');
+  if (_accNeg.length) _alertaEl.innerHTML = `<div style="background:#FFE5E3;color:var(--rojo);border-radius:var(--radius-sm);padding:11px 14px;margin:0 16px 4px;font-size:13px">🚨 <strong>Tensión de caja:</strong> el saldo acumulado queda negativo en ${_accNeg.map(o=>o.label).join(', ')}. Lo recibido no alcanza para cubrir los gastos acumulados — planifica el recaudo o reduce gastos.</div>`;
+  else if (_tension.length) _alertaEl.innerHTML = `<div style="background:#FFF4E0;color:#9a6700;border-radius:var(--radius-sm);padding:11px 14px;margin:0 16px 4px;font-size:13px">⚠️ <strong>Atención:</strong> saldo de caja negativo en ${_tension.map(o=>o.label).join(', ')} (los gastos superaron lo recibido ese período).</div>`;
+  else _alertaEl.innerHTML = '';
   // Resumen de lo pendiente por cobrar (último bucket)
   if (ultimo && ultimo.esperado>0) {
     const np = periodoNext(ultimo.meses[ultimo.meses.length-1]), [ny,nm]=np.split('-').map(Number);
@@ -6076,13 +6087,24 @@ async function cargarReportes() {
     </tr>`;
   }).join('') || '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--gris-medio)">Sin ventas.</td></tr>';
 
-  // ── Rentabilidad por almacén ──
-  const filasAlm = Object.entries(almMap).sort((a,b)=>cmpAlm(a[0],b[0]));
-  let aB=0,aC=0;
-  document.getElementById('cont-rep-alm-tbody').innerHTML = filasAlm.map(([n,v])=>{
-    const base=baseSinIva(v.total), com=comisionDe(v.total), net=base-com; aB+=base; aC+=com;
-    return `<tr><td><strong>${limpiarAlm(n)}</strong></td><td style="text-align:right">${COP(base)}</td><td style="text-align:right;color:var(--rosa-oscuro)">${COP(com)}</td><td style="text-align:right;font-weight:700">${COP(net)}</td></tr>`;
-  }).join('') + (filasAlm.length?`<tr style="background:var(--gris-claro);font-weight:700"><td>TOTAL</td><td style="text-align:right">${COP(aB)}</td><td style="text-align:right">${COP(aC)}</td><td style="text-align:right">${COP(aB-aC)}</td></tr>`:'') || '<tr><td colspan="4" style="text-align:center;padding:18px;color:var(--gris-medio)">Sin ventas.</td></tr>';
+  // ── Rentabilidad por almacén (nómina y gastos prorrateados por participación en ventas) ──
+  const totalNomAll = Object.values(nByP).reduce((s,x)=>s+x,0);
+  const totalGasAll = Object.values(gByP).reduce((s,x)=>s+x,0);
+  const filasAlm = Object.entries(almMap).map(([n,v])=>{ const base=baseSinIva(v.total); return { n, base, com:comisionDe(v.total), neto:base-comisionDe(v.total) }; }).sort((a,b)=>cmpAlm(a.n,b.n));
+  const baseTotAlm = filasAlm.reduce((s,f)=>s+f.base,0) || 1;
+  filasAlm.forEach(f=>{ const sh=f.base/baseTotAlm; f.nom=Math.round(totalNomAll*sh); f.gas=Math.round(totalGasAll*sh); f.utilidad=f.neto-f.nom-f.gas; f.margen=f.base?Math.round(f.utilidad/f.base*100):0; });
+  let tB=0,tC=0,tN=0,tG=0,tU=0;
+  document.getElementById('cont-rep-alm-tbody').innerHTML = filasAlm.map(f=>{
+    tB+=f.base;tC+=f.com;tN+=f.nom;tG+=f.gas;tU+=f.utilidad;
+    return `<tr><td><strong>${limpiarAlm(f.n)}</strong></td>
+      <td style="text-align:right">${COP(f.base)}</td>
+      <td style="text-align:right;color:var(--rosa-oscuro)">${COP(f.com)}</td>
+      <td style="text-align:right;color:var(--gris-medio)">${COP(f.nom)}</td>
+      <td style="text-align:right;color:var(--gris-medio)">${COP(f.gas)}</td>
+      <td style="text-align:right;font-weight:700" class="${f.utilidad<0?'diff-neg':'diff-pos'}">${COP(f.utilidad)}</td>
+      <td style="text-align:right">${f.margen}%</td></tr>`;
+  }).join('') + (filasAlm.length?`<tr style="background:var(--gris-claro);font-weight:700"><td>TOTAL</td><td style="text-align:right">${COP(tB)}</td><td style="text-align:right">${COP(tC)}</td><td style="text-align:right">${COP(tN)}</td><td style="text-align:right">${COP(tG)}</td><td style="text-align:right">${COP(tU)}</td><td></td></tr>`:'') || '<tr><td colspan="7" style="text-align:center;padding:18px;color:var(--gris-medio)">Sin ventas.</td></tr>';
+  renderInsightsAlmRentab(filasAlm);
 
   // ── Gastos por categoría (con crecimiento último vs previo bucket) ──
   const gByCat = {}, catUlt = {}, catPrev = {};
@@ -6136,6 +6158,24 @@ function renderInsightsReportes(bArr, conIvaMes, catUlt, catPrev, catRows, ultim
   if (!ins.length) { card.style.display='none'; return; }
   card.style.display='block';
   cont.innerHTML = ins.map(e=>`<div style="padding:10px 16px;border-bottom:1px solid var(--borde)"><div style="font-size:13px;font-weight:600">${e[0]}</div><div style="font-size:12px;color:var(--gris-medio);margin-top:2px">${e[1]}</div></div>`).join('');
+}
+
+// Insights de rentabilidad por almacén
+function renderInsightsAlmRentab(filas) {
+  const cont = document.getElementById('cont-rep-alm-insights'); if (!cont) return;
+  const conV = filas.filter(f => f.base > 0);
+  if (!conV.length) { cont.innerHTML = ''; return; }
+  const masVentas = conV.slice().sort((a,b)=>b.base-a.base)[0];
+  const masUtil = conV.slice().sort((a,b)=>b.utilidad-a.utilidad)[0];
+  const mejorMargen = conV.slice().sort((a,b)=>b.margen-a.margen)[0];
+  const peor = conV.slice().sort((a,b)=>a.utilidad-b.utilidad)[0];
+  const ins = [
+    ['🏆 Más ventas', `${limpiarAlm(masVentas.n)} · ${COP(masVentas.base)}`],
+    ['💰 Más utilidad', `${limpiarAlm(masUtil.n)} · ${COP(masUtil.utilidad)}`],
+    ['📊 Mejor margen', `${limpiarAlm(mejorMargen.n)} · ${mejorMargen.margen}%`]
+  ];
+  if (peor && (peor.utilidad < 0 || peor.margen < 10)) ins.push(['⚠️ Requiere atención', `${limpiarAlm(peor.n)} · utilidad ${COP(peor.utilidad)} (${peor.margen}%)`]);
+  cont.innerHTML = ins.map(e => `<div style="padding:9px 16px;border-bottom:1px solid var(--borde);font-size:13px"><strong>${e[0]}</strong> <span style="color:var(--gris-medio)">${e[1]}</span></div>`).join('');
 }
 
 // ─── INIT ─────────────────────────────────────
