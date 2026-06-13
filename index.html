@@ -386,9 +386,9 @@
           <span style="font-size:15px;font-weight:700;text-align:center;line-height:1.3">Nuevo<br>Gasto</span>
         </button>
 
-        <button onclick="abrirModalEntrada()" style="background:var(--brand);color:#fff;border:none;border-radius:14px;padding:18px 10px;display:flex;flex-direction:column;align-items:center;gap:10px;cursor:pointer;box-shadow:0 4px 12px rgba(2,171,213,0.30);transition:transform .15s;-webkit-tap-highlight-color:transparent" ontouchstart="this.style.transform='scale(0.96)'" ontouchend="this.style.transform='scale(1)'">
-          <svg width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="#fff" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0l-3-3m3 3l3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/></svg>
-          <span style="font-size:15px;font-weight:700;text-align:center;line-height:1.3">Nueva entrada<br>a bodega</span>
+        <button onclick="abrirModalCorte()" style="background:var(--brand);color:#fff;border:none;border-radius:14px;padding:18px 10px;display:flex;flex-direction:column;align-items:center;gap:10px;cursor:pointer;box-shadow:0 4px 12px rgba(2,171,213,0.30);transition:transform .15s;-webkit-tap-highlight-color:transparent" ontouchstart="this.style.transform='scale(0.96)'" ontouchend="this.style.transform='scale(1)'">
+          <svg width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="#fff" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+          <span style="font-size:15px;font-weight:700;text-align:center;line-height:1.3">Nuevo<br>corte</span>
         </button>
 
       </div>
@@ -2111,7 +2111,7 @@ async function cargarDash() {
   if (hayApertura) insBodega.push({ tipo: 'info', icono: '🏬', texto: `En tiendas: ${NUM(enTiendas)} uds repartidas`, accion: () => showPage('inventarios') });
   if (sinStock > 0) insBodega.push({ tipo: 'danger', icono: '🚫', texto: `${sinStock} referencia${sinStock>1?'s':''} sin stock en bodega`, accion: () => showPage('bodega') });
   if (bajosStock > 0) insBodega.push({ tipo: 'warn', icono: '⚠️', texto: `${bajosStock} referencia${bajosStock>1?'s':''} con stock bajo (≤10 uds)`, accion: () => showPage('bodega') });
-  if (totalBodega > 0 && totalBodega < 50) insBodega.push({ tipo: 'warn', icono: '🏭', texto: `Stock total bajo (${NUM(totalBodega)} uds) — considera nueva producción`, accion: () => abrirModalEntrada() });
+  if (totalBodega > 0 && totalBodega < 50) insBodega.push({ tipo: 'warn', icono: '🏭', texto: `Stock total bajo (${NUM(totalBodega)} uds) — considera nueva producción`, accion: () => abrirModalCorte() });
   if (!hayApertura) insBodega.push({ tipo: 'info', icono: '📋', texto: 'Sin inventario inicial cargado — los datos de tiendas no son precisos', accion: () => showPage('inventarios') });
   if (sinStock === 0 && bajosStock === 0 && totalBodega >= 50) insBodega.push({ tipo: 'ok', icono: '✅', texto: 'Inventario sano — sin alertas de stock', accion: null });
 
@@ -2946,8 +2946,12 @@ function recalcCorte() {
   r.innerHTML = html;
 }
 
-function abrirModalCorte() {
-  if (!bodegaData.length) { toast('Abre la bodega primero para cargar las referencias', 'err'); return; }
+async function abrirModalCorte() {
+  if (!bodegaData.length) {
+    const { data } = await sb.from('bodega').select('*').order('referencia');
+    bodegaData = data || [];
+  }
+  if (!bodegaData.length) { toast('Aún no hay referencias en bodega', 'err'); return; }
   ['c-tela','c-metros','c-precio-metro','c-kilos','c-precio-kilo','c-rendimiento','c-largo','c-capas','c-notas'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('c-capas-hint').textContent = '';
   document.getElementById('c-refs-wrap').innerHTML = '';
