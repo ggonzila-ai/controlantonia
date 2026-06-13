@@ -1685,14 +1685,14 @@ async function handleLogin() {
     ]);
     if (userError || !usuario) { throw new Error('Email o contraseña incorrectos'); }
 
-    // Validar contraseña con SHA256 (si hay password_hash guardado)
-    if (usuario.password_hash) {
-      const passwordHash = await hashSHA256(password);
-      if (passwordHash !== usuario.password_hash) {
-        throw new Error('Email o contraseña incorrectos');
-      }
+    // Contraseña OBLIGATORIA para todos (puerta cerrada)
+    if (!usuario.password_hash) {
+      throw new Error('Esta cuenta no tiene contraseña. Pídele a administración que te la asigne.');
     }
-    // Si no hay password_hash, permitir login (para usuarios nuevos en testing)
+    const passwordHash = await hashSHA256(password);
+    if (passwordHash !== usuario.password_hash) {
+      throw new Error('Email o contraseña incorrectos');
+    }
 
     _usuarioActual = {
       email: usuario.email,
