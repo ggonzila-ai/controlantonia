@@ -1550,54 +1550,15 @@
     <div class="modal-handle"></div>
     <div class="modal-title">Nuevo corte</div>
     <div class="form-group">
-      <label>Nombre de la tela</label>
-      <input type="text" id="c-tela" placeholder="Ej: Algodón licrado">
-    </div>
-    <label style="display:block">¿Cómo se compra la tela?</label>
-    <div style="display:flex;gap:8px;margin:6px 0 12px">
-      <button type="button" id="c-tipo-metro" onclick="setTipoCorte('metro')" style="flex:1;padding:11px;border-radius:10px;border:2px solid var(--brand);background:var(--brand);color:#fff;font-weight:700;font-size:14px;cursor:pointer">Por metro</button>
-      <button type="button" id="c-tipo-kilo" onclick="setTipoCorte('kilo')" style="flex:1;padding:11px;border-radius:10px;border:2px solid var(--borde);background:#fff;color:var(--gris-medio);font-weight:700;font-size:14px;cursor:pointer">Por kilo</button>
-    </div>
-    <div id="c-bloque-metro">
-      <div class="form-row" style="margin-bottom:0">
-        <div class="form-group">
-          <label>Metros comprados</label>
-          <input type="number" id="c-metros" step="0.01" placeholder="50" oninput="recalcCorte()">
-        </div>
-        <div class="form-group">
-          <label>Precio del metro (COP)</label>
-          <input type="number" id="c-precio-metro" placeholder="12000" oninput="recalcCorte()">
-        </div>
-      </div>
-    </div>
-    <div id="c-bloque-kilo" style="display:none">
-      <div class="form-row" style="margin-bottom:10px">
-        <div class="form-group">
-          <label>Kilos comprados</label>
-          <input type="number" id="c-kilos" step="0.01" placeholder="10" oninput="recalcCorte()">
-        </div>
-        <div class="form-group">
-          <label>Precio del kilo (COP)</label>
-          <input type="number" id="c-precio-kilo" placeholder="40000" oninput="recalcCorte()">
-        </div>
-      </div>
-      <div class="form-group" style="margin-bottom:0">
-        <label>Rendimiento (metros x kilo)</label>
-        <input type="number" id="c-rendimiento" step="0.01" placeholder="3.5" oninput="recalcCorte()">
-      </div>
+      <label>Largo del trazo (m)</label>
+      <input type="number" id="c-largo" step="0.01" placeholder="6" oninput="recalcCorte()">
     </div>
 
-    <div class="form-row" style="margin-top:14px;margin-bottom:0">
-      <div class="form-group">
-        <label>Largo del trazo (m)</label>
-        <input type="number" id="c-largo" step="0.01" placeholder="6" oninput="onLargoTrazo()">
-      </div>
-      <div class="form-group">
-        <label>Capas / tendidos</label>
-        <input type="number" id="c-capas" min="1" placeholder="10" oninput="recalcCorte()">
-      </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:6px 0 8px">
+      <label style="margin:0">Telas del corte</label>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="addCorteTela()">+ Tela</button>
     </div>
-    <div id="c-capas-hint" style="font-size:11.5px;color:var(--brand);font-weight:600;margin:6px 0 0"></div>
+    <div id="c-telas-wrap"></div>
 
     <div style="display:flex;align-items:center;justify-content:space-between;margin:16px 0 8px">
       <label style="margin:0">Composición del trazo</label>
@@ -2866,39 +2827,72 @@ function showTabCorte(cual) {
   lt.style.display = term ? 'block' : 'none'; lp.style.display = term ? 'none' : 'block';
 }
 
-function setTipoCorte(tipo) {
-  _corteTipo = tipo;
-  const bm = document.getElementById('c-bloque-metro'), bk = document.getElementById('c-bloque-kilo');
-  const btnM = document.getElementById('c-tipo-metro'), btnK = document.getElementById('c-tipo-kilo');
+// --- Telas del corte (varias, cada una con sus capas) ---
+let _ctSeq = 0;
+function addCorteTela(pre) {
+  const i = _ctSeq++;
+  const card = document.createElement('div');
+  card.id = 'ctela-' + i;
+  card.dataset.idx = i;
+  card.dataset.tipo = (pre && pre.tipo_precio) || 'metro';
+  card.style.cssText = 'border:1px solid var(--borde);border-radius:10px;padding:10px;margin-bottom:8px';
+  card.innerHTML = `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <input type="text" id="ct-nombre-${i}" placeholder="Nombre de la tela (ej: Azul)" oninput="recalcCorte()" style="flex:1;padding:9px;border:1.5px solid var(--borde);border-radius:8px;font-size:14px;font-family:inherit">
+      <button type="button" onclick="removeCorteTela(${i})" style="background:none;border:none;color:var(--rojo);font-size:18px;cursor:pointer;padding:4px">✕</button>
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+      <button type="button" id="ct-metro-${i}" onclick="setTelaTipo(${i},'metro')" style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--brand);background:var(--brand);color:#fff;font-weight:700;font-size:13px;cursor:pointer">Por metro</button>
+      <button type="button" id="ct-kilo-${i}" onclick="setTelaTipo(${i},'kilo')" style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--borde);background:#fff;color:var(--gris-medio);font-weight:700;font-size:13px;cursor:pointer">Por kilo</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div style="flex:1;min-width:88px">
+        <div style="font-size:11px;color:var(--gris-medio);margin-bottom:3px">Precio (<span id="ct-unidad-${i}">metro</span>)</div>
+        <input type="number" id="ct-precio-${i}" placeholder="12000" oninput="recalcCorte()" style="width:100%;padding:8px;border:1.5px solid var(--borde);border-radius:8px;font-size:13px">
+      </div>
+      <div style="flex:1;min-width:88px;display:none" id="ct-rend-wrap-${i}">
+        <div style="font-size:11px;color:var(--gris-medio);margin-bottom:3px">Rendim. m/kg</div>
+        <input type="number" id="ct-rend-${i}" step="0.01" placeholder="3.5" oninput="recalcCorte()" style="width:100%;padding:8px;border:1.5px solid var(--borde);border-radius:8px;font-size:13px">
+      </div>
+      <div style="flex:1;min-width:64px">
+        <div style="font-size:11px;color:var(--gris-medio);margin-bottom:3px">Capas</div>
+        <input type="number" id="ct-capas-${i}" placeholder="10" oninput="recalcCorte()" style="width:100%;padding:8px;border:1.5px solid var(--borde);border-radius:8px;font-size:13px">
+      </div>
+    </div>
+    <div id="ct-info-${i}" style="font-size:11px;color:var(--gris-medio);margin-top:6px"></div>`;
+  document.getElementById('c-telas-wrap').appendChild(card);
+  if (pre) {
+    document.getElementById('ct-nombre-' + i).value = pre.nombre || '';
+    document.getElementById('ct-precio-' + i).value = pre.precio || '';
+    if (pre.rendimiento) document.getElementById('ct-rend-' + i).value = pre.rendimiento;
+    if (pre.capas) document.getElementById('ct-capas-' + i).value = pre.capas;
+  }
+  setTelaTipo(i, card.dataset.tipo);
+  return i;
+}
+function removeCorteTela(i) { const el = document.getElementById('ctela-' + i); if (el) el.remove(); recalcCorte(); }
+function setTelaTipo(i, tipo) {
+  const card = document.getElementById('ctela-' + i); if (card) card.dataset.tipo = tipo;
+  const bM = document.getElementById('ct-metro-' + i), bK = document.getElementById('ct-kilo-' + i);
   const on = b => { b.style.background = 'var(--brand)'; b.style.color = '#fff'; b.style.borderColor = 'var(--brand)'; };
   const off = b => { b.style.background = '#fff'; b.style.color = 'var(--gris-medio)'; b.style.borderColor = 'var(--borde)'; };
-  if (tipo === 'kilo') { bm.style.display = 'none'; bk.style.display = 'block'; on(btnK); off(btnM); }
-  else { bm.style.display = 'block'; bk.style.display = 'none'; on(btnM); off(btnK); }
+  if (tipo === 'kilo') { on(bK); off(bM); document.getElementById('ct-rend-wrap-' + i).style.display = ''; document.getElementById('ct-unidad-' + i).textContent = 'kilo'; }
+  else { on(bM); off(bK); document.getElementById('ct-rend-wrap-' + i).style.display = 'none'; document.getElementById('ct-unidad-' + i).textContent = 'metro'; }
   recalcCorte();
 }
-
-// Tela del corte → metros disponibles + costo total
-function telaCorte() {
-  let cantidad = 0, precio = 0, metrosDisp = 0, rend = 0;
-  if (_corteTipo === 'kilo') {
-    cantidad = parseFloat(document.getElementById('c-kilos').value) || 0;
-    precio = parseFloat(document.getElementById('c-precio-kilo').value) || 0;
-    rend = parseFloat(document.getElementById('c-rendimiento').value) || 0;
-    metrosDisp = cantidad * rend;
-  } else {
-    cantidad = parseFloat(document.getElementById('c-metros').value) || 0;
-    precio = parseFloat(document.getElementById('c-precio-metro').value) || 0;
-    metrosDisp = cantidad;
-  }
-  return { cantidad, precio, rend, metrosDisp, costoTotal: Math.round(cantidad * precio) };
-}
-
-function onLargoTrazo() {
-  const t = telaCorte();
+// Lee las telas. metros usados = largo × capas; costo = metros × precio/m (kilo: precio/rendimiento)
+function getTelas() {
   const largo = parseFloat(document.getElementById('c-largo').value) || 0;
-  const capasEl = document.getElementById('c-capas');
-  if (largo > 0 && t.metrosDisp > 0 && !capasEl.value) capasEl.value = Math.floor(t.metrosDisp / largo);
-  recalcCorte();
+  return [...document.querySelectorAll('#c-telas-wrap > div')].map(card => {
+    const i = card.dataset.idx, tipo = card.dataset.tipo || 'metro';
+    const nombre = document.getElementById('ct-nombre-' + i)?.value.trim() || '';
+    const precio = parseFloat(document.getElementById('ct-precio-' + i)?.value) || 0;
+    const rend = parseFloat(document.getElementById('ct-rend-' + i)?.value) || 0;
+    const capas = parseInt(document.getElementById('ct-capas-' + i)?.value) || 0;
+    const precioMetro = tipo === 'kilo' ? (rend > 0 ? precio / rend : 0) : precio;
+    const metrosUsados = largo * capas;
+    return { idx: i, nombre, tipo, precio, rendimiento: rend || null, capas, metrosUsados, costo: Math.round(metrosUsados * precioMetro) };
+  });
 }
 
 // --- Composición del trazo (una tarjeta por referencia) ---
@@ -2970,29 +2964,28 @@ function getTrazoRefs() {
 }
 
 function recalcCorte() {
-  const t = telaCorte();
   const largo = parseFloat(document.getElementById('c-largo').value) || 0;
-  const capas = parseInt(document.getElementById('c-capas').value) || 0;
-  const hint = document.getElementById('c-capas-hint');
-  hint.textContent = (largo > 0 && t.metrosDisp > 0) ? `Con ${NUM(Math.round(t.metrosDisp))} m y trazo de ${largo} m caben ≈ ${NUM(Math.floor(t.metrosDisp / largo))} capas.` : '';
+  const telas = getTelas();
+  telas.forEach(t => {
+    const el = document.getElementById('ct-info-' + t.idx); if (!el) return;
+    if (largo > 0 && t.capas > 0 && t.costo > 0) el.textContent = `${NUM(t.capas)} capas × ${largo} m = ${NUM(Math.round(t.metrosUsados))} m · ${COP(t.costo)}`;
+    else if (largo > 0 && t.capas > 0) el.textContent = `${NUM(Math.round(t.metrosUsados))} m usados (falta precio)`;
+    else el.textContent = '';
+  });
+  const totalCapas = telas.reduce((a, t) => a + t.capas, 0);
+  const totalCosto = telas.reduce((a, t) => a + t.costo, 0);
   const refs = getTrazoRefs();
   const r = document.getElementById('c-resumen');
-  if (t.costoTotal <= 0) { r.textContent = 'Completa los datos de la tela para ver el estimado.'; return; }
-  let html = `💰 Costo total tela: <b>${COP(t.costoTotal)}</b>`;
-  if (t.metrosDisp > 0) html += ` · ${NUM(Math.round(t.metrosDisp))} m disponibles`;
-  if (!capas || !refs.length) { r.innerHTML = html + '<br><span style="color:var(--gris-medio)">Pon las capas y la composición del trazo.</span>'; return; }
-  const porRef = refs.map(rf => ({ ...rf, und: Object.values(rf.tallas).reduce((a, n) => a + n, 0) * capas }));
+  if (largo <= 0 || !telas.some(t => t.capas > 0)) { r.textContent = 'Pon el largo del trazo y al menos una tela con capas.'; return; }
+  let html = `🧵 ${telas.length} tela${telas.length > 1 ? 's' : ''} · ${NUM(totalCapas)} capas en total<br>💰 Costo total tela: <b>${COP(totalCosto)}</b>`;
+  if (!refs.length) { r.innerHTML = html + '<br><span style="color:var(--gris-medio)">Agrega la composición del trazo (referencias y tallas).</span>'; return; }
+  const porRef = refs.map(rf => ({ ...rf, und: Object.values(rf.tallas).reduce((a, n) => a + n, 0) * totalCapas }));
   const totalUnd = porRef.reduce((a, p) => a + p.und, 0);
   const totalFabric = porRef.reduce((a, p) => a + p.und * p.consumo, 0);
   const usaConsumo = porRef.every(p => p.consumo > 0) && totalFabric > 0;
-  const metrosUsados = largo * capas;
-  if (largo > 0) {
-    html += `<br>🧵 Trazo ${largo} m × ${NUM(capas)} capas = ${NUM(Math.round(metrosUsados))} m usados`;
-    if (t.metrosDisp > 0 && metrosUsados > t.metrosDisp * 1.02) html += ` <span style="color:var(--rojo)">⚠️ excede la tela</span>`;
-  }
-  html += `<br>👕 ${NUM(totalUnd)} prendas<br>`;
+  html += `<br>👕 ${NUM(totalUnd)} prendas (todas las telas sumadas)<br>`;
   html += porRef.map(p => {
-    const cpp = usaConsumo ? Math.round(t.costoTotal * p.consumo / totalFabric) : (totalUnd > 0 ? Math.round(t.costoTotal / totalUnd) : 0);
+    const cpp = usaConsumo ? Math.round(totalCosto * p.consumo / totalFabric) : (totalUnd > 0 ? Math.round(totalCosto / totalUnd) : 0);
     return `• ${p.referencia}${p.tipo === 'aprovechamiento' ? ' (aprov.)' : ''}: ${NUM(p.und)} und → ${COP(cpp)}/u`;
   }).join('<br>');
   r.innerHTML = html;
@@ -3004,46 +2997,49 @@ async function abrirModalCorte() {
     bodegaData = data || [];
   }
   if (!bodegaData.length) { toast('Aún no hay referencias en bodega', 'err'); return; }
-  ['c-tela','c-metros','c-precio-metro','c-kilos','c-precio-kilo','c-rendimiento','c-largo','c-capas','c-notas'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('c-capas-hint').textContent = '';
+  ['c-largo','c-notas'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('c-telas-wrap').innerHTML = '';
   document.getElementById('c-refs-wrap').innerHTML = '';
-  _ciSeq = 0;
+  _ctSeq = 0; _ciSeq = 0;
+  addCorteTela();
   addCorteRef();
-  setTipoCorte('metro');
   document.getElementById('c-resumen').textContent = 'Completa los datos para ver el estimado.';
   document.getElementById('modal-corte').classList.add('open');
 }
 
 async function guardarCorte() {
-  const t = telaCorte();
-  if (t.costoTotal <= 0) { toast('Ingresa cantidad y precio de la tela', 'err'); return; }
   const largo = parseFloat(document.getElementById('c-largo').value) || 0;
-  const capas = parseInt(document.getElementById('c-capas').value) || 0;
-  if (!capas) { toast('Ingresa cuántas capas / tendidos', 'err'); return; }
+  if (largo <= 0) { toast('Ingresa el largo del trazo', 'err'); return; }
+  const telas = getTelas().filter(t => t.capas > 0);
+  if (!telas.length) { toast('Agrega al menos una tela con capas', 'err'); return; }
   const refs = getTrazoRefs();
   if (!refs.length) { toast('Agrega al menos una referencia con tallas', 'err'); return; }
   const nombres = refs.map(r => r.referencia);
   if (new Set(nombres).size !== nombres.length) { toast('Hay una referencia repetida en el trazo', 'err'); return; }
+  const totalCapas = telas.reduce((a, t) => a + t.capas, 0);
+  const totalCosto = telas.reduce((a, t) => a + t.costo, 0);
   const items = refs.map(rf => ({
     referencia: rf.referencia, tipo: rf.tipo, consumo: rf.consumo || null,
     tallas_capa: rf.tallas,
-    prendas_estimadas: Object.values(rf.tallas).reduce((a, n) => a + n, 0) * capas
+    prendas_estimadas: Object.values(rf.tallas).reduce((a, n) => a + n, 0) * totalCapas
   }));
   const totalEst = items.reduce((a, it) => a + it.prendas_estimadas, 0);
   const principal = refs.find(r => r.tipo === 'principal') || refs[0];
+  const t0 = telas[0];
   const row = {
     referencia: principal.referencia,
-    tela_nombre: document.getElementById('c-tela').value.trim() || null,
-    tipo_precio: _corteTipo,
-    cantidad_tela: t.cantidad,
-    precio_unitario: t.precio,
-    rendimiento: _corteTipo === 'kilo' ? (t.rend || null) : null,
-    largo_trazo: largo || null,
-    capas,
-    costo_total: t.costoTotal,
+    tela_nombre: telas.map(t => t.nombre || 'Tela').join(', '),
+    tipo_precio: t0.tipo,
+    cantidad_tela: t0.metrosUsados,
+    precio_unitario: t0.precio,
+    rendimiento: t0.tipo === 'kilo' ? (t0.rendimiento || null) : null,
+    largo_trazo: largo,
+    capas: totalCapas,
+    costo_total: totalCosto,
     prendas_estimadas: totalEst || null,
     estado: 'en_proceso',
     notas: document.getElementById('c-notas').value.trim() || null,
+    telas: telas.map(t => ({ nombre: t.nombre || null, tipo_precio: t.tipo, precio: t.precio, rendimiento: t.rendimiento, capas: t.capas, metros_usados: t.metrosUsados, costo: t.costo })),
     items
   };
   const { error } = await sb.from('cortes').insert(row);
@@ -3078,9 +3074,12 @@ function corteCard(c) {
   const badge = term
     ? '<span style="background:var(--success-bg);color:var(--success-text);font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap">✓ Terminado</span>'
     : '<span style="background:var(--warning-bg);color:var(--warning-text);font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap">En proceso</span>';
-  const telaLinea = c.tipo_precio === 'kilo'
-    ? `${NUM(c.cantidad_tela)} kg × ${COP(c.precio_unitario)}${c.rendimiento ? ` · ${c.rendimiento} m/kg` : ''}`
-    : `${NUM(c.cantidad_tela)} m × ${COP(c.precio_unitario)}`;
+  const telasArr = Array.isArray(c.telas) ? c.telas : null;
+  const telaLinea = (telasArr && telasArr.length)
+    ? telasArr.map(t => `${t.nombre || 'Tela'}: ${NUM(t.capas)} capas`).join(' · ')
+    : `${c.tela_nombre ? c.tela_nombre + ' · ' : ''}` + (c.tipo_precio === 'kilo'
+        ? `${NUM(c.cantidad_tela)} kg × ${COP(c.precio_unitario)}${c.rendimiento ? ` · ${c.rendimiento} m/kg` : ''}`
+        : `${NUM(c.cantidad_tela)} m × ${COP(c.precio_unitario)}`);
   const items = Array.isArray(c.items) ? c.items : [];
   const itemsLinea = items.map(it => {
     const tag = it.tipo === 'aprovechamiento' ? ' <span style="color:var(--brand)">(aprov.)</span>' : '';
@@ -3103,7 +3102,7 @@ function corteCard(c) {
       <div style="font-weight:700;font-size:15px">${titulo}</div>${badge}
     </div>
     <div style="font-size:12.5px;color:var(--gris-medio);line-height:1.8">
-      🧵 ${c.tela_nombre || 'Tela'} · ${telaLinea}<br>
+      🧵 ${telaLinea}<br>
       💰 Tela: <b>${COP(c.costo_total || 0)}</b><br>
       ${trazoLinea}${itemsLinea}<br>
       ${impLinea}📅 ${_fmtFechaCorte(c.fecha)}${c.notas ? ` · ${c.notas}` : ''}
@@ -3198,15 +3197,21 @@ async function confirmarTerminarCorte() {
       const { error } = await sb.rpc('mov_bodega_talla', { p_ref: p.referencia, p_talla: talla, p_delta: cant });
       if (error) { toast('Error al ingresar ' + p.referencia + ' ' + talla, 'err'); return; }
     }
-    const upd = { costo: p.costoPrenda, tela_tipo_precio: c.tipo_precio };
-    if (c.tela_nombre) upd.tela_nombre = c.tela_nombre;
+    const upd = { costo: p.costoPrenda };
     if (p.consumo) upd.tela_consumo = p.consumo;
-    if (c.tipo_precio === 'kilo') {
-      if (c.precio_unitario) upd.tela_precio_kilo = c.precio_unitario;
-      if (c.rendimiento) upd.tela_rendimiento = c.rendimiento;
-      if (c.precio_unitario && c.rendimiento) upd.tela_precio_metro = Math.round((c.precio_unitario / c.rendimiento) * 100) / 100;
-    } else {
-      if (c.precio_unitario) upd.tela_precio_metro = c.precio_unitario;
+    // Solo guardamos metadata de tela en la referencia si el corte usó UNA sola tela
+    // (con varias telas/colores sería ambiguo; bodega se mantiene simple).
+    const multiTela = Array.isArray(c.telas) && c.telas.length > 1;
+    if (!multiTela) {
+      upd.tela_tipo_precio = c.tipo_precio;
+      if (c.tela_nombre) upd.tela_nombre = c.tela_nombre;
+      if (c.tipo_precio === 'kilo') {
+        if (c.precio_unitario) upd.tela_precio_kilo = c.precio_unitario;
+        if (c.rendimiento) upd.tela_rendimiento = c.rendimiento;
+        if (c.precio_unitario && c.rendimiento) upd.tela_precio_metro = Math.round((c.precio_unitario / c.rendimiento) * 100) / 100;
+      } else {
+        if (c.precio_unitario) upd.tela_precio_metro = c.precio_unitario;
+      }
     }
     await sb.from('bodega').update(upd).eq('referencia', p.referencia);
   }
