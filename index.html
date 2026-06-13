@@ -627,10 +627,10 @@
             <select id="hist-almacen" onchange="renderComparativo()" style="padding:9px 12px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:14px;font-family:inherit;background:var(--blanco)"></select>
           </div>
         </div>
-        <div style="padding:0 16px 6px;font-size:11px;color:var(--gris-medio)">Toca un valor de <strong>2025</strong> para editarlo (datos históricos corregibles).</div>
+        <div style="padding:0 16px 6px;font-size:11px;color:var(--gris-medio)">Toca un valor de <strong>2025</strong> para editarlo. <strong>Meta de Venta</strong> = 2025 × crecimiento (ajusta el escenario abajo en "Metas inteligentes"). <strong>Cumpl.</strong> = real 2026 ÷ meta.</div>
         <div class="tabla-wrap">
           <table>
-            <thead><tr><th>Mes</th><th style="text-align:right">2025</th><th style="text-align:right">2026</th><th style="text-align:right">Δ abs</th><th style="text-align:right">Var %</th></tr></thead>
+            <thead><tr><th>Mes</th><th style="text-align:right">2025</th><th style="text-align:right">Meta de Venta</th><th style="text-align:right">2026</th><th style="text-align:right">Cumpl.</th></tr></thead>
             <tbody id="hist-comp-tbody"><tr><td colspan="5"><div class="loader"><div class="spinner"></div></div></td></tr></tbody>
           </table>
         </div>
@@ -641,7 +641,7 @@
           <div id="meta-escenarios" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px"></div>
           <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:4px">
             <div class="form-group" style="margin:0;min-width:180px"><label>Crecimiento aplicado</label>
-              <select id="meta-crec" onchange="cargarMetas()">
+              <select id="meta-crec" onchange="onChangeCrec()">
                 <option value="5">Conservador +5%</option>
                 <option value="10" selected>Objetivo +10%</option>
                 <option value="15">Ambicioso +15%</option>
@@ -5157,26 +5157,30 @@ async function cargarHistoricoVentas() {
 function renderComparativo() {
   const scope = document.getElementById('hist-almacen')?.value || '';
   const serie25 = scope ? (HIST25.alm[scope] || Array(12).fill(0)) : HIST25.cons;
-  let t25=0,t26=0, rows='';
+  const factor = factorCrecimiento();
+  let t25=0, tMeta=0, t26=0, rows='';
   for (let m=1; m<=12; m++) {
     const v25 = serie25[m-1]||0;
+    const meta = Math.round(v25*factor);
     const v26 = scope ? ((_real2026Alm[scope]||{})[m]||0) : (_real2026[m]||0);
-    t25+=v25; t26+=v26;
-    const d = v26 - v25, vp = v25 ? Math.round(d/v25*100) : null, has = v26>0;
+    t25+=v25; tMeta+=meta; t26+=v26;
+    const has = v26>0;
+    const cumpl = (has && meta>0) ? Math.round(v26/meta*100) : null;
+    const cumplCol = cumpl==null ? '' : (cumpl>=100?'diff-pos':cumpl>=80?'':'diff-neg');
     rows += `<tr>
       <td>${MESES[m-1]}</td>
       <td style="text-align:right"><span onclick="editarHist(${m}, this.dataset.scope, ${v25})" data-scope="${scope}" style="cursor:pointer;border-bottom:1px dashed var(--rosa-oscuro);color:${v25?'inherit':'var(--gris-medio)'}" title="Editar venta 2025">${v25?COP(v25):'+ editar'}</span></td>
+      <td style="text-align:right;color:var(--brand-dark)">${meta?COP(meta):'—'}</td>
       <td style="text-align:right;font-weight:700">${has?COP(v26):'—'}</td>
-      <td style="text-align:right" class="${has?(d<0?'diff-neg':'diff-pos'):''}">${has?((d>0?'+':'')+COP(d)):'—'}</td>
-      <td style="text-align:right" class="${has&&vp!=null?(vp<0?'diff-neg':'diff-pos'):''}">${has&&vp!=null?((vp>0?'+':'')+vp+'%'):'—'}</td>
+      <td style="text-align:right;font-weight:700" class="${cumplCol}">${cumpl!=null?cumpl+'%':'—'}</td>
     </tr>`;
   }
-  const dT=t26-t25, vpT=t25?Math.round(dT/t25*100):0;
+  const cumplT = (t26>0 && tMeta>0) ? Math.round(t26/tMeta*100) : null;
   rows += `<tr style="background:var(--gris-claro);font-weight:700">
     <td>TOTAL</td><td style="text-align:right">${COP(t25)}</td>
+    <td style="text-align:right;color:var(--brand-dark)">${COP(tMeta)}</td>
     <td style="text-align:right">${t26?COP(t26):'—'}</td>
-    <td style="text-align:right">${t26?((dT>0?'+':'')+COP(dT)):'—'}</td>
-    <td style="text-align:right">${t26?((vpT>0?'+':'')+vpT+'%'):'—'}</td></tr>`;
+    <td style="text-align:right">${cumplT!=null?cumplT+'%':'—'}</td></tr>`;
   document.getElementById('hist-comp-tbody').innerHTML = rows;
 }
 
@@ -5207,59 +5211,94 @@ let _metaFilas = [];
 async function cargarMetas() {
   const m = +document.getElementById('meta-mes').value;
   const factor = factorCrecimiento();
-  // Escenarios consolidados (base 2025 del mes)
-  const histCons = almacenes.reduce((s,a)=> s + ((HIST25.alm[a.nombre]||[])[m-1]||0), 0);
-  const crecSel = document.getElementById('meta-crec').value;
-  document.getElementById('meta-escenarios').innerHTML = [['Conservador',5],['Objetivo',10],['Ambicioso',15]].map(([nombre,pct])=>{
-    const meta = Math.round(histCons*(1+pct/100));
-    const sel = crecSel === String(pct);
-    const col = nombre==='Conservador'?'var(--gris-medio)':nombre==='Objetivo'?'var(--brand)':'var(--rosa-oscuro)';
-    return `<div onclick="document.getElementById('meta-crec').value='${pct}';cargarMetas()" style="cursor:pointer;border:2px solid ${sel?col:'var(--borde)'};border-radius:10px;padding:9px 6px;text-align:center;background:${sel?col+'14':'#fff'};transition:.12s">
-      <div style="font-size:11px;font-weight:700;color:${col}">${nombre}</div>
-      <div style="font-size:10px;color:var(--gris-medio)">+${pct}% vs 2025</div>
-      <div style="font-size:13px;font-weight:800;margin-top:3px">${COP(meta)}</div>
-    </div>`;
-  }).join('');
-  // Metas ya guardadas del período (para pre-llenar la meta final)
   const periodo = `2026-${String(m).padStart(2,'0')}`;
   const { data: guardadas } = await sb.from('metas_ventas').select('almacen_id, meta_valor').eq('periodo', periodo);
   const savedMap = {}; (guardadas||[]).forEach(g => savedMap[g.almacen_id] = g.meta_valor);
-  let metaGen=0, realGen=0; const filas=[];
-  almacenes.forEach(a => {
+  _metaFilas = almacenes.map(a => {
     const hist = (HIST25.alm[a.nombre]||[])[m-1] || 0;
     const real = (_real2026Alm[a.nombre]||{})[m] || 0;
     let sugerida, nuevo=false;
     if (HIST25.alm[a.nombre]) sugerida = Math.round(hist*factor);
     else { nuevo=true; const vals=Object.values(_real2026Alm[a.nombre]||{}); sugerida = vals.length?Math.round(vals.reduce((s,x)=>s+x,0)/vals.length):0; }
     const final = (a.id in savedMap) ? savedMap[a.id] : sugerida;
-    const crec = hist>0 ? Math.round((final-hist)/hist*100) : null;
-    metaGen += final; realGen += real;
-    filas.push({ id:a.id, nombre:a.nombre, hist, sugerida, final, crec, real, nuevo });
-  });
+    return { id:a.id, nombre:a.nombre, hist, sugerida, real, nuevo, final };
+  }).sort((a,b)=>cmpAlm(a.nombre,b.nombre));
+  pintarMetas();
+}
+
+const ESCENARIOS = [['Conservador',5],['Objetivo',10],['Ambicioso',15]];
+function pintarMetas() {
+  const m = +document.getElementById('meta-mes').value;
+  const crecSel = document.getElementById('meta-crec').value;
+  const histCons = _metaFilas.reduce((s,f)=>s+f.hist,0);
+  document.getElementById('meta-escenarios').innerHTML = ESCENARIOS.map(([nombre,pct])=>{
+    const meta = Math.round(histCons*(1+pct/100));
+    const sel = crecSel === String(pct);
+    const col = nombre==='Conservador'?'var(--gris-medio)':nombre==='Objetivo'?'var(--brand)':'var(--rosa-oscuro)';
+    return `<div onclick="document.getElementById('meta-crec').value='${pct}';onChangeCrec()" style="cursor:pointer;border:2px solid ${sel?col:'var(--borde)'};border-radius:10px;padding:9px 6px;text-align:center;background:${sel?col+'14':'#fff'};transition:.12s">
+      <div style="font-size:11px;font-weight:700;color:${col}">${nombre}</div>
+      <div style="font-size:10px;color:var(--gris-medio)">+${pct}% vs 2025</div>
+      <div style="font-size:13px;font-weight:800;margin-top:3px">${COP(meta)}</div>
+    </div>`;
+  }).join('');
+  actualizarMetaKpis();
+  document.getElementById('meta-tbody').innerHTML = _metaFilas.map((f,i) => {
+    const crec = f.hist>0 ? Math.round((f.final-f.hist)/f.hist*100) : null;
+    const escBtns = f.hist>0 ? `<div style="display:flex;gap:3px;margin-top:5px">` + ESCENARIOS.map(([nombre,pct])=>{
+      const activo = f.final === Math.round(f.hist*(1+pct/100));
+      return `<button type="button" onclick="aplicarEscenarioAlm(${i},${pct})" title="${nombre} +${pct}%" style="border:1px solid ${activo?'var(--brand)':'var(--borde)'};background:${activo?'var(--brand)':'#fff'};color:${activo?'#fff':'var(--gris-medio)'};border-radius:6px;font-size:10px;font-weight:800;width:24px;height:22px;cursor:pointer;padding:0">${nombre[0]}</button>`;
+    }).join('') + `</div>` : '';
+    return `<tr>
+      <td><strong>${limpiarAlm(f.nombre)}</strong>${f.nuevo?' <span class="badge badge-gray" style="font-size:9px">nuevo</span>':''}${escBtns}</td>
+      <td style="text-align:right;color:var(--gris-medio)">${f.hist?COP(f.hist):'—'}</td>
+      <td style="text-align:right" id="crec-${f.id}">${crec!=null?((crec>0?'+':'')+crec+'%'):'—'}</td>
+      <td style="text-align:right"><input type="number" id="metaf-${f.id}" value="${f.final}" oninput="onMetaInput(${i})" style="width:106px;padding:5px;text-align:right;font-size:13px;border:1px solid var(--borde);border-radius:6px;background:var(--blanco)"></td>
+      <td style="text-align:right;font-weight:700">${COP(f.real)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function actualizarMetaKpis() {
+  const m = +document.getElementById('meta-mes').value;
+  const factor = factorCrecimiento();
+  let metaGen=0, realGen=0; _metaFilas.forEach(f=>{ metaGen+=f.final; realGen+=f.real; });
   const cumpGen = metaGen ? Math.round(realGen/metaGen*100) : 0;
   document.getElementById('meta-kpis').innerHTML = `
     <div class="metric-card"><div class="m-label">Meta ${MESES[m-1]}</div><div class="m-val">${COP(metaGen)}</div><div class="m-sub">factor ×${factor.toFixed(2)} vs 2025</div></div>
     <div class="metric-card"><div class="m-label">Venta real</div><div class="m-val">${COP(realGen)}</div><div class="m-sub">${(realGen-metaGen>=0?'+':'')+COP(realGen-metaGen)} dif.</div></div>
     <div class="metric-card accent" style="grid-column:1/-1"><div class="m-label">Cumplimiento general</div><div class="m-val">${cumpGen}%</div><div class="stock-bar" style="margin-top:8px;height:8px;background:rgba(255,255,255,.3)"><div class="stock-fill" style="width:${Math.min(100,cumpGen)}%;background:#fff"></div></div></div>`;
-  document.getElementById('meta-tbody').innerHTML = filas.sort((a,b)=>cmpAlm(a.nombre,b.nombre)).map(f => `
-    <tr>
-      <td><strong>${limpiarAlm(f.nombre)}</strong>${f.nuevo?' <span class="badge badge-gray" style="font-size:9px">nuevo</span>':''}</td>
-      <td style="text-align:right;color:var(--gris-medio)">${f.hist?COP(f.hist):'—'}</td>
-      <td style="text-align:right">${f.crec!=null?((f.crec>0?'+':'')+f.crec+'%'):'—'}</td>
-      <td style="text-align:right"><input type="number" id="metaf-${f.id}" value="${f.final}" style="width:106px;padding:5px;text-align:right;font-size:13px;border:1px solid var(--borde);border-radius:6px;background:var(--blanco)"></td>
-      <td style="text-align:right;font-weight:700">${COP(f.real)}</td>
-    </tr>`).join('');
-  _metaFilas = filas;
+}
+
+// Cambiar el escenario global → recalcula la meta final de todos los almacenes (con base 2025)
+function onChangeCrec() {
+  const factor = factorCrecimiento();
+  _metaFilas.forEach(f => { if (f.hist>0) f.final = Math.round(f.hist*factor); });
+  pintarMetas();
+  renderComparativo();
+}
+// Aplicar un escenario a UN almacén
+function aplicarEscenarioAlm(i, pct) {
+  const f = _metaFilas[i]; if (!f || f.hist<=0) return;
+  f.final = Math.round(f.hist*(1+pct/100));
+  pintarMetas();
+}
+// Edición manual de una meta final (sin re-renderizar la tabla, para no perder el foco)
+function onMetaInput(i) {
+  const f = _metaFilas[i]; if (!f) return;
+  f.final = parseInt(document.getElementById('metaf-'+f.id).value) || 0;
+  const crec = f.hist>0 ? Math.round((f.final-f.hist)/f.hist*100) : null;
+  const cc = document.getElementById('crec-'+f.id); if (cc) cc.textContent = crec!=null?((crec>0?'+':'')+crec+'%'):'—';
+  actualizarMetaKpis();
 }
 
 async function guardarMetas() {
   const m = +document.getElementById('meta-mes').value;
   if (!m) { toast('Selecciona un mes', 'err'); return; }
   const periodo = `2026-${String(m).padStart(2,'0')}`;
-  const rows = _metaFilas.map(f => ({ almacen_id: f.id, periodo, meta_valor: parseInt(document.getElementById('metaf-'+f.id)?.value) || 0 }));
+  const rows = _metaFilas.map(f => ({ almacen_id: f.id, almacen_nombre: f.nombre, periodo, meta_valor: parseInt(document.getElementById('metaf-'+f.id)?.value) || 0 }));
   if (!rows.length) { toast('No hay almacenes', 'err'); return; }
   const { error } = await sb.from('metas_ventas').upsert(rows, { onConflict: 'almacen_id,periodo' });
-  if (error) { toast('Error al guardar metas', 'err'); console.error(error); return; }
+  if (error) { toast('Error al guardar metas: ' + (error.message||''), 'err'); console.error(error); return; }
   toast(`✓ Metas de ${MESES[m-1]} guardadas`);
   cargarMetas();
 }
