@@ -1048,6 +1048,10 @@
         </table></div>
       </div>
       <div class="section-card">
+        <div class="section-header"><div class="section-title">Ingresos recibidos (consignaciones)</div><span style="font-size:11px;color:var(--gris-medio)">dinero recibido en caja</span></div>
+        <div id="cont-ing-recibido"><div class="loader"><div class="spinner"></div></div></div>
+      </div>
+      <div class="section-card">
         <div class="section-header"><div class="section-title">Ingresos por mes (base sin IVA)</div><span style="font-size:11px;color:var(--gris-medio)">IVA 19%</span></div>
         <div id="cont-ing-chart" style="padding:8px 0"><div class="loader"><div class="spinner"></div></div></div>
       </div>
@@ -5494,6 +5498,18 @@ async function cargarIngresos() {
   }).join('') : '<div style="padding:20px;text-align:center;color:var(--gris-medio);font-size:13px">Sin ventas registradas.</div>';
   const anual = {}; periodos.forEach(p=>{ const y=p.slice(0,4); anual[y]=(anual[y]||0)+baseSinIva(map[p].total); });
   document.getElementById('cont-ing-anual').innerHTML = Object.entries(anual).sort().map(e=>`<div style="display:flex;justify-content:space-between;padding:9px 16px;border-bottom:1px solid var(--borde)"><span style="font-weight:600">${e[0]}</span><strong>${COP(e[1])}</strong></div>`).join('') || '<div style="padding:16px;text-align:center;color:var(--gris-medio);font-size:13px">—</div>';
+  // Ingresos recibidos (consignaciones): es el MISMO dinero de las ventas, pagado ~30 días vencidos (NO se suma)
+  const { data: cons } = await sb.from('consignaciones').select('fecha, valor, periodo').limit(5000);
+  const recPorPeriodo = {}; (cons||[]).forEach(c => { const p = c.periodo || periodoDe(c.fecha); recPorPeriodo[p] = (recPorPeriodo[p]||0) + (c.valor||0); });
+  const allP = [...new Set([...periodos, ...Object.keys(recPorPeriodo)])].sort();
+  const recTotal = Object.values(recPorPeriodo).reduce((s,x)=>s+x,0);
+  document.getElementById('cont-ing-recibido').innerHTML = `
+    <div style="padding:8px 16px 4px;font-size:11px;color:var(--gris-medio)">⚠️ No es dinero adicional a las ventas: es el <strong>mismo dinero</strong>, que Feria del Brasier paga ~30 días calendario vencidos. Por eso lo recibido en un mes corresponde, en general, a las ventas del mes anterior.</div>
+    <div class="tabla-wrap"><table>
+      <thead><tr><th>Mes</th><th style="text-align:right">Ventas del mes</th><th style="text-align:right">Recibido en caja</th></tr></thead>
+      <tbody>${allP.length ? allP.map(p=>`<tr><td>${mesNombre(p)}</td><td style="text-align:right;color:var(--gris-medio)">${map[p]?COP(map[p].total):'—'}</td><td style="text-align:right;font-weight:700">${recPorPeriodo[p]?COP(recPorPeriodo[p]):'—'}</td></tr>`).join('') : '<tr><td colspan="3" style="text-align:center;padding:16px;color:var(--gris-medio)">Sin datos.</td></tr>'}
+      <tr style="background:var(--gris-claro);font-weight:700"><td>TOTAL recibido</td><td></td><td style="text-align:right">${COP(recTotal)}</td></tr></tbody>
+    </table></div>`;
 }
 
 // ─── SOPORTES (helpers compartidos) ───────────────────────
