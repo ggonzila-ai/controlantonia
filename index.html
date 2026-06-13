@@ -2524,9 +2524,10 @@ function margenReferencia(ref) {
   if (!c || !c.precio_venta) return null;
   const mp = (_insumos[ref]||[]).reduce((s,i)=>s+(i.valor||0),0);
   const comision = comisionDe(c.precio_venta);
-  const costoTotal = mp + (c.costo_produccion||0) + (c.costo_comercial||0) + comision;
+  const iva = ivaDe(c.precio_venta);
+  const costoTotal = mp + (c.costo_produccion||0) + (c.costo_comercial||0) + comision + iva;
   const margen = c.precio_venta - costoTotal;
-  return { precio:c.precio_venta, mp, comision, costoTotal, margen, margenPct: c.precio_venta ? margen/c.precio_venta : 0 };
+  return { precio:c.precio_venta, mp, comision, iva, costoTotal, margen, margenPct: c.precio_venta ? margen/c.precio_venta : 0 };
 }
 
 function renderCostos() {
@@ -2627,7 +2628,8 @@ function recalcCostos() {
     mp += sinIva; mpIva += conIva;
   });
   const comision = comisionDe(precio);
-  const costoTotal = mp + prod + com + comision;
+  const iva = ivaDe(precio);
+  const costoTotal = mp + prod + com + comision + iva;
   const margen = precio - costoTotal;
   const pct = precio ? Math.round(margen/precio*100) : 0;
   const col = pct>=40?'var(--verde)':pct>=20?'var(--amarillo)':'var(--rojo)';
@@ -2635,6 +2637,7 @@ function recalcCostos() {
     <div style="display:flex;justify-content:space-between;padding:2px 0"><span>Materia prima (sin IVA)</span><strong>${COP(mp)}</strong></div>
     <div style="display:flex;justify-content:space-between;padding:2px 0;font-size:11px;color:var(--gris-medio)"><span>Materia prima con IVA</span><span>${COP(mpIva)}</span></div>
     <div style="display:flex;justify-content:space-between;padding:2px 0"><span>Comisión Feria del Brasier (16%)</span><strong>${COP(comision)}</strong></div>
+    <div style="display:flex;justify-content:space-between;padding:2px 0"><span>IVA de la venta (incluido, 19%)</span><strong>${COP(iva)}</strong></div>
     <div style="display:flex;justify-content:space-between;padding:2px 0;border-top:1px solid var(--borde);margin-top:4px;padding-top:6px"><span>Costo total unitario</span><strong>${COP(costoTotal)}</strong></div>
     <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:15px"><span style="font-weight:600">Margen bruto</span><strong style="color:${col}">${COP(margen)} · ${pct}%</strong></div>`;
 }
