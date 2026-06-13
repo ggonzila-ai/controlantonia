@@ -352,6 +352,7 @@
       <span id="sync-label">Conectando...</span>
     </div>
     <div id="header-user" style="font-size:12px;color:var(--gris-medio)"></div>
+    <button onclick="abrirUsuarios()" id="usuarios-btn" style="background:none;border:none;color:var(--brand-mid);cursor:pointer;font-size:12px;text-decoration:underline;display:none;margin-right:12px">Usuarios</button>
     <button onclick="handleLogout()" id="logout-btn" style="background:none;border:none;color:var(--rosa);cursor:pointer;font-size:12px;text-decoration:underline;display:none">Salir</button>
   </div>
 </div>
@@ -1361,6 +1362,56 @@
   </div>
 </div>
 
+<!-- MODAL AJUSTE DE REMISIONES -->
+<div class="modal-overlay" id="modal-remision">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Remisiones — <span id="rem-ref-label" style="color:var(--rosa-oscuro)"></span></div>
+    <div style="background:#eef9fc;border:1px solid var(--borde);border-radius:12px;padding:12px;margin-bottom:14px;font-size:13px;line-height:1.9">
+      📦 Desde despachos: <strong id="rem-despacho">0</strong> <span style="color:var(--gris-medio)">(conectado, no se edita aquí)</span><br>
+      ✎ Ajuste manual: <strong id="rem-total-ajuste">0</strong><br>
+      = <strong style="color:var(--verde)">Total remisiones: <span id="rem-total">0</span></strong>
+    </div>
+    <div class="form-group">
+      <label>Ajuste manual (+ entra / − sale)</label>
+      <input type="number" id="rem-ajuste" placeholder="Ej: 12" oninput="recalcRemision()">
+    </div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label>Nota (opcional)</label>
+      <input type="text" id="rem-nota" placeholder="Ej: despacho no registrado en el sistema">
+    </div>
+    <div style="display:flex;gap:10px;margin-top:4px">
+      <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-remision')">Cancelar</button>
+      <button class="btn btn-primary" style="flex:2" onclick="guardarRemisionAjuste()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL USUARIOS (admin) -->
+<div class="modal-overlay" id="modal-usuarios">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Usuarios y contraseñas</div>
+    <div style="font-size:12px;color:var(--gris-medio);margin-bottom:12px">Asigna o cambia la contraseña de cada persona. Cada quien entra con su correo y su clave.</div>
+    <div id="usuarios-list"><div class="loader"><div class="spinner"></div></div></div>
+
+    <div id="nuevo-usuario-form" style="display:none;border:1px solid var(--borde);border-radius:12px;padding:12px;margin-top:12px;background:var(--gris-claro)">
+      <div style="font-weight:700;font-size:14px;margin-bottom:10px">Nueva vendedora</div>
+      <div class="form-group"><label>Nombre</label><input type="text" id="nu-nombre" placeholder="Ej: María"></div>
+      <div class="form-group"><label>Correo (para entrar)</label><input type="email" id="nu-email" placeholder="maria@controlantonia.com"></div>
+      <div class="form-group"><label>Tienda</label><select id="nu-almacen"><option value="">Seleccionar…</option></select></div>
+      <div class="form-group" style="margin-bottom:12px"><label>Contraseña</label><input type="text" id="nu-pass" placeholder="Clave para entrar"></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary" style="flex:1" onclick="document.getElementById('nuevo-usuario-form').style.display='none'">Cancelar</button>
+        <button class="btn btn-primary" style="flex:1" onclick="crearUsuario()">Crear</button>
+      </div>
+    </div>
+
+    <button class="btn btn-secondary btn-full" style="margin-top:12px" onclick="abrirNuevoUsuario()">+ Nueva vendedora</button>
+    <button class="btn btn-primary btn-full" style="margin-top:10px" onclick="cerrarModal('modal-usuarios')">Listo</button>
+  </div>
+</div>
+
 <!-- MODAL SOPORTES DE GASTO -->
 <div class="modal-overlay" id="modal-soportes">
   <div class="modal">
@@ -1702,6 +1753,7 @@ function mostrarApp() {
   const userDisplay = _usuarioActual ? `${_usuarioActual.nombre} (${_usuarioActual.rol})` : '';
   document.getElementById('header-user').textContent = userDisplay;
   document.getElementById('logout-btn').style.display = 'block';
+  document.getElementById('usuarios-btn').style.display = (_usuarioActual?.rol === 'admin') ? 'inline-block' : 'none';
 
   filtrarUIporRol();
 
@@ -3936,18 +3988,20 @@ function periodoPrev(p) { let [y,m] = p.split('-').map(Number); m--; if (m<1){m=
 
 async function loadInvCache(force) {
   if (invCache && !force) return invCache;
-  const [aper, ajus, desp, vent, cont, bod] = await Promise.all([
+  const [aper, ajus, desp, vent, cont, bod, remaj] = await Promise.all([
     sb.from('inventario_apertura').select('almacen_id, referencia, categoria, periodo, unidades'),
     sb.from('inventario_ajustes').select('almacen_id, referencia, periodo, unidades'),
     selectAll('despacho_items', 'referencia, categoria, cantidad, despachos!inner(almacen_id, fecha)'),
     selectAll('ventas', 'almacen_id, referencia, categoria, cantidad, precio_unitario, periodo, fecha'),
     sb.from('conteos_fisicos').select('id, almacen_id, fecha, conteo_items(referencia, cantidad_fisica)'),
-    bodegaData.length ? Promise.resolve({ data: bodegaData }) : sb.from('bodega').select('*')
+    bodegaData.length ? Promise.resolve({ data: bodegaData }) : sb.from('bodega').select('*'),
+    sb.from('remisiones_ajuste').select('almacen_id, referencia, periodo, unidades')
   ]);
   bodegaData = bod.data || bodegaData;
   invCache = {
     aperturas: aper.data || [],
     ajustes: ajus.data || [],
+    remAjuste: remaj.data || [],
     despItems: (desp || []).map(d => ({ almacen_id: d.despachos && d.despachos.almacen_id, periodo: periodoDe(d.despachos && d.despachos.fecha), referencia: d.referencia, categoria: d.categoria, cantidad: d.cantidad })).filter(d => d.almacen_id),
     ventas: (vent || []).map(v => ({ almacen_id: v.almacen_id, periodo: v.periodo || periodoDe(v.fecha), referencia: v.referencia, categoria: v.categoria, cantidad: v.cantidad, precio: v.precio_unitario })),
     conteos: (cont.data || []).map(c => ({ almacen_id: c.almacen_id, periodo: periodoDe(c.fecha), fecha: c.fecha, items: c.conteo_items || [] }))
@@ -3967,25 +4021,27 @@ function fisicoDe(almId, periodo) {
 
 function inventarioMensual(almId, periodo) {
   const c = invCache; if (!c) return [];
-  const aperPR = {}, remPR = {}, vtaPR = {}, ajPR = {}, catOf = {};
+  const aperPR = {}, remPR = {}, remAjPR = {}, vtaPR = {}, ajPR = {}, catOf = {};
   c.aperturas.filter(a => a.almacen_id === almId).forEach(a => { (aperPR[a.periodo] = aperPR[a.periodo]||{})[a.referencia] = { u:a.unidades, cat:a.categoria }; if (a.categoria) catOf[a.referencia]=a.categoria; });
   c.despItems.filter(d => d.almacen_id === almId).forEach(d => { const m = remPR[d.periodo] = remPR[d.periodo]||{}; m[d.referencia]=(m[d.referencia]||0)+d.cantidad; if (d.categoria) catOf[d.referencia]=d.categoria; });
+  (c.remAjuste||[]).filter(r => r.almacen_id === almId).forEach(r => { const m = remAjPR[r.periodo] = remAjPR[r.periodo]||{}; m[r.referencia]=(m[r.referencia]||0)+r.unidades; });
   c.ventas.filter(v => v.almacen_id === almId).forEach(v => { const m = vtaPR[v.periodo] = vtaPR[v.periodo]||{}; m[v.referencia]=(m[v.referencia]||0)+v.cantidad; if (v.categoria) catOf[v.referencia]=v.categoria; });
   c.ajustes.filter(a => a.almacen_id === almId).forEach(a => { const m = ajPR[a.periodo] = ajPR[a.periodo]||{}; m[a.referencia]=(m[a.referencia]||0)+a.unidades; });
   const aperPeriodos = Object.keys(aperPR).sort();
-  const dataPeriodos = [...new Set([...Object.keys(aperPR), ...Object.keys(remPR), ...Object.keys(vtaPR), ...Object.keys(ajPR)])].sort();
+  const dataPeriodos = [...new Set([...Object.keys(aperPR), ...Object.keys(remPR), ...Object.keys(remAjPR), ...Object.keys(vtaPR), ...Object.keys(ajPR)])].sort();
   let base = aperPeriodos[0] || dataPeriodos[0] || periodo;
   if (base > periodo) base = periodo;
   let carry = {}, p = base, out = [], guard = 0;
   while (guard++ < 120) {
-    const refs = new Set([...Object.keys(carry), ...Object.keys(aperPR[p]||{}), ...Object.keys(remPR[p]||{}), ...Object.keys(vtaPR[p]||{}), ...Object.keys(ajPR[p]||{})]);
+    const refs = new Set([...Object.keys(carry), ...Object.keys(aperPR[p]||{}), ...Object.keys(remPR[p]||{}), ...Object.keys(remAjPR[p]||{}), ...Object.keys(vtaPR[p]||{}), ...Object.keys(ajPR[p]||{})]);
     const rows = [], next = {};
     refs.forEach(ref => {
       const aper = aperPR[p] && aperPR[p][ref];
       const inicial = aper ? aper.u : (carry[ref]||0);
-      const rem = (remPR[p]&&remPR[p][ref])||0, vta = (vtaPR[p]&&vtaPR[p][ref])||0, aj = (ajPR[p]&&ajPR[p][ref])||0;
+      const remDesp = (remPR[p]&&remPR[p][ref])||0, remAj = (remAjPR[p]&&remAjPR[p][ref])||0, rem = remDesp + remAj;
+      const vta = (vtaPR[p]&&vtaPR[p][ref])||0, aj = (ajPR[p]&&ajPR[p][ref])||0;
       const fin = inicial + rem - vta + aj;
-      rows.push({ ref, cat: (aper&&aper.cat)||catOf[ref]||'', inicial, remisiones: rem, ventas: vta, ajustes: aj, final: fin });
+      rows.push({ ref, cat: (aper&&aper.cat)||catOf[ref]||'', inicial, remisiones: rem, remDespacho: remDesp, remAjuste: remAj, ventas: vta, ajustes: aj, final: fin });
       next[ref] = fin;
     });
     carry = next;
@@ -3995,7 +4051,7 @@ function inventarioMensual(almId, periodo) {
   }
   const fis = fisicoDe(almId, periodo);
   out.forEach(r => { r.fisico = (fis && (r.ref in fis)) ? fis[r.ref] : null; r.dif = (r.fisico==null) ? null : r.fisico - r.final; });
-  if (fis) Object.keys(fis).forEach(ref => { if (!out.find(r => r.ref === ref)) out.push({ ref, cat: catOf[ref]||'', inicial:0, remisiones:0, ventas:0, ajustes:0, final:0, fisico: fis[ref], dif: fis[ref] }); });
+  if (fis) Object.keys(fis).forEach(ref => { if (!out.find(r => r.ref === ref)) out.push({ ref, cat: catOf[ref]||'', inicial:0, remisiones:0, remDespacho:0, remAjuste:0, ventas:0, ajustes:0, final:0, fisico: fis[ref], dif: fis[ref] }); });
   return out.sort((a,b) => a.ref.localeCompare(b.ref));
 }
 
@@ -4102,10 +4158,14 @@ async function cargarControlMensual() {
     const novCell = soloLectura
       ? `<td style="text-align:right;white-space:nowrap"><span style="color:${novColor}">${novTxt||'—'}</span></td>`
       : `<td style="text-align:right;white-space:nowrap"><span style="color:${novColor}">${novTxt||'—'}</span> <button ${da} onclick="abrirModalNovedad(this)" title="Registrar novedad" style="background:none;border:1px solid var(--borde);border-radius:6px;color:var(--rosa-oscuro);cursor:pointer;font-size:12px;padding:2px 6px">✎</button></td>`;
+    const remAjTxt = r.remAjuste ? `<div style="font-size:10px;color:var(--gris-medio);line-height:1.3">desp ${NUM(r.remDespacho)} · man ${r.remAjuste>0?'+':''}${NUM(r.remAjuste)}</div>` : '';
+    const remCell = soloLectura
+      ? `<td style="text-align:right;color:var(--verde);white-space:nowrap">${r.remisiones?'+'+NUM(r.remisiones):'—'}${remAjTxt}</td>`
+      : `<td style="text-align:right;white-space:nowrap"><span style="color:var(--verde)">${r.remisiones?'+'+NUM(r.remisiones):'—'}</span> <button ${da} data-rd="${r.remDespacho}" data-ra="${r.remAjuste}" onclick="abrirModalRemision(this)" title="Ajustar remisiones (se suma a despachos)" style="background:none;border:1px solid var(--borde);border-radius:6px;color:var(--rosa-oscuro);cursor:pointer;font-size:12px;padding:2px 6px">✎</button>${remAjTxt}</td>`;
     return `<tr>
       <td><strong>${r.ref}</strong></td>
       ${iniCell}
-      <td style="text-align:right;color:var(--verde)">${r.remisiones?'+'+NUM(r.remisiones):'—'}</td>
+      ${remCell}
       <td style="text-align:right;color:var(--rosa-oscuro)">${r.ventas?'−'+NUM(r.ventas):'—'}</td>
       ${novCell}
       <td style="text-align:right;font-weight:700">${NUM(r.final)}</td>
@@ -4191,6 +4251,120 @@ async function borrarNovedad(id) {
   await loadInvCache(true);
   if (_novCtx) { const el = { dataset: { ref: _novCtx.ref, cat: _novCtx.cat } }; abrirModalNovedad(el); }
   cargarControlMensual();
+}
+
+// ─── REMISIONES: AJUSTE MANUAL (sobre despachos) ───
+let _remCtx = null;
+async function abrirModalRemision(el) {
+  if (esVendedora()) return;
+  const almId = document.getElementById('invc-almacen').value;
+  if (!almId) { toast('Selecciona un almacén primero', 'err'); return; }
+  _remCtx = { ref: el.dataset.ref, cat: el.dataset.cat || '', almId, periodo: invcPeriodo(), despacho: parseInt(el.dataset.rd) || 0 };
+  document.getElementById('rem-ref-label').textContent = _remCtx.ref;
+  document.getElementById('rem-despacho').textContent = NUM(_remCtx.despacho);
+  document.getElementById('rem-ajuste').value = (parseInt(el.dataset.ra) || 0) || '';
+  const { data } = await sb.from('remisiones_ajuste').select('nota').eq('almacen_id', almId).eq('referencia', _remCtx.ref).eq('periodo', _remCtx.periodo).maybeSingle();
+  document.getElementById('rem-nota').value = data?.nota || '';
+  recalcRemision();
+  document.getElementById('modal-remision').classList.add('open');
+}
+function recalcRemision() {
+  const aj = parseInt(document.getElementById('rem-ajuste').value) || 0;
+  document.getElementById('rem-total-ajuste').textContent = (aj > 0 ? '+' : '') + NUM(aj);
+  document.getElementById('rem-total').textContent = NUM((_remCtx?.despacho || 0) + aj);
+}
+async function guardarRemisionAjuste() {
+  if (!_remCtx || esVendedora()) return;
+  const aj = parseInt(document.getElementById('rem-ajuste').value) || 0;
+  const nota = document.getElementById('rem-nota').value.trim();
+  const almNombre = (almacenes.find(a => a.id === _remCtx.almId) || {}).nombre || '';
+  if (aj === 0) {
+    await sb.from('remisiones_ajuste').delete().eq('almacen_id', _remCtx.almId).eq('referencia', _remCtx.ref).eq('periodo', _remCtx.periodo);
+  } else {
+    const { error } = await sb.from('remisiones_ajuste').upsert(
+      { almacen_id: _remCtx.almId, almacen_nombre: almNombre, referencia: _remCtx.ref, categoria: _remCtx.cat, periodo: _remCtx.periodo, unidades: aj, nota: nota || null, updated_at: new Date().toISOString() },
+      { onConflict: 'almacen_id,referencia,periodo' });
+    if (error) { toast('Error al guardar el ajuste', 'err'); return; }
+  }
+  cerrarModal('modal-remision');
+  toast(`✓ Remisiones de ${_remCtx.ref} actualizadas`);
+  await loadInvCache(true);
+  cargarControlMensual();
+}
+
+// ─── USUARIOS / CONTRASEÑAS (admin) ─────────────
+let _usuariosData = [];
+async function abrirUsuarios() {
+  if (_usuarioActual?.rol !== 'admin') return;
+  document.getElementById('nuevo-usuario-form').style.display = 'none';
+  document.getElementById('modal-usuarios').classList.add('open');
+  document.getElementById('usuarios-list').innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  if (!almacenes.length) await llenarSelectAlmacenes();
+  const { data } = await sb.from('usuarios').select('*').order('rol').order('nombre');
+  _usuariosData = data || [];
+  renderUsuarios();
+}
+function nombreAlmUsuario(id) { const a = almacenes.find(x => x.id === id); return a ? limpiarAlm(a.nombre) : ''; }
+function renderUsuarios() {
+  const el = document.getElementById('usuarios-list');
+  el.innerHTML = _usuariosData.map(u => {
+    const inactivo = !u.activo;
+    const tieneClave = !!u.password_hash;
+    const sub = u.rol === 'admin' ? 'Administrador' : ('Vendedora' + (u.almacen_id ? ' · ' + nombreAlmUsuario(u.almacen_id) : ''));
+    const esYo = u.id === _usuarioActual.id;
+    return `<div style="border:1px solid var(--borde);border-radius:10px;padding:11px;margin-bottom:8px;${inactivo ? 'opacity:.55' : ''}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:7px">
+        <div><div style="font-weight:700;font-size:14px">${u.nombre}${esYo ? ' <span style="font-size:10px;color:var(--brand-mid)">(tú)</span>' : ''}${inactivo ? ' <span style="font-size:10px;color:var(--rojo)">(inactiva)</span>' : ''}</div>
+        <div style="font-size:11px;color:var(--gris-medio)">${u.email} · ${sub}</div></div>
+        <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:${tieneClave ? 'var(--success-bg)' : 'var(--warning-bg)'};color:${tieneClave ? 'var(--success-text)' : 'var(--warning-text)'};white-space:nowrap">${tieneClave ? '🔒 con clave' : 'sin clave'}</span>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input type="text" id="pw-${u.id}" placeholder="Nueva contraseña" style="flex:1;padding:7px 9px;border:1.5px solid var(--borde);border-radius:7px;font-size:13px">
+        <button class="btn btn-primary btn-sm" onclick="guardarClaveUsuario('${u.id}')">Guardar clave</button>
+      </div>
+      <div style="margin-top:6px;text-align:right">
+        <button onclick="toggleActivoUsuario('${u.id}', ${u.activo})" style="background:none;border:none;color:${inactivo ? 'var(--verde)' : 'var(--rojo)'};font-size:11px;cursor:pointer;text-decoration:underline">${inactivo ? 'Reactivar' : 'Desactivar'}</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+async function guardarClaveUsuario(id) {
+  const inp = document.getElementById('pw-' + id);
+  const pass = inp.value.trim();
+  if (pass.length < 4) { toast('La contraseña debe tener al menos 4 caracteres', 'err'); return; }
+  const hash = await hashSHA256(pass);
+  const { error } = await sb.from('usuarios').update({ password_hash: hash }).eq('id', id);
+  if (error) { toast('Error al guardar la clave', 'err'); return; }
+  inp.value = '';
+  const u = _usuariosData.find(x => x.id === id); if (u) u.password_hash = hash;
+  toast('✓ Contraseña actualizada');
+  renderUsuarios();
+}
+async function toggleActivoUsuario(id, activo) {
+  if (id === _usuarioActual.id && activo) { toast('No puedes desactivar tu propia cuenta', 'err'); return; }
+  const { error } = await sb.from('usuarios').update({ activo: !activo }).eq('id', id);
+  if (error) { toast('Error', 'err'); return; }
+  const u = _usuariosData.find(x => x.id === id); if (u) u.activo = !activo;
+  toast(activo ? 'Usuaria desactivada' : 'Usuaria reactivada');
+  renderUsuarios();
+}
+function abrirNuevoUsuario() {
+  document.getElementById('nu-almacen').innerHTML = '<option value="">Seleccionar…</option>' + almacenes.map(a => `<option value="${a.id}">${limpiarAlm(a.nombre)}</option>`).join('');
+  ['nu-nombre','nu-email','nu-pass'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('nuevo-usuario-form').style.display = 'block';
+}
+async function crearUsuario() {
+  const nombre = document.getElementById('nu-nombre').value.trim();
+  const email = document.getElementById('nu-email').value.trim().toLowerCase();
+  const almacen_id = document.getElementById('nu-almacen').value;
+  const pass = document.getElementById('nu-pass').value.trim();
+  if (!nombre || !email || !almacen_id || pass.length < 4) { toast('Completa nombre, correo, tienda y clave (mín. 4)', 'err'); return; }
+  const hash = await hashSHA256(pass);
+  const { error } = await sb.from('usuarios').insert({ nombre, email, rol: 'vendedora', almacen_id, password_hash: hash, activo: true });
+  if (error) { toast((error.message || '').includes('duplicate') ? 'Ese correo ya existe' : 'Error al crear', 'err'); return; }
+  toast('✓ Vendedora creada');
+  document.getElementById('nuevo-usuario-form').style.display = 'none';
+  abrirUsuarios();
 }
 
 // ─── VENTAS VENDEDORA (simplificado) ───────────
