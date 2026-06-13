@@ -424,13 +424,20 @@
 
   <!-- BODEGA -->
   <div class="page" id="page-bodega">
-    <div style="margin-bottom:16px">
-      <div class="page-title" style="margin:0 0 12px">Bodega</div>
-      <button onclick="abrirModalEntrada()" style="width:100%;background:linear-gradient(135deg,var(--brand),#0192bb);color:#fff;border:none;border-radius:16px;padding:18px 16px;display:flex;align-items:center;justify-content:center;gap:12px;cursor:pointer;box-shadow:0 6px 18px rgba(2,171,213,0.38);font-size:16px;font-weight:800;line-height:1.2;-webkit-tap-highlight-color:transparent;transition:transform .15s" ontouchstart="this.style.transform='scale(0.98)'" ontouchend="this.style.transform='scale(1)'">
-        <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+    <div class="page-title" style="margin:0 0 14px">Producción</div>
+
+    <!-- SWITCH DE ÁREAS -->
+    <div style="display:flex;gap:10px;margin-bottom:16px">
+      <button type="button" id="area-btn-bodega" onclick="setAreaProd('bodega')" style="flex:1;padding:14px 8px;border-radius:14px;border:2px solid var(--brand);background:var(--brand);color:#fff;font-weight:800;font-size:14px;cursor:pointer;-webkit-tap-highlight-color:transparent">📦 Bodega</button>
+      <button type="button" id="area-btn-corte" onclick="setAreaProd('corte')" style="flex:1;padding:14px 8px;border-radius:14px;border:2px solid var(--borde);background:#fff;color:var(--gris-medio);font-weight:800;font-size:14px;cursor:pointer;-webkit-tap-highlight-color:transparent">🏭 Producción / Corte</button>
+    </div>
+
+    <!-- ÁREA BODEGA -->
+    <div id="area-bodega">
+      <button onclick="abrirModalEntrada()" style="width:100%;background:linear-gradient(135deg,var(--brand),#0192bb);color:#fff;border:none;border-radius:16px;padding:16px;display:flex;align-items:center;justify-content:center;gap:12px;cursor:pointer;box-shadow:0 6px 18px rgba(2,171,213,0.38);font-size:15px;font-weight:800;line-height:1.2;margin-bottom:14px;-webkit-tap-highlight-color:transparent;transition:transform .15s" ontouchstart="this.style.transform='scale(0.98)'" ontouchend="this.style.transform='scale(1)'">
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
         Nueva entrada a bodega / producción
       </button>
-    </div>
 
     <div class="tabs" style="border-radius:var(--radius) var(--radius) 0 0;overflow:hidden">
       <div class="tab active" id="tab-bod-existencias" onclick="showTab('tab-bod-existencias')">Existencias</div>
@@ -530,6 +537,24 @@
           </table>
         </div>
       </div>
+    </div>
+    </div><!-- /area-bodega -->
+
+    <!-- ÁREA PRODUCCIÓN / CORTE -->
+    <div id="area-corte" style="display:none">
+      <button onclick="abrirModalCorte()" style="width:100%;background:linear-gradient(135deg,var(--brand-dark,#014a5e),#02718c);color:#fff;border:none;border-radius:16px;padding:16px;display:flex;align-items:center;justify-content:center;gap:12px;cursor:pointer;box-shadow:0 6px 18px rgba(1,74,94,0.30);font-size:15px;font-weight:800;line-height:1.2;margin-bottom:14px;-webkit-tap-highlight-color:transparent;transition:transform .15s" ontouchstart="this.style.transform='scale(0.98)'" ontouchend="this.style.transform='scale(1)'">
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+        Nuevo corte
+      </button>
+
+      <div id="cortes-kpis" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px"></div>
+
+      <div class="tabs" style="border-radius:var(--radius) var(--radius) 0 0;overflow:hidden">
+        <div class="tab active" id="tab-corte-proceso" onclick="showTabCorte('proceso')">En proceso</div>
+        <div class="tab" id="tab-corte-terminados" onclick="showTabCorte('terminados')">Terminados</div>
+      </div>
+      <div id="cortes-proceso-list" class="section-card" style="border-radius:0 0 var(--radius) var(--radius)"><div class="loader"><div class="spinner"></div></div></div>
+      <div id="cortes-terminados-list" class="section-card" style="border-radius:0 0 var(--radius) var(--radius);display:none"><div class="loader"><div class="spinner"></div></div></div>
     </div>
   </div>
 
@@ -1157,7 +1182,7 @@
   </button>
   <button class="nav-item" id="nav-bodega" onclick="showPage('bodega')">
     <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0l-3-3m3 3l3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/></svg>
-    Bodega
+    Producción
   </button>
   <button class="nav-item" id="nav-ventas" onclick="showPage('ventas')">
     <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"/></svg>
@@ -1464,6 +1489,88 @@
     <div style="display:flex;gap:10px;margin-top:4px">
       <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-costos')">Cancelar</button>
       <button class="btn btn-primary" style="flex:2" id="costo-btn" onclick="guardarCostos()">Guardar costos</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL NUEVO CORTE -->
+<div class="modal-overlay" id="modal-corte">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Nuevo corte</div>
+    <div class="form-group">
+      <label>Referencia a producir</label>
+      <select id="c-ref"><option value="">Seleccionar…</option></select>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Nombre de la tela</label>
+        <input type="text" id="c-tela" placeholder="Ej: Algodón licrado">
+      </div>
+      <div class="form-group">
+        <label>Consumo (metros x prenda)</label>
+        <input type="number" id="c-consumo" step="0.01" placeholder="0.9" oninput="recalcCorte()">
+      </div>
+    </div>
+    <label style="display:block">¿Cómo se compra la tela?</label>
+    <div style="display:flex;gap:8px;margin:6px 0 12px">
+      <button type="button" id="c-tipo-metro" onclick="setTipoCorte('metro')" style="flex:1;padding:11px;border-radius:10px;border:2px solid var(--brand);background:var(--brand);color:#fff;font-weight:700;font-size:14px;cursor:pointer">Por metro</button>
+      <button type="button" id="c-tipo-kilo" onclick="setTipoCorte('kilo')" style="flex:1;padding:11px;border-radius:10px;border:2px solid var(--borde);background:#fff;color:var(--gris-medio);font-weight:700;font-size:14px;cursor:pointer">Por kilo</button>
+    </div>
+    <div id="c-bloque-metro">
+      <div class="form-row" style="margin-bottom:0">
+        <div class="form-group">
+          <label>Metros comprados</label>
+          <input type="number" id="c-metros" step="0.01" placeholder="50" oninput="recalcCorte()">
+        </div>
+        <div class="form-group">
+          <label>Precio del metro (COP)</label>
+          <input type="number" id="c-precio-metro" placeholder="12000" oninput="recalcCorte()">
+        </div>
+      </div>
+    </div>
+    <div id="c-bloque-kilo" style="display:none">
+      <div class="form-row" style="margin-bottom:10px">
+        <div class="form-group">
+          <label>Kilos comprados</label>
+          <input type="number" id="c-kilos" step="0.01" placeholder="10" oninput="recalcCorte()">
+        </div>
+        <div class="form-group">
+          <label>Precio del kilo (COP)</label>
+          <input type="number" id="c-precio-kilo" placeholder="40000" oninput="recalcCorte()">
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Rendimiento (metros x kilo)</label>
+        <input type="number" id="c-rendimiento" step="0.01" placeholder="3.5" oninput="recalcCorte()">
+      </div>
+    </div>
+    <div style="background:#eef9fc;border:1px solid var(--borde);border-radius:12px;padding:12px;margin:14px 0">
+      <div id="c-resumen" style="font-size:13px;color:var(--gris-medio);font-weight:600;line-height:1.7">Completa los datos para ver el estimado.</div>
+    </div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label>Notas (opcional)</label>
+      <input type="text" id="c-notas" placeholder="Ej: corte de temporada">
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-corte')">Cancelar</button>
+      <button class="btn btn-primary" style="flex:2" onclick="guardarCorte()">Guardar corte</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL TERMINAR CORTE -->
+<div class="modal-overlay" id="modal-terminar">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Terminar corte → bodega</div>
+    <div id="t-info" style="background:#eef9fc;border:1px solid var(--borde);border-radius:12px;padding:12px;margin-bottom:14px;font-size:13px;line-height:1.6"></div>
+    <div style="font-size:12px;font-weight:600;color:var(--gris-medio);margin-bottom:8px">Prendas cortadas por talla</div>
+    <div id="t-tallas-wrap" style="margin-bottom:12px"></div>
+    <div id="t-resumen" style="background:var(--rosa-suave);border-radius:12px;padding:12px;margin-bottom:14px;font-size:13px;font-weight:700;color:var(--rosa-oscuro)">Ingresa las prendas cortadas por talla.</div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-terminar')">Cancelar</button>
+      <button class="btn btn-primary" style="flex:2" onclick="confirmarTerminarCorte()">Agregar a bodega</button>
     </div>
   </div>
 </div>
@@ -2672,6 +2779,246 @@ async function guardarEntrada() {
   const total = movs.reduce((a, m) => a + m.cant, 0);
   cerrarModal('modal-entrada');
   toast(`✓ ${NUM(total)} uds de ${ref} ingresadas`);
+  cargarBodega();
+}
+
+// ─── CORTES / PRODUCCIÓN ──────────────────────
+let cortesData = [];
+let _corteTipo = 'metro';
+let _terminarCorte = null;
+
+function setAreaProd(area) {
+  const ab = document.getElementById('area-bodega'), ac = document.getElementById('area-corte');
+  const bb = document.getElementById('area-btn-bodega'), bc = document.getElementById('area-btn-corte');
+  const on = b => { b.style.background = 'var(--brand)'; b.style.color = '#fff'; b.style.borderColor = 'var(--brand)'; };
+  const off = b => { b.style.background = '#fff'; b.style.color = 'var(--gris-medio)'; b.style.borderColor = 'var(--borde)'; };
+  if (area === 'corte') { ab.style.display = 'none'; ac.style.display = 'block'; on(bc); off(bb); cargarCortes(); }
+  else { ab.style.display = 'block'; ac.style.display = 'none'; on(bb); off(bc); }
+}
+
+function showTabCorte(cual) {
+  const tp = document.getElementById('tab-corte-proceso'), tt = document.getElementById('tab-corte-terminados');
+  const lp = document.getElementById('cortes-proceso-list'), lt = document.getElementById('cortes-terminados-list');
+  const term = cual === 'terminados';
+  tt.classList.toggle('active', term); tp.classList.toggle('active', !term);
+  lt.style.display = term ? 'block' : 'none'; lp.style.display = term ? 'none' : 'block';
+}
+
+function setTipoCorte(tipo) {
+  _corteTipo = tipo;
+  const bm = document.getElementById('c-bloque-metro'), bk = document.getElementById('c-bloque-kilo');
+  const btnM = document.getElementById('c-tipo-metro'), btnK = document.getElementById('c-tipo-kilo');
+  const on = b => { b.style.background = 'var(--brand)'; b.style.color = '#fff'; b.style.borderColor = 'var(--brand)'; };
+  const off = b => { b.style.background = '#fff'; b.style.color = 'var(--gris-medio)'; b.style.borderColor = 'var(--borde)'; };
+  if (tipo === 'kilo') { bm.style.display = 'none'; bk.style.display = 'block'; on(btnK); off(btnM); }
+  else { bm.style.display = 'block'; bk.style.display = 'none'; on(btnM); off(btnK); }
+  recalcCorte();
+}
+
+// Calcula el costo y rendimiento del corte según los inputs del modal
+function calcCorte() {
+  const cons = parseFloat(document.getElementById('c-consumo').value) || 0;
+  let cantidad = 0, precio = 0, metrosDisp = 0, rend = 0;
+  if (_corteTipo === 'kilo') {
+    cantidad = parseFloat(document.getElementById('c-kilos').value) || 0;
+    precio = parseFloat(document.getElementById('c-precio-kilo').value) || 0;
+    rend = parseFloat(document.getElementById('c-rendimiento').value) || 0;
+    metrosDisp = cantidad * rend;
+  } else {
+    cantidad = parseFloat(document.getElementById('c-metros').value) || 0;
+    precio = parseFloat(document.getElementById('c-precio-metro').value) || 0;
+    metrosDisp = cantidad;
+  }
+  const costoTotal = Math.round(cantidad * precio);
+  const prendasEst = cons > 0 ? Math.floor(metrosDisp / cons) : 0;
+  const costoPrenda = prendasEst > 0 ? Math.round(costoTotal / prendasEst) : 0;
+  return { cantidad, precio, rend, cons, metrosDisp, costoTotal, prendasEst, costoPrenda };
+}
+
+function recalcCorte() {
+  const c = calcCorte();
+  const r = document.getElementById('c-resumen');
+  if (c.costoTotal > 0 && c.prendasEst > 0) {
+    r.innerHTML = `💰 Costo total tela: <b>${COP(c.costoTotal)}</b><br>📏 Rinde ≈ <b>${NUM(Math.round(c.metrosDisp))} m</b> → <b>${NUM(c.prendasEst)} prendas</b> estimadas<br>🏷️ Costo por prenda ≈ <b>${COP(c.costoPrenda)}</b>`;
+  } else if (c.costoTotal > 0) {
+    r.innerHTML = `💰 Costo total tela: <b>${COP(c.costoTotal)}</b><br><span style="color:var(--gris-medio)">Ingresa el consumo por prenda para estimar las prendas.</span>`;
+  } else {
+    r.textContent = 'Completa los datos para ver el estimado.';
+  }
+}
+
+function abrirModalCorte() {
+  if (!bodegaData.length) { toast('Abre la bodega primero para cargar las referencias', 'err'); return; }
+  document.getElementById('c-ref').innerHTML = '<option value="">Seleccionar…</option>' + bodegaData.map(p => `<option value="${p.referencia}">${p.referencia}</option>`).join('');
+  ['c-tela','c-consumo','c-metros','c-precio-metro','c-kilos','c-precio-kilo','c-rendimiento','c-notas'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('c-ref').onchange = () => {
+    const p = bodegaData.find(x => x.referencia === document.getElementById('c-ref').value);
+    if (!p) return;
+    document.getElementById('c-tela').value = p.tela_nombre || '';
+    document.getElementById('c-consumo').value = p.tela_consumo || '';
+    if (p.tela_tipo_precio === 'kilo') {
+      setTipoCorte('kilo');
+      document.getElementById('c-precio-kilo').value = p.tela_precio_kilo || '';
+      document.getElementById('c-rendimiento').value = p.tela_rendimiento || '';
+    } else {
+      setTipoCorte('metro');
+      document.getElementById('c-precio-metro').value = p.tela_precio_metro || '';
+    }
+    recalcCorte();
+  };
+  setTipoCorte('metro');
+  document.getElementById('c-resumen').textContent = 'Completa los datos para ver el estimado.';
+  document.getElementById('modal-corte').classList.add('open');
+}
+
+async function guardarCorte() {
+  const ref = document.getElementById('c-ref').value;
+  if (!ref) { toast('Selecciona una referencia', 'err'); return; }
+  const c = calcCorte();
+  if (c.costoTotal <= 0) { toast('Ingresa cantidad y precio de la tela', 'err'); return; }
+  const p = bodegaData.find(x => x.referencia === ref);
+  const row = {
+    referencia: ref,
+    categoria: p?.categoria || null,
+    tela_nombre: document.getElementById('c-tela').value.trim() || null,
+    tipo_precio: _corteTipo,
+    cantidad_tela: c.cantidad,
+    precio_unitario: c.precio,
+    rendimiento: _corteTipo === 'kilo' ? (c.rend || null) : null,
+    consumo: c.cons || null,
+    prendas_estimadas: c.prendasEst || null,
+    costo_total: c.costoTotal,
+    estado: 'en_proceso',
+    notas: document.getElementById('c-notas').value.trim() || null
+  };
+  const { error } = await sb.from('cortes').insert(row);
+  if (error) { toast('Error al guardar el corte', 'err'); return; }
+  cerrarModal('modal-corte');
+  toast('✓ Corte registrado');
+  cargarCortes();
+}
+
+async function cargarCortes() {
+  const { data } = await sb.from('cortes').select('*').order('created_at', { ascending: false });
+  cortesData = data || [];
+  const proceso = cortesData.filter(c => c.estado !== 'terminado');
+  const term = cortesData.filter(c => c.estado === 'terminado');
+  const invertido = proceso.reduce((a, c) => a + (c.costo_total || 0), 0);
+  const prendasEst = proceso.reduce((a, c) => a + (c.prendas_estimadas || 0), 0);
+  document.getElementById('cortes-kpis').innerHTML = [
+    { v: NUM(proceso.length), l: 'En proceso' },
+    { v: NUM(prendasEst), l: 'Prendas est.' },
+    { v: COP(invertido), l: 'Tela invertida' }
+  ].map(k => `<div class="section-card" style="margin:0;padding:12px;text-align:center"><div style="font-size:17px;font-weight:800;color:var(--brand)">${k.v}</div><div style="font-size:10.5px;color:var(--gris-medio);margin-top:2px">${k.l}</div></div>`).join('');
+  document.getElementById('cortes-proceso-list').innerHTML = proceso.length ? proceso.map(corteCard).join('') : vacioCortes('No hay cortes en proceso. Toca "Nuevo corte" para empezar.');
+  document.getElementById('cortes-terminados-list').innerHTML = term.length ? term.map(corteCard).join('') : vacioCortes('Aún no hay cortes terminados.');
+}
+
+function vacioCortes(msg) {
+  return `<div style="padding:24px 16px;text-align:center;color:var(--gris-medio);font-size:13px">${msg}</div>`;
+}
+
+function corteCard(c) {
+  const term = c.estado === 'terminado';
+  const badge = term
+    ? '<span style="background:var(--success-bg);color:var(--success-text);font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap">✓ Terminado</span>'
+    : '<span style="background:var(--warning-bg);color:var(--warning-text);font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap">En proceso</span>';
+  const telaLinea = c.tipo_precio === 'kilo'
+    ? `${NUM(c.cantidad_tela)} kg × ${COP(c.precio_unitario)}${c.rendimiento ? ` · rinde ${c.rendimiento} m/kg` : ''}`
+    : `${NUM(c.cantidad_tela)} m × ${COP(c.precio_unitario)}`;
+  const prendasLinea = term
+    ? `${NUM(c.prendas_cortadas || 0)} prendas · costo/prenda <b>${COP(c.costo_por_prenda || 0)}</b>`
+    : `≈ ${NUM(c.prendas_estimadas || 0)} prendas estimadas`;
+  const acciones = term ? '' : `<div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn btn-primary btn-sm" style="flex:1" onclick="abrirTerminarCorte('${c.id}')">✓ Terminar → bodega</button>
+      <button class="btn btn-secondary btn-sm" onclick="eliminarCorte('${c.id}')">🗑️</button>
+    </div>`;
+  return `<div style="padding:14px 16px;border-bottom:1px solid var(--border-light)">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">
+      <div style="font-weight:700;font-size:15px">${c.referencia}</div>${badge}
+    </div>
+    <div style="font-size:12.5px;color:var(--gris-medio);line-height:1.8">
+      🧵 ${c.tela_nombre || 'Tela'} · ${telaLinea}<br>
+      💰 Tela: <b>${COP(c.costo_total || 0)}</b> · ${prendasLinea}<br>
+      📅 ${_fmtFechaCorte(c.fecha)}${c.notas ? ` · ${c.notas}` : ''}
+    </div>${acciones}
+  </div>`;
+}
+
+function _fmtFechaCorte(f) {
+  if (!f) return '';
+  return new Date(f + 'T00:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+async function eliminarCorte(id) {
+  if (!confirm('¿Eliminar este corte? (no afecta la bodega)')) return;
+  const { error } = await sb.from('cortes').delete().eq('id', id);
+  if (error) { toast('Error al eliminar', 'err'); return; }
+  toast('Corte eliminado');
+  cargarCortes();
+}
+
+function abrirTerminarCorte(id) {
+  const c = cortesData.find(x => x.id === id);
+  if (!c) return;
+  _terminarCorte = c;
+  const p = bodegaData.find(x => x.referencia === c.referencia);
+  document.getElementById('t-info').innerHTML = `<b>${c.referencia}</b><br>🧵 ${c.tela_nombre || 'Tela'} · 💰 <b>${COP(c.costo_total || 0)}</b> en tela<br>≈ ${NUM(c.prendas_estimadas || 0)} prendas estimadas`;
+  const tallas = ordenarTallas(parseTallas(p?.tallas));
+  const wrap = document.getElementById('t-tallas-wrap');
+  if (!tallas.length) {
+    wrap.innerHTML = '<div class="alert alert-warn" style="margin:0">Esta referencia no tiene tallas definidas. Edítala en el Catálogo.</div>';
+  } else {
+    wrap.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:8px">
+      ${tallas.map(t => `<div style="text-align:center">
+        <div style="font-size:11px;color:var(--gris-medio);margin-bottom:3px">${t}</div>
+        <input type="number" min="0" placeholder="0" class="t-talla-inp" data-talla="${t}" oninput="recalcTerminar()" style="width:100%;padding:8px;text-align:center;font-size:15px;font-weight:700;border:1.5px solid var(--borde);border-radius:var(--radius-sm)">
+      </div>`).join('')}
+    </div>`;
+  }
+  document.getElementById('t-resumen').textContent = 'Ingresa las prendas cortadas por talla.';
+  document.getElementById('modal-terminar').classList.add('open');
+}
+
+function recalcTerminar() {
+  const total = [...document.querySelectorAll('.t-talla-inp')].reduce((a, i) => a + (parseInt(i.value) || 0), 0);
+  const c = _terminarCorte;
+  const r = document.getElementById('t-resumen');
+  if (total > 0 && c) {
+    const costoPrenda = Math.round((c.costo_total || 0) / total);
+    r.innerHTML = `${NUM(total)} prendas → costo por prenda = ${COP(c.costo_total || 0)} ÷ ${total} = <b>${COP(costoPrenda)}</b>`;
+  } else {
+    r.textContent = 'Ingresa las prendas cortadas por talla.';
+  }
+}
+
+async function confirmarTerminarCorte() {
+  const c = _terminarCorte;
+  if (!c) return;
+  const movs = [...document.querySelectorAll('.t-talla-inp')].map(i => ({ talla: i.dataset.talla, cant: parseInt(i.value) || 0 })).filter(m => m.cant > 0);
+  if (!movs.length) { toast('Ingresa al menos una prenda', 'err'); return; }
+  const total = movs.reduce((a, m) => a + m.cant, 0);
+  const costoPrenda = Math.round((c.costo_total || 0) / total);
+  for (const m of movs) {
+    const { error } = await sb.rpc('mov_bodega_talla', { p_ref: c.referencia, p_talla: m.talla, p_delta: m.cant });
+    if (error) { toast('Error al ingresar ' + m.talla, 'err'); return; }
+  }
+  const upd = { costo: costoPrenda, tela_tipo_precio: c.tipo_precio };
+  if (c.tela_nombre) upd.tela_nombre = c.tela_nombre;
+  if (c.consumo) upd.tela_consumo = c.consumo;
+  if (c.tipo_precio === 'kilo') {
+    if (c.precio_unitario) upd.tela_precio_kilo = c.precio_unitario;
+    if (c.rendimiento) upd.tela_rendimiento = c.rendimiento;
+    if (c.precio_unitario && c.rendimiento) upd.tela_precio_metro = Math.round((c.precio_unitario / c.rendimiento) * 100) / 100;
+  } else {
+    if (c.precio_unitario) upd.tela_precio_metro = c.precio_unitario;
+  }
+  await sb.from('bodega').update(upd).eq('referencia', c.referencia);
+  await sb.from('cortes').update({ estado: 'terminado', prendas_cortadas: total, costo_por_prenda: costoPrenda, fecha_fin: hoy() }).eq('id', c.id);
+  cerrarModal('modal-terminar');
+  toast(`✓ ${NUM(total)} prendas de ${c.referencia} agregadas a bodega`);
+  _terminarCorte = null;
+  cargarCortes();
   cargarBodega();
 }
 
