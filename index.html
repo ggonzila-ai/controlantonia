@@ -424,11 +424,11 @@
 
   <!-- BODEGA -->
   <div class="page" id="page-bodega">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-      <div class="page-title" style="margin:0">Bodega</div>
-      <button class="btn btn-primary btn-sm" onclick="abrirModalEntrada()">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-        Nueva entrada
+    <div style="margin-bottom:16px">
+      <div class="page-title" style="margin:0 0 12px">Bodega</div>
+      <button onclick="abrirModalEntrada()" style="width:100%;background:linear-gradient(135deg,var(--brand),#0192bb);color:#fff;border:none;border-radius:16px;padding:18px 16px;display:flex;align-items:center;justify-content:center;gap:12px;cursor:pointer;box-shadow:0 6px 18px rgba(2,171,213,0.38);font-size:16px;font-weight:800;line-height:1.2;-webkit-tap-highlight-color:transparent;transition:transform .15s" ontouchstart="this.style.transform='scale(0.98)'" ontouchend="this.style.transform='scale(1)'">
+        <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+        Nueva entrada a bodega / producción
       </button>
     </div>
 
@@ -1177,16 +1177,32 @@
 <div class="modal-overlay" id="modal-entrada">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title">Nueva entrada de producción</div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Referencia</label>
-        <select id="e-ref" onchange="onEntradaRefChange()"><option value="">Seleccionar…</option></select>
+    <div class="modal-title">Nueva entrada a bodega / producción</div>
+    <div class="form-group">
+      <label>Referencia</label>
+      <select id="e-ref" onchange="onEntradaRefChange()"><option value="">Seleccionar…</option></select>
+    </div>
+    <div style="background:#eef9fc;border:1px solid var(--borde);border-radius:12px;padding:13px;margin-bottom:14px">
+      <div style="font-size:13px;font-weight:700;color:var(--brand);margin-bottom:10px">🧵 Costo de la tela</div>
+      <div class="form-group" style="margin-bottom:10px">
+        <label>Nombre de la tela</label>
+        <input type="text" id="e-tela" placeholder="Ej: Licra negra">
       </div>
-      <div class="form-group">
-        <label>Costo x unidad (COP)</label>
-        <input type="number" id="e-costo" placeholder="22000">
+      <div class="form-row" style="margin-bottom:0">
+        <div class="form-group">
+          <label>Precio del metro (COP)</label>
+          <input type="number" id="e-precio-metro" placeholder="12000" oninput="recalcCostoTela()">
+        </div>
+        <div class="form-group">
+          <label>Consumo (metros x prenda)</label>
+          <input type="number" id="e-consumo" step="0.01" placeholder="1.5" oninput="recalcCostoTela()">
+        </div>
       </div>
+    </div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label>Costo por unidad (COP)</label>
+      <input type="number" id="e-costo" placeholder="22000">
+      <div id="e-costo-hint" style="font-size:12px;color:var(--brand);margin-top:5px;font-weight:600"></div>
     </div>
     <div id="e-tallas-wrap" style="margin-bottom:14px"></div>
     <div style="display:flex;gap:10px;margin-top:4px">
@@ -2495,20 +2511,41 @@ async function eliminarProducto() {
 }
 
 // ─── ENTRADA DE PRODUCCIÓN (por talla) ────────
+function recalcCostoTela() {
+  const pm = parseFloat(document.getElementById('e-precio-metro').value) || 0;
+  const cons = parseFloat(document.getElementById('e-consumo').value) || 0;
+  const hint = document.getElementById('e-costo-hint');
+  if (pm > 0 && cons > 0) {
+    const costo = Math.round(pm * cons);
+    document.getElementById('e-costo').value = costo;
+    hint.textContent = `= ${COP(pm)} × ${cons} m = ${COP(costo)} por unidad`;
+  } else {
+    hint.textContent = '';
+  }
+}
 function abrirModalEntrada() {
   const sel = document.getElementById('e-ref');
-  sel.innerHTML = '<option value="">Seleccionar…</option>' + bodegaData.map(p => `<option value="${p.referencia}" data-costo="${p.costo||0}">${p.referencia}</option>`).join('');
-  document.getElementById('e-costo').value = '';
+  sel.innerHTML = '<option value="">Seleccionar…</option>' + bodegaData.map(p => `<option value="${p.referencia}">${p.referencia}</option>`).join('');
+  ['e-costo','e-tela','e-precio-metro','e-consumo'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('e-costo-hint').textContent = '';
   document.getElementById('e-tallas-wrap').innerHTML = '<div style="font-size:12px;color:var(--gris-medio);padding:8px 0">Selecciona una referencia para ver sus tallas.</div>';
   document.getElementById('modal-entrada').classList.add('open');
 }
 function cerrarModal(id) { document.getElementById(id).classList.remove('open'); }
 function onEntradaRefChange() {
   const sel = document.getElementById('e-ref');
-  const opt = sel.options[sel.selectedIndex];
-  if (opt && opt.dataset.costo > 0) document.getElementById('e-costo').value = opt.dataset.costo;
   const ref = sel.value;
   const p = bodegaData.find(x => x.referencia === ref);
+  // Pre-llenar datos de tela guardados de la referencia y recalcular costo
+  document.getElementById('e-tela').value = p?.tela_nombre || '';
+  document.getElementById('e-precio-metro').value = p?.tela_precio_metro || '';
+  document.getElementById('e-consumo').value = p?.tela_consumo || '';
+  if (p?.tela_precio_metro > 0 && p?.tela_consumo > 0) {
+    recalcCostoTela();
+  } else {
+    document.getElementById('e-costo').value = p?.costo > 0 ? p.costo : '';
+    document.getElementById('e-costo-hint').textContent = '';
+  }
   const tallas = parseTallas(p?.tallas);
   const wrap = document.getElementById('e-tallas-wrap');
   if (!ref) { wrap.innerHTML = ''; return; }
@@ -2528,6 +2565,9 @@ function onEntradaRefChange() {
 async function guardarEntrada() {
   const ref = document.getElementById('e-ref').value;
   const costo = parseInt(document.getElementById('e-costo').value) || 0;
+  const telaNombre = document.getElementById('e-tela').value.trim();
+  const precioMetro = parseFloat(document.getElementById('e-precio-metro').value) || 0;
+  const consumo = parseFloat(document.getElementById('e-consumo').value) || 0;
   if (!ref) { toast('Selecciona una referencia', 'err'); return; }
   const inputs = [...document.querySelectorAll('.e-talla-inp')];
   const movs = inputs.map(i => ({ talla: i.dataset.talla, cant: parseInt(i.value) || 0 })).filter(m => m.cant > 0);
@@ -2536,7 +2576,13 @@ async function guardarEntrada() {
     const { error } = await sb.rpc('mov_bodega_talla', { p_ref: ref, p_talla: m.talla, p_delta: m.cant });
     if (error) { toast('Error al ingresar ' + m.talla, 'err'); return; }
   }
-  if (costo) await sb.from('bodega').update({ costo }).eq('referencia', ref);
+  // Guardar costo y datos de la tela en la referencia
+  const upd = {};
+  if (costo) upd.costo = costo;
+  if (telaNombre) upd.tela_nombre = telaNombre;
+  if (precioMetro > 0) upd.tela_precio_metro = precioMetro;
+  if (consumo > 0) upd.tela_consumo = consumo;
+  if (Object.keys(upd).length) await sb.from('bodega').update(upd).eq('referencia', ref);
   const total = movs.reduce((a, m) => a + m.cant, 0);
   cerrarModal('modal-entrada');
   toast(`✓ ${NUM(total)} uds de ${ref} ingresadas`);
