@@ -2592,6 +2592,22 @@ async function guardarCostos() {
   await loadCostosData(); renderCostos();
 }
 
+// Pone el costo de tela calculado en un corte como el insumo "Tela" de la referencia (en Costos)
+async function actualizarTelaEnCostos(ref, costoTela) {
+  const valor = Math.round(costoTela || 0);
+  const { data: existing } = await sb.from('referencia_insumos').select('id,nombre').eq('referencia', ref);
+  const list = existing || [];
+  if (!list.length) {
+    // sembrar los insumos por defecto, con la Tela = costo del corte
+    const rows = INSUMOS_DEFAULT.map((n, idx) => ({ referencia: ref, nombre: n, valor: n.toLowerCase() === 'tela' ? valor : 0, orden: idx }));
+    await sb.from('referencia_insumos').insert(rows);
+    return;
+  }
+  const tela = list.find(i => (i.nombre || '').trim().toLowerCase() === 'tela');
+  if (tela) await sb.from('referencia_insumos').update({ valor }).eq('id', tela.id);
+  else await sb.from('referencia_insumos').insert({ referencia: ref, nombre: 'Tela', valor, orden: 0 });
+}
+
 async function quitarCodigo(codigo) {
   if (!confirm(`¿Quitar el código ${codigo}?`)) return;
   const { error } = await sb.from('codigos_sku').delete().eq('codigo', codigo);
@@ -3214,6 +3230,8 @@ async function confirmarTerminarCorte() {
       }
     }
     await sb.from('bodega').update(upd).eq('referencia', p.referencia);
+    // El costo de tela del corte queda como el insumo "Tela" en los Costos de la referencia
+    await actualizarTelaEnCostos(p.referencia, p.costoPrenda);
   }
   const itemsFin = per.map(p => ({ referencia: p.referencia, tipo: p.tipo, consumo: p.consumo || null, tallas_buenas: p.tallas, prendas_buenas: p.good, imperfectos: p.imperf, costo_total: p.costoTotal, costo_por_prenda: p.costoPrenda }));
   await sb.from('cortes').update({ estado: 'terminado', items: itemsFin, prendas_cortadas: totalGood, imperfectos_total: totalImperf, fecha_fin: hoy() }).eq('id', c.id);
