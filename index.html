@@ -1034,6 +1034,7 @@
       <div class="tab" id="tab-cont-gastos" onclick="showTab('tab-cont-gastos')">Gastos</div>
       <div class="tab" id="tab-cont-nomina" onclick="showTab('tab-cont-nomina')">Nómina</div>
       <div class="tab" id="tab-cont-consignaciones" onclick="showTab('tab-cont-consignaciones')">Consignaciones</div>
+      <div class="tab" id="tab-cont-soportes" onclick="showTab('tab-cont-soportes')">Soportes</div>
     </div>
 
     <!-- INGRESOS -->
@@ -1135,6 +1136,30 @@
         <thead><tr><th>Fecha</th><th>Concepto</th><th style="text-align:right">Valor</th><th>Período</th><th></th></tr></thead>
         <tbody id="cons-tbody"><tr><td colspan="5"><div class="loader"><div class="spinner"></div></div></td></tr></tbody>
       </table></div>
+    </div>
+
+    <!-- SOPORTES Y DOCUMENTOS -->
+    <div id="tab-content-cont-soportes" style="display:none">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--borde);display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <button class="btn btn-sm btn-primary" onclick="abrirModalDoc()">+ Nuevo documento</button>
+        <span style="font-size:11px;color:var(--gris-medio);max-width:300px">Archivo digital central: facturas, pagos, nómina, seguridad social, impuestos… (PDF, imágenes, Excel).</span>
+      </div>
+      <div class="metrics" id="docs-kpis" style="margin:14px 16px"></div>
+      <div style="padding:0 16px 10px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <div class="form-group" style="margin:0;min-width:160px"><label>Categoría</label>
+          <select id="docs-cat" onchange="renderDocs()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"><option value="">Todas</option></select>
+        </div>
+        <div class="form-group" style="margin:0;min-width:90px"><label>Año</label>
+          <select id="docs-anio" onchange="renderDocs()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"><option value="">Todos</option></select>
+        </div>
+        <div class="form-group" style="margin:0;min-width:110px"><label>Mes</label>
+          <select id="docs-mes" onchange="renderDocs()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"><option value="">Todos</option></select>
+        </div>
+        <div class="form-group" style="margin:0;flex:1;min-width:150px"><label>Buscar</label>
+          <input type="text" id="docs-buscar" placeholder="Nombre, proveedor, descripción…" oninput="renderDocs()" style="width:100%;padding:8px 10px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit">
+        </div>
+      </div>
+      <div id="docs-list"><div class="loader"><div class="spinner"></div></div></div>
     </div>
 
     <!-- REPORTES -->
@@ -1637,6 +1662,34 @@
   </div>
 </div>
 
+<!-- MODAL DOCUMENTO -->
+<div class="modal-overlay" id="modal-doc">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="doc-modal-title">Nuevo documento</div>
+    <div class="form-group"><label>Nombre del documento</label><input type="text" id="doc-nombre" placeholder="Ej: Factura arriendo junio"></div>
+    <div class="form-row">
+      <div class="form-group"><label>Categoría</label><select id="doc-cat"></select></div>
+      <div class="form-group"><label>Fecha del documento</label><input type="date" id="doc-fecha"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Valor (opcional)</label><input type="number" id="doc-valor" placeholder="0"></div>
+      <div class="form-group"><label>Proveedor / tercero</label><input type="text" id="doc-prov" placeholder="Opcional"></div>
+    </div>
+    <div class="form-group"><label>Descripción</label><input type="text" id="doc-desc" placeholder="Opcional"></div>
+    <div class="form-group"><label>Observaciones</label><input type="text" id="doc-obs" placeholder="Opcional"></div>
+    <div class="form-group"><label>Archivos (PDF, JPG, PNG, Excel) — puedes elegir varios</label>
+      <input type="file" id="doc-files" multiple accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls" onchange="previewDocFiles()" style="width:100%;font-size:13px">
+    </div>
+    <div id="doc-files-actuales" style="margin-bottom:6px"></div>
+    <div id="doc-files-nuevos" style="font-size:11px;color:var(--gris-medio);margin-bottom:12px"></div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-doc')">Cancelar</button>
+      <button class="btn btn-primary" style="flex:2" id="doc-btn" onclick="guardarDoc()">Guardar documento</button>
+    </div>
+  </div>
+</div>
+
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
@@ -1945,6 +1998,7 @@ function showTab(tabId) {
   if (tabId === 'tab-cont-gastos') cargarGastos();
   if (tabId === 'tab-cont-nomina') cargarNomina();
   if (tabId === 'tab-cont-consignaciones') cargarConsignaciones();
+  if (tabId === 'tab-cont-soportes') cargarDocumentos();
   if (tabId === 'tab-cont-reportes') cargarReportes();
 }
 
@@ -5945,6 +5999,175 @@ function bucketDe(periodo, gran) {
 }
 // Bucket equivalente un año antes (para comparativo interanual)
 function bucketAnioAnterior(periodo, gran) { const [y,m]=periodo.split('-').map(Number); return bucketDe(`${y-1}-${String(m).padStart(2,'0')}`, gran).key; }
+
+// ─── SOPORTES Y DOCUMENTOS ────────────────────
+const DOC_CATEGORIAS = ['Gastos','Pagos','Nómina','Seguridad Social','Facturación','Impuestos y Contabilidad','Otros'];
+const DOC_EXTS = ['pdf','jpg','jpeg','png','xlsx','xls'];
+let _docs = [], _docEdit = null, _docFilesActuales = [];
+
+function validarDocs(files) {
+  for (const f of files) {
+    const ext = (f.name.split('.').pop()||'').toLowerCase();
+    if (!DOC_EXTS.includes(ext)) return { ok:false, error:`"${f.name}" no es válido. Solo PDF, JPG, JPEG, PNG, XLSX o XLS.` };
+  }
+  return { ok:true };
+}
+async function subirArchivoDoc(file) {
+  const ext = (file.name.split('.').pop()||'dat').toLowerCase();
+  const path = `documentos/${Date.now()}_${Math.random().toString(36).slice(2,7)}.${ext}`;
+  const { error } = await sb.storage.from('soportes-gastos').upload(path, file, { contentType: file.type });
+  if (error) return { error };
+  const url = sb.storage.from('soportes-gastos').getPublicUrl(path).data.publicUrl;
+  return { url, nombre: file.name, ext };
+}
+
+async function cargarDocumentos() {
+  const cs = document.getElementById('docs-cat');
+  if (cs.options.length <= 1) cs.innerHTML = '<option value="">Todas</option>' + DOC_CATEGORIAS.map(c=>`<option>${c}</option>`).join('');
+  const mSel = document.getElementById('docs-mes');
+  if (mSel.options.length <= 1) mSel.innerHTML = '<option value="">Todos</option>' + MESES.map((n,i)=>`<option value="${i+1}">${n}</option>`).join('');
+  document.getElementById('docs-list').innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  const { data } = await sb.from('documentos').select('*').order('fecha_documento', { ascending:false });
+  let docs = (data||[]).map(d=>({ ...d, _origen:'doc' }));
+  // Integrar soportes de gastos (solo lectura, se gestionan en Gastos)
+  const gs = await selectAll('gasto_soportes', 'id, gasto_id, nombre_archivo, url_archivo, tipo_archivo, gastos!inner(fecha, descripcion, valor, periodo)');
+  const porGasto = {};
+  (gs||[]).forEach(s => {
+    const g = s.gastos || {};
+    const reg = porGasto[s.gasto_id] = porGasto[s.gasto_id] || { id:'g-'+s.gasto_id, nombre: g.descripcion||'Gasto', categoria:'Gastos', fecha_documento: g.fecha, valor: g.valor, proveedor:'', descripcion:'Soporte registrado en Gastos', observaciones:'', archivos:[], periodo: g.periodo || periodoDe(g.fecha), _origen:'gasto' };
+    reg.archivos.push({ url: s.url_archivo, nombre: s.nombre_archivo||'archivo', ext: (s.tipo_archivo||'') });
+  });
+  docs = docs.concat(Object.values(porGasto));
+  const aSel = document.getElementById('docs-anio');
+  const anios = [...new Set(docs.map(d=>(d.fecha_documento||'').slice(0,4)).filter(Boolean))].sort().reverse();
+  if (aSel.options.length <= 1) aSel.innerHTML = '<option value="">Todos</option>' + anios.map(y=>`<option>${y}</option>`).join('');
+  _docs = docs;
+  renderDocs();
+}
+
+function renderDocs() {
+  const cat = document.getElementById('docs-cat').value;
+  const anio = document.getElementById('docs-anio').value;
+  const mes = document.getElementById('docs-mes').value;
+  const q = (document.getElementById('docs-buscar').value||'').toLowerCase();
+  let docs = _docs.slice();
+  if (cat) docs = docs.filter(d => (d.categoria||'') === cat);
+  if (anio) docs = docs.filter(d => (d.fecha_documento||'').slice(0,4) === anio);
+  if (mes) docs = docs.filter(d => (d.fecha_documento||'').slice(5,7) === String(mes).padStart(2,'0'));
+  if (q) docs = docs.filter(d => ((d.nombre||'')+' '+(d.proveedor||'')+' '+(d.descripcion||'')+' '+(d.observaciones||'')).toLowerCase().includes(q));
+  const total = _docs.length;
+  const esteMes = _docs.filter(d => (d.fecha_documento||'').slice(0,7) === periodoActual()).length;
+  const pend = _docs.filter(d => !d.categoria || d.categoria === 'Otros').length;
+  const cats = new Set(_docs.map(d=>d.categoria).filter(Boolean)).size;
+  document.getElementById('docs-kpis').innerHTML = `
+    <div class="metric-card"><div class="m-label">Documentos</div><div class="m-val">${NUM(total)}</div><div class="m-sub">${NUM(docs.length)} mostrados</div></div>
+    <div class="metric-card"><div class="m-label">Este mes</div><div class="m-val">${NUM(esteMes)}</div><div class="m-sub">${mesNombreCorto(periodoActual())}</div></div>
+    <div class="metric-card"><div class="m-label">Categorías</div><div class="m-val">${cats}</div><div class="m-sub">con documentos</div></div>
+    <div class="metric-card"><div class="m-label">Sin clasificar</div><div class="m-val">${NUM(pend)}</div><div class="m-sub">"Otros" o vacío</div></div>`;
+  document.getElementById('docs-list').innerHTML = docs.length ? docs.map(d => {
+    const archivos = Array.isArray(d.archivos) ? d.archivos : [];
+    const fileLinks = archivos.map(a => `<a href="${a.url}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--brand-dark);text-decoration:none;border:1px solid var(--borde);border-radius:6px;padding:3px 7px;margin:3px 4px 0 0">📎 ${(a.nombre||'archivo').slice(0,24)}</a>`).join('');
+    const esGasto = d._origen === 'gasto';
+    const acciones = esGasto
+      ? '<span style="font-size:10px;color:var(--gris-medio)">desde Gastos</span>'
+      : `<button onclick="abrirModalDoc('${d.id}')" title="Editar" style="background:none;border:none;color:var(--rosa-oscuro);cursor:pointer;font-size:14px;padding:2px 6px">✎</button><button onclick="eliminarDoc('${d.id}')" title="Eliminar" style="background:none;border:none;color:var(--rojo);cursor:pointer;font-size:14px;padding:2px 6px">🗑️</button>`;
+    return `<div style="padding:13px 16px;border-bottom:1px solid var(--borde)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <div style="min-width:0">
+          <div style="font-weight:700;font-size:14px">${d.nombre||'(sin nombre)'}</div>
+          <div style="font-size:11px;color:var(--gris-medio);margin-top:2px"><span class="badge badge-rosa">${d.categoria||'Sin clasificar'}</span> · ${d.fecha_documento?_fmtFechaCorte(d.fecha_documento):'—'}${d.proveedor?' · '+d.proveedor:''}${d.valor?' · '+COP(d.valor):''}</div>
+        </div>
+        <div style="flex-shrink:0;white-space:nowrap">${acciones}</div>
+      </div>
+      ${d.descripcion?`<div style="font-size:12px;color:var(--gris-medio);margin-top:4px">${d.descripcion}</div>`:''}
+      <div style="margin-top:2px">${fileLinks||'<span style="font-size:11px;color:var(--gris-medio)">sin archivos</span>'}</div>
+    </div>`;
+  }).join('') : '<div style="padding:24px 16px;text-align:center;color:var(--gris-medio);font-size:13px">No hay documentos con esos filtros.</div>';
+}
+
+function abrirModalDoc(id) {
+  document.getElementById('doc-cat').innerHTML = DOC_CATEGORIAS.map(c=>`<option>${c}</option>`).join('');
+  _docFilesActuales = [];
+  if (id) {
+    const d = _docs.find(x=>x.id===id); if (!d) return;
+    _docEdit = id;
+    document.getElementById('doc-modal-title').textContent = 'Editar documento';
+    document.getElementById('doc-nombre').value = d.nombre||'';
+    document.getElementById('doc-cat').value = d.categoria||'Otros';
+    document.getElementById('doc-fecha').value = d.fecha_documento||'';
+    document.getElementById('doc-valor').value = d.valor||'';
+    document.getElementById('doc-prov').value = d.proveedor||'';
+    document.getElementById('doc-desc').value = d.descripcion||'';
+    document.getElementById('doc-obs').value = d.observaciones||'';
+    _docFilesActuales = Array.isArray(d.archivos) ? d.archivos.slice() : [];
+  } else {
+    _docEdit = null;
+    document.getElementById('doc-modal-title').textContent = 'Nuevo documento';
+    ['doc-nombre','doc-valor','doc-prov','doc-desc','doc-obs'].forEach(x=>document.getElementById(x).value='');
+    document.getElementById('doc-cat').value = 'Gastos';
+    document.getElementById('doc-fecha').value = hoy();
+  }
+  document.getElementById('doc-files').value = '';
+  document.getElementById('doc-files-nuevos').textContent = '';
+  renderDocFilesActuales();
+  document.getElementById('modal-doc').classList.add('open');
+}
+
+function renderDocFilesActuales() {
+  const cont = document.getElementById('doc-files-actuales');
+  cont.innerHTML = _docFilesActuales.length ? '<div style="font-size:11px;color:var(--gris-medio);margin-bottom:4px">Archivos actuales:</div>' + _docFilesActuales.map((a,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:3px 0"><a href="${a.url}" target="_blank" rel="noopener" style="color:var(--brand-dark);text-decoration:none">📎 ${a.nombre||'archivo'}</a><button onclick="quitarDocFile(${i})" style="background:none;border:none;color:var(--rojo);cursor:pointer;font-size:14px">✕</button></div>`).join('') : '';
+}
+function quitarDocFile(i) { _docFilesActuales.splice(i,1); renderDocFilesActuales(); }
+function previewDocFiles() {
+  const files = [...document.getElementById('doc-files').files];
+  document.getElementById('doc-files-nuevos').textContent = files.length ? `${files.length} archivo(s) nuevo(s) por subir: ${files.map(f=>f.name).join(', ')}` : '';
+}
+
+async function guardarDoc() {
+  const nombre = document.getElementById('doc-nombre').value.trim();
+  if (!nombre) { toast('Ponle un nombre al documento', 'err'); return; }
+  const files = [...document.getElementById('doc-files').files];
+  const val = validarDocs(files);
+  if (!val.ok) { toast(val.error, 'err'); return; }
+  const btn = document.getElementById('doc-btn'); btn.disabled=true; const prev=btn.textContent; btn.textContent='Guardando…';
+  const archivos = _docFilesActuales.slice();
+  for (const f of files) {
+    const up = await subirArchivoDoc(f);
+    if (up.error) { btn.disabled=false; btn.textContent=prev; toast('Error subiendo '+f.name, 'err'); console.error(up.error); return; }
+    archivos.push({ url:up.url, nombre:up.nombre, ext:up.ext });
+  }
+  const fecha = document.getElementById('doc-fecha').value || null;
+  const row = {
+    nombre,
+    categoria: document.getElementById('doc-cat').value,
+    fecha_documento: fecha,
+    descripcion: document.getElementById('doc-desc').value.trim() || null,
+    valor: parseInt(document.getElementById('doc-valor').value) || null,
+    proveedor: document.getElementById('doc-prov').value.trim() || null,
+    observaciones: document.getElementById('doc-obs').value.trim() || null,
+    archivos,
+    periodo: fecha ? fecha.slice(0,7) : null
+  };
+  let error;
+  if (_docEdit) ({ error } = await sb.from('documentos').update(row).eq('id', _docEdit));
+  else ({ error } = await sb.from('documentos').insert(row));
+  btn.disabled=false; btn.textContent=prev;
+  if (error) { toast('Error al guardar el documento', 'err'); console.error(error); return; }
+  toast('✓ Documento guardado');
+  cerrarModal('modal-doc');
+  cargarDocumentos();
+}
+
+async function eliminarDoc(id) {
+  const d = _docs.find(x=>x.id===id); if (!d) return;
+  if (!confirm(`¿Eliminar "${d.nombre}" y sus archivos?`)) return;
+  const paths = (Array.isArray(d.archivos)?d.archivos:[]).map(a=>pathDeSoporte(a.url)).filter(Boolean);
+  if (paths.length) await sb.storage.from('soportes-gastos').remove(paths);
+  const { error } = await sb.from('documentos').delete().eq('id', id);
+  if (error) { toast('Error al eliminar', 'err'); return; }
+  toast('Documento eliminado');
+  cargarDocumentos();
+}
 
 // ─── CONTABILIDAD: CONSIGNACIONES (ingresos manuales) ─────────
 let _consignaciones = [];
