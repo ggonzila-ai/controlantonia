@@ -444,6 +444,7 @@
       <div class="tab active" id="tab-bod-existencias" onclick="showTab('tab-bod-existencias')">Existencias</div>
       <div class="tab" id="tab-bod-catalogo" onclick="showTab('tab-bod-catalogo')">Catálogo</div>
       <div class="tab" id="tab-bod-costos" onclick="showTab('tab-bod-costos')">Costos</div>
+      <div class="tab" id="tab-bod-rentab" onclick="showTab('tab-bod-rentab')">Rentabilidad</div>
       <div class="tab" id="tab-bod-despachos" onclick="showTab('tab-bod-despachos')">Despachos</div>
     </div>
 
@@ -483,6 +484,41 @@
     <!-- COSTOS POR REFERENCIA -->
     <div id="tab-content-bod-costos" style="display:none">
       <div class="section-card" style="border-radius:0;margin-bottom:0;border-bottom:none">
+        <div onclick="const b=document.getElementById('param-body');b.style.display=b.style.display==='none'?'block':'none'" style="padding:12px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+          <strong style="font-size:14px">⚙ Parámetros del mes</strong>
+          <span style="font-size:11px;color:var(--gris-medio)">costos fijos por prenda · clic para abrir</span>
+        </div>
+        <div id="param-body" style="display:none;padding:0 16px 14px">
+          <div style="font-size:12px;font-weight:700;color:var(--brand);margin:4px 0 6px">Producción</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <div class="form-group" style="margin:0;min-width:110px"><label>Costureras TC</label><input type="number" id="pp-costureras" value="2" oninput="recalcParametros()"></div>
+            <div class="form-group" style="margin:0;min-width:160px"><label>Taller (arriendo+serv.+varios)</label><input type="number" id="pp-taller" value="1446000" oninput="recalcParametros()"></div>
+            <div class="form-group" style="margin:0;min-width:120px"><label>Unidades a producir</label><input type="number" id="pp-undprod" value="1000" oninput="recalcParametros()"></div>
+          </div>
+          <div style="font-size:12px;font-weight:700;color:var(--brand);margin:12px 0 6px">Comercial</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <div class="form-group" style="margin:0;min-width:90px"><label>Vend. TC</label><input type="number" id="pc-tc" value="1" oninput="recalcParametros()"></div>
+            <div class="form-group" style="margin:0;min-width:90px"><label>Vend. MT</label><input type="number" id="pc-mt" value="1" oninput="recalcParametros()"></div>
+            <div class="form-group" style="margin:0;min-width:100px"><label>Temporales TC</label><input type="number" id="pc-temp" value="0" oninput="recalcParametros()"></div>
+            <div class="form-group" style="margin:0;min-width:110px"><label>Transporte</label><input type="number" id="pc-transp" value="400000" oninput="recalcParametros()"></div>
+            <div class="form-group" style="margin:0;min-width:110px"><label>Unidades a vender</label><input type="number" id="pc-undventa" value="1000" oninput="recalcParametros()"></div>
+          </div>
+          <div id="param-resumen" style="background:#eef9fc;border-radius:8px;padding:10px 12px;margin-top:12px;font-size:13px;line-height:1.8"></div>
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+            <button class="btn btn-secondary btn-sm" onclick="aplicarParametros()">Aplicar a análisis</button>
+            <button class="btn btn-primary btn-sm" onclick="guardarParametros()">Guardar mes</button>
+          </div>
+          <div style="border-top:1px solid var(--borde);margin-top:14px;padding-top:12px">
+            <div style="font-size:12px;font-weight:700;color:var(--brand);margin-bottom:6px">Simulador de precio</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <div class="form-group" style="margin:0;min-width:160px"><label>Precio de venta (con IVA)</label><input type="number" id="sim-precio" placeholder="32900" oninput="recalcSimulador()"></div>
+              <div class="form-group" style="margin:0;min-width:160px"><label>Materia prima estimada/prenda</label><input type="number" id="sim-mp" placeholder="8854" oninput="recalcSimulador()"></div>
+            </div>
+            <div id="sim-resultado" style="margin-top:8px;font-size:13px;color:var(--gris-medio)">Ingresa precio y materia prima para evaluar.</div>
+          </div>
+        </div>
+      </div>
+      <div class="section-card" style="border-radius:0;margin-bottom:0;border-bottom:none">
         <div style="padding:12px 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <input type="text" id="costos-buscar" placeholder="Buscar referencia…" style="flex:1;min-width:160px;padding:10px 14px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:14px;font-family:inherit" oninput="renderCostos()">
           <span id="costos-resumen" style="font-size:11px;color:var(--gris-medio)"></span>
@@ -492,6 +528,13 @@
       <div id="costos-list" class="section-card" style="border-radius:0 0 var(--radius) var(--radius)">
         <div class="loader"><div class="spinner"></div></div>
       </div>
+    </div>
+
+    <!-- RENTABILIDAD -->
+    <div id="tab-content-bod-rentab" style="display:none">
+      <div class="metrics" id="rentab-kpis" style="margin:14px 16px"></div>
+      <div style="padding:0 16px 8px;font-size:11px;color:var(--gris-medio)">Cadena: precio sin IVA − materia prima = margen bruto; − comisión 16% = margen post-comisión; − producción/prenda − comercial/prenda = utilidad operativa. Producción/comercial salen de ⚙ Parámetros del mes. Umbrales: ✓ ≥20% · ⚠ 10–19% · ✗ &lt;10%.</div>
+      <div class="tabla-wrap" id="rentab-tabla"><div class="loader"><div class="spinner"></div></div></div>
     </div>
 
     <!-- DESPACHOS (integrado en Bodega) -->
@@ -1626,6 +1669,7 @@
     </div>
 
     <div id="costo-calc" style="background:var(--gris-claro);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:14px;font-size:13px"></div>
+    <div id="costo-analisis" style="margin-bottom:14px"></div>
 
     <div style="display:flex;gap:10px;margin-top:4px">
       <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-costos')">Cancelar</button>
@@ -2023,7 +2067,8 @@ function showTab(tabId) {
   if (tabId === 'tab-if-res') cargarResultadosConteo();
   if (tabId === 'tab-alm-conc') { llenarSelectAlmacenes(); renderConciliacion(); }
   if (tabId === 'tab-bod-catalogo') cargarCatalogo();
-  if (tabId === 'tab-bod-costos') cargarCostos();
+  if (tabId === 'tab-bod-costos') { cargarCostos(); loadParametros(); }
+  if (tabId === 'tab-bod-rentab') cargarRentabilidadCostos();
   if (tabId === 'tab-bod-despachos') {
     llenarSelectAlmacenes();
     const wrap = document.getElementById('d-items-wrap');
@@ -2636,6 +2681,111 @@ function margenReferencia(ref) {
   return { precio:c.precio_venta, mp, comision, iva, costoTotal, margen, margenPct: c.precio_venta ? margen/c.precio_venta : 0 };
 }
 
+// ─── COSTOS: PARÁMETROS DEL MES + RENTABILIDAD (cadena base sin IVA) ───
+const SALARIO_TC = 2722000, SALARIO_MT = 1361000;
+let _paramProdPrenda = 6890, _paramComPrenda = 4483, _paramCargados = false;
+const _v = id => document.getElementById(id)?.value;
+const _setV = (id, val) => { const e = document.getElementById(id); if (e && val != null) e.value = val; };
+
+function recalcParametros() {
+  const prodPrenda = Math.round(((parseFloat(_v('pp-costureras'))||0)*SALARIO_TC + (parseFloat(_v('pp-taller'))||0)) / (parseFloat(_v('pp-undprod'))||1));
+  const comPrenda = Math.round(((parseFloat(_v('pc-tc'))||0)*SALARIO_TC + (parseFloat(_v('pc-mt'))||0)*SALARIO_MT + (parseFloat(_v('pc-temp'))||0)*SALARIO_TC + (parseFloat(_v('pc-transp'))||0)) / (parseFloat(_v('pc-undventa'))||1));
+  const r = document.getElementById('param-resumen');
+  if (r) r.innerHTML = `Costo producción/prenda: <strong>${COP(prodPrenda)}</strong><br>Costo comercial/prenda: <strong>${COP(comPrenda)}</strong><br>Costo fijo total/prenda: <strong>${COP(prodPrenda+comPrenda)}</strong>`;
+  return { prodPrenda, comPrenda };
+}
+function aplicarParametros() {
+  const r = recalcParametros(); _paramProdPrenda = r.prodPrenda; _paramComPrenda = r.comPrenda; _paramCargados = true;
+  toast('✓ Parámetros aplicados al análisis');
+  renderCostos();
+  if (document.getElementById('tab-content-bod-rentab')?.style.display !== 'none') cargarRentabilidadCostos();
+}
+async function guardarParametros() {
+  const r = recalcParametros(); _paramProdPrenda = r.prodPrenda; _paramComPrenda = r.comPrenda; _paramCargados = true;
+  const row = { periodo: periodoActual(), costureras:+_v('pp-costureras')||0, taller:+_v('pp-taller')||0, unidades_produccion:+_v('pp-undprod')||0,
+    vend_tc:+_v('pc-tc')||0, vend_mt:+_v('pc-mt')||0, vend_temp:+_v('pc-temp')||0, transporte:+_v('pc-transp')||0, unidades_venta:+_v('pc-undventa')||0,
+    costo_produccion_prenda:r.prodPrenda, costo_comercial_prenda:r.comPrenda, updated_at:new Date().toISOString() };
+  const { error } = await sb.from('parametros_mes').upsert(row, { onConflict:'periodo' });
+  if (error) { toast('Error al guardar parámetros', 'err'); console.error(error); return; }
+  toast('✓ Parámetros del mes guardados');
+}
+async function loadParametros() {
+  const { data } = await sb.from('parametros_mes').select('*').eq('periodo', periodoActual()).maybeSingle();
+  if (data) {
+    _setV('pp-costureras', data.costureras); _setV('pp-taller', data.taller); _setV('pp-undprod', data.unidades_produccion);
+    _setV('pc-tc', data.vend_tc); _setV('pc-mt', data.vend_mt); _setV('pc-temp', data.vend_temp); _setV('pc-transp', data.transporte); _setV('pc-undventa', data.unidades_venta);
+    _paramProdPrenda = data.costo_produccion_prenda || _paramProdPrenda;
+    _paramComPrenda = data.costo_comercial_prenda || _paramComPrenda;
+    recalcParametros();
+  } else {
+    const r = recalcParametros(); _paramProdPrenda = r.prodPrenda; _paramComPrenda = r.comPrenda;
+  }
+  _paramCargados = true;
+}
+function recalcSimulador() {
+  const precio = parseInt(_v('sim-precio'))||0, mp = parseInt(_v('sim-mp'))||0;
+  const out = document.getElementById('sim-resultado'); if (!out) return;
+  if (precio<=0) { out.textContent = 'Ingresa precio y materia prima para evaluar.'; return; }
+  const sinIva = baseSinIva(precio), mb = sinIva - mp, com = Math.round(sinIva*COMISION_RATE), mpc = mb - com;
+  const util = mpc - _paramProdPrenda - _paramComPrenda, uPct = sinIva>0 ? util/sinIva*100 : 0;
+  const sem = uPct>=20 ? ['var(--verde)','✓ Rentable'] : uPct>=10 ? ['var(--amarillo)','⚠ Ajustado — viable en volumen'] : ['var(--rojo)','✗ En riesgo'];
+  const p = x => sinIva>0 ? (x/sinIva*100).toFixed(1) : '0';
+  out.innerHTML = `Precio sin IVA <strong>${COP(sinIva)}</strong> · Margen bruto <strong>${p(mb)}%</strong> · Post-comisión <strong>${p(mpc)}%</strong><br>Utilidad operativa <strong style="color:${sem[0]}">${COP(util)} (${p(util)}%)</strong> — <span style="color:${sem[0]};font-weight:600">${sem[1]}</span>`;
+}
+
+// Cadena de rentabilidad por referencia (base = precio sin IVA = 100%)
+function analisisRef(ref) {
+  const c = _costos[ref];
+  if (!c || !c.precio_venta) return null;
+  const precioSinIva = baseSinIva(c.precio_venta);
+  const mp = (_insumos[ref]||[]).reduce((s,i)=>s+(i.valor||0),0);
+  const margenBruto = precioSinIva - mp;
+  const comision = Math.round(precioSinIva * COMISION_RATE);
+  const margenPostCom = margenBruto - comision;
+  const cProd = (c.costo_produccion>0) ? c.costo_produccion : _paramProdPrenda;
+  const cCom = (c.costo_comercial>0) ? c.costo_comercial : _paramComPrenda;
+  const utilidad = margenPostCom - cProd - cCom;
+  const pct = x => precioSinIva>0 ? +(x/precioSinIva*100).toFixed(1) : 0;
+  return { precioConIva:c.precio_venta, precioSinIva, mp, margenBruto, comision, margenPostCom, cProd, cCom, utilidad,
+    mpPct:pct(mp), margenBrutoPct:pct(margenBruto), comisionPct:pct(comision), margenPostComPct:pct(margenPostCom), cProdPct:pct(cProd), cComPct:pct(cCom), utilidadPct:pct(utilidad) };
+}
+function semaforoUtil(pct) {
+  return pct>=20 ? ['var(--verde)','✓ Referencia rentable'] : pct>=10 ? ['var(--amarillo)','⚠ Margen ajustado — viable en volumen'] : ['var(--rojo)','✗ Referencia en riesgo — revisar precio o costos'];
+}
+
+async function cargarRentabilidadCostos() {
+  if (esVendedora()) return;
+  if (!bodegaData.length) { const { data } = await sb.from('bodega').select('*').order('referencia'); bodegaData = data||[]; }
+  await loadCostosData();
+  if (!_paramCargados) await loadParametros();
+  const rows = bodegaData.map(p => ({ p, a: analisisRef(p.referencia) })).filter(x => x.a).map(x => ({ ref:x.p.referencia, cat:x.p.categoria, ...x.a }));
+  rows.sort((a,b)=> b.utilidadPct - a.utilidadPct);
+  const conCosto = rows.length;
+  const mgBrutoProm = conCosto ? +(rows.reduce((s,r)=>s+r.margenBrutoPct,0)/conCosto).toFixed(1) : 0;
+  const enRiesgo = rows.filter(r=>r.utilidadPct<10).length;
+  const top = rows[0];
+  document.getElementById('rentab-kpis').innerHTML = `
+    <div class="metric-card"><div class="m-label">Margen bruto promedio</div><div class="m-val">${mgBrutoProm}%</div><div class="m-sub">${conCosto} ref. con costos</div></div>
+    <div class="metric-card"><div class="m-label">En riesgo (util. &lt;10%)</div><div class="m-val">${enRiesgo}</div><div class="m-sub">revisar precio/costos</div></div>
+    <div class="metric-card accent"><div class="m-label">Más rentable</div><div class="m-val" style="font-size:15px">${top?top.ref:'—'}</div><div class="m-sub">${top?top.utilidadPct+'% utilidad':''}</div></div>`;
+  document.getElementById('rentab-tabla').innerHTML = rows.length ? `<table>
+    <thead><tr><th>Referencia</th><th>Cat.</th><th style="text-align:right">Precio c/IVA</th><th style="text-align:right">Precio s/IVA</th><th style="text-align:right">MP</th><th style="text-align:right">Mg Bruto</th><th style="text-align:right">Post-com.</th><th style="text-align:right">Utilidad</th><th>🚦</th></tr></thead>
+    <tbody>${rows.map(r=>{
+      const sem = semaforoUtil(r.utilidadPct);
+      return `<tr>
+        <td><strong>${r.ref}</strong></td>
+        <td><span class="badge badge-rosa" style="font-size:9px">${r.cat||'—'}</span></td>
+        <td style="text-align:right">${COP(r.precioConIva)}</td>
+        <td style="text-align:right">${COP(r.precioSinIva)}</td>
+        <td style="text-align:right;color:var(--gris-medio)">${COP(r.mp)}</td>
+        <td style="text-align:right">${r.margenBrutoPct}%</td>
+        <td style="text-align:right">${r.margenPostComPct}%</td>
+        <td style="text-align:right;font-weight:700;color:${sem[0]}">${r.utilidadPct}%</td>
+        <td>${sem[1].split(' ')[0]}</td>
+      </tr>`;
+    }).join('')}</tbody></table>` : '<div style="padding:20px;text-align:center;color:var(--gris-medio);font-size:13px">Aún no hay referencias con precio y costos definidos.</div>';
+}
+
 function renderCostos() {
   const q = (document.getElementById('costos-buscar')?.value||'').toLowerCase();
   const refs = bodegaData.filter(p => !q || p.referencia.toLowerCase().includes(q) || (p.categoria||'').toLowerCase().includes(q));
@@ -2746,6 +2896,32 @@ function recalcCostos() {
     <div style="display:flex;justify-content:space-between;padding:2px 0"><span>IVA de la venta (incluido, 19%)</span><strong>${COP(iva)}</strong></div>
     <div style="display:flex;justify-content:space-between;padding:2px 0;border-top:1px solid var(--borde);margin-top:4px;padding-top:6px"><span>Costo total unitario</span><strong>${COP(costoTotal)}</strong></div>
     <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:15px"><span style="font-weight:600">Margen bruto</span><strong style="color:${col}">${COP(margen)} · ${pct}%</strong></div>`;
+  // Análisis de rentabilidad (cadena base sin IVA) — solo admin
+  const _ca = document.getElementById('costo-analisis');
+  if (_ca && !esVendedora()) {
+    const sIva = baseSinIva(precio), mb = sIva - mp, cmSi = Math.round(sIva*COMISION_RATE), mpc = mb - cmSi;
+    const cP = prod || _paramProdPrenda, cC = com || _paramComPrenda, util = mpc - cP - cC;
+    const uPct = sIva>0 ? util/sIva*100 : 0, sem = semaforoUtil(uPct), pp = x => sIva>0 ? (x/sIva*100).toFixed(1) : '0';
+    _ca.innerHTML = precio>0 ? `
+      <div style="font-size:12px;font-weight:700;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em;margin:2px 0 8px">Análisis de rentabilidad</div>
+      <div class="metrics" style="margin-bottom:10px">
+        <div class="metric-card"><div class="m-label">Precio sin IVA</div><div class="m-val" style="font-size:17px">${COP(sIva)}</div></div>
+        <div class="metric-card"><div class="m-label">Margen bruto</div><div class="m-val" style="font-size:17px">${pp(mb)}%</div><div class="m-sub">${COP(mb)}</div></div>
+        <div class="metric-card"><div class="m-label">Post-comisión</div><div class="m-val" style="font-size:17px">${pp(mpc)}%</div><div class="m-sub">${COP(mpc)}</div></div>
+        <div class="metric-card" style="border:2px solid ${sem[0]}"><div class="m-label">Utilidad operativa</div><div class="m-val" style="font-size:17px;color:${sem[0]}">${pp(util)}%</div><div class="m-sub">${COP(util)}</div></div>
+      </div>
+      <div class="tabla-wrap"><table style="font-size:12.5px"><tbody>
+        <tr><td>Precio sin IVA</td><td style="text-align:right">${COP(sIva)}</td><td style="text-align:right;color:var(--gris-medio)">100%</td></tr>
+        <tr style="color:var(--gris-medio)"><td>− MP + insumos</td><td style="text-align:right">(${COP(mp)})</td><td style="text-align:right">${pp(mp)}%</td></tr>
+        <tr><td><strong>= Margen bruto</strong></td><td style="text-align:right"><strong>${COP(mb)}</strong></td><td style="text-align:right">${pp(mb)}%</td></tr>
+        <tr style="color:var(--gris-medio)"><td>− Comisión Feria 16%</td><td style="text-align:right">(${COP(cmSi)})</td><td style="text-align:right">${pp(cmSi)}%</td></tr>
+        <tr><td><strong>= Margen post-comisión</strong></td><td style="text-align:right"><strong>${COP(mpc)}</strong></td><td style="text-align:right">${pp(mpc)}%</td></tr>
+        <tr style="color:var(--gris-medio)"><td>− Costo producción</td><td style="text-align:right">(${COP(cP)})</td><td style="text-align:right">${pp(cP)}%</td></tr>
+        <tr style="color:var(--gris-medio)"><td>− Costo comercial</td><td style="text-align:right">(${COP(cC)})</td><td style="text-align:right">${pp(cC)}%</td></tr>
+        <tr style="border-top:2px solid var(--borde)"><td><strong>= UTILIDAD OPERATIVA</strong></td><td style="text-align:right"><strong style="color:${util>=0?'var(--verde)':'var(--rojo)'}">${COP(util)}</strong></td><td style="text-align:right;font-weight:700">${pp(util)}%</td></tr>
+      </tbody></table></div>
+      <div style="margin-top:8px;font-size:12px;font-weight:600;color:${sem[0]}">${sem[1]}</div>` : '';
+  }
 }
 
 async function guardarCostos() {
