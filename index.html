@@ -198,8 +198,10 @@
   /* MODAL */
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 200; display: none; align-items: flex-end; }
   .modal-overlay.open { display: flex; }
-  .modal { background: var(--blanco); border-radius: 20px 20px 0 0; width: 100%; max-height: 90vh; overflow-y: auto; padding: 20px; padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+  .modal { position: relative; background: var(--blanco); border-radius: 20px 20px 0 0; width: 100%; max-height: 90vh; overflow-y: auto; padding: 20px; padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
   .modal-handle { width: 36px; height: 4px; background: var(--borde); border-radius: 2px; margin: 0 auto 18px; }
+  .modal-x { position: absolute; top: 12px; right: 12px; width: 30px; height: 30px; border: none; background: var(--gris-claro); color: var(--gris-medio); border-radius: 50%; font-size: 15px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 5; }
+  .modal-x:hover { background: #e2e2e2; color: var(--carbon); }
   .modal-title { font-size: 17px; font-weight: 700; margin-bottom: 18px; }
 
   @media (min-width: 600px) {
@@ -6880,8 +6882,20 @@ function renderInsightsAlmRentab(filas) {
   cont.innerHTML = ins.map(e => `<div style="padding:9px 16px;border-bottom:1px solid var(--borde);font-size:13px"><strong>${e[0]}</strong> <span style="color:var(--gris-medio)">${e[1]}</span></div>`).join('');
 }
 
+// Agrega una X de cierre a la esquina superior derecha de TODOS los modales
+function inyectarCierreModales() {
+  document.querySelectorAll('.modal-overlay > .modal').forEach(m => {
+    if (m.querySelector(':scope > .modal-x')) return;
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'modal-x'; b.setAttribute('aria-label', 'Cerrar'); b.textContent = '✕';
+    b.onclick = () => m.closest('.modal-overlay').classList.remove('open');
+    m.insertBefore(b, m.firstChild);
+  });
+}
+
 // ─── INIT ─────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
+  inyectarCierreModales();
   verificarConexion();
   initAuth();
   setInterval(verificarConexion, 30000);
