@@ -5767,6 +5767,34 @@ function tipoChip(t){
   return `<span class="tipo-chip ${cls}" title="${label}">${l}</span>`;
 }
 
+// ── Celda de proveedor con edición inline en la tabla de gastos ──
+function provCellHtml(g){
+  const nom = g.proveedor_id ? (provNombre(g.proveedor_id) || 'proveedor') : '';
+  if (nom) return `<span style="font-size:12px">${nom}</span> <button onclick="provInlineEdit('${g.id}')" title="Cambiar proveedor" style="background:none;border:none;cursor:pointer;font-size:12px;padding:0 2px;opacity:.65">✏️</button>`;
+  return `<button onclick="provInlineEdit('${g.id}')" style="background:none;border:1px dashed var(--border-light);color:var(--gris-medio);cursor:pointer;font-size:11px;border-radius:6px;padding:2px 8px">+ asignar</button>`;
+}
+function provInlineEdit(gid){
+  const el = document.querySelector(`[data-prov-cell="${gid}"]`);
+  const cur = el ? (el.getAttribute('data-prov-id') || '') : '';
+  const opts = '<option value="">— Sin proveedor —</option>' +
+    provActivos().map(p => `<option value="${p.id}" ${p.id===cur?'selected':''}>${p.nombre_comercial}</option>`).join('');
+  const html = `<select onchange="provInlineSave('${gid}', this.value)" style="font-size:12px;padding:3px 6px;border:1px solid var(--border-light);border-radius:6px;max-width:170px">${opts}</select> <button onclick="provInlineCancel('${gid}')" title="Cancelar" style="background:none;border:none;color:var(--gris-medio);cursor:pointer;font-size:13px;padding:0 2px">✕</button>`;
+  document.querySelectorAll(`[data-prov-cell="${gid}"]`).forEach(c => c.innerHTML = html);
+  document.querySelector(`[data-prov-cell="${gid}"] select`)?.focus();
+}
+async function provInlineSave(gid, value){
+  const provId = value || null;
+  const { error } = await sb.from('gastos').update({ proveedor_id: provId }).eq('id', gid);
+  if (error) { toast('No se pudo asignar el proveedor: ' + detalleError(error), 'err'); provInlineCancel(gid); return; }
+  document.querySelectorAll(`[data-prov-cell="${gid}"]`).forEach(c => { c.setAttribute('data-prov-id', provId||''); c.innerHTML = provCellHtml({ id: gid, proveedor_id: provId }); });
+  toast('✓ Proveedor ' + (provId ? 'asignado' : 'quitado'));
+}
+function provInlineCancel(gid){
+  const el = document.querySelector(`[data-prov-cell="${gid}"]`);
+  const cur = el ? (el.getAttribute('data-prov-id') || '') : '';
+  document.querySelectorAll(`[data-prov-cell="${gid}"]`).forEach(c => c.innerHTML = provCellHtml({ id: gid, proveedor_id: cur || null }));
+}
+
 function iniciarContabilidad() {
   const f = document.getElementById('g-fecha'); if (!f.value) f.value = hoy();
   const cat = document.getElementById('g-categoria');
@@ -6037,13 +6065,13 @@ async function cargarGastos() {
     const sopCell = (n || tieneLegacy)
       ? `<button onclick="abrirSoportes('${g.id}')" class="badge badge-info" style="border:none;cursor:pointer">${n || 1} archivo${(n||1)>1?'s':''}</button>`
       : `<button onclick="abrirSoportes('${g.id}')" style="background:none;border:none;color:var(--azul);cursor:pointer;font-size:12px;text-decoration:underline">+ agregar</button>`;
-    const provNom = g.proveedor_id ? (provNombre(g.proveedor_id) || 'proveedor') : '';
+    const provInner = provCellHtml(g);
     return `
     <tr>
       <td>${g.fecha}</td>
-      <td><strong>${g.descripcion}</strong>${provNom?`<div class="prov-inline" style="font-size:11px;color:var(--gris-medio)">🏭 ${provNom}</div>`:''}${g.observaciones?`<div style="font-size:11px;color:var(--gris-medio)">${g.observaciones}</div>`:''}</td>
+      <td><strong>${g.descripcion}</strong><div class="prov-inline" data-prov-cell="${g.id}" data-prov-id="${g.proveedor_id||''}" style="font-size:12px;color:var(--gris-medio)">${provInner}</div>${g.observaciones?`<div style="font-size:11px;color:var(--gris-medio)">${g.observaciones}</div>`:''}</td>
       <td>${g.categoria?`<span class="badge badge-rosa">${g.categoria}</span>`:'<span style="color:var(--gris-medio);font-size:12px">—</span>'}</td>
-      <td class="col-prov">${provNom?`<span style="font-size:12px">${provNom}</span>`:'<span style="color:var(--gris-medio);font-size:12px">—</span>'}</td>
+      <td class="col-prov" data-prov-cell="${g.id}" data-prov-id="${g.proveedor_id||''}">${provInner}</td>
       <td>${tipoChip(g.tipo)}</td>
       <td style="text-align:right;font-weight:700">${COP(g.valor)}</td>
       <td>${sopCell}</td>
