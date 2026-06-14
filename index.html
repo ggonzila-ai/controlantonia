@@ -295,6 +295,18 @@
   .badge-rosa { background: var(--brand-light); color: var(--brand-dark); }
   .badge-gray { background: var(--bg-hover); color: var(--text-secondary); border: 1px solid var(--border-light); }
 
+  /* ---- CHIP TIPO DE GASTO (1 letra) ---- */
+  .tipo-chip { display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:6px; font-weight:800; font-size:12px; line-height:1; }
+  .tipo-F { background: var(--brand-light); color: var(--brand-mid); }
+  .tipo-V { background: var(--bg-hover); color: var(--text-secondary); }
+  .tipo-E { background: var(--warning-bg); color: var(--warning-text); }
+  /* Proveedor: columna en escritorio, texto bajo la descripción en móvil */
+  .prov-inline { display:none; }
+  @media (max-width: 559px) {
+    .col-prov { display:none; }
+    .prov-inline { display:block; margin-top:2px; }
+  }
+
   /* ---- ALERTS ---- */
   .alert-ok   { background: var(--success-bg); color: var(--success-text); border-color: #A7F3D0; }
   .alert-warn { background: var(--warning-bg); color: var(--warning-text); border-color: #FDE68A; }
@@ -1118,8 +1130,8 @@
           <span id="g-total-label" style="font-size:12px;color:var(--gris-medio);margin-left:auto"></span>
         </div>
         <div class="tabla-wrap"><table>
-          <thead><tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th>Tipo</th><th style="text-align:right">Valor</th><th>Soportes</th><th></th></tr></thead>
-          <tbody id="g-tbody"><tr><td colspan="7"><div class="loader"><div class="spinner"></div></div></td></tr></tbody>
+          <thead><tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th class="col-prov">Proveedor</th><th>Tipo</th><th style="text-align:right">Valor</th><th>Soportes</th><th></th></tr></thead>
+          <tbody id="g-tbody"><tr><td colspan="8"><div class="loader"><div class="spinner"></div></div></td></tr></tbody>
         </table></div>
       </div>
     </div>
@@ -5749,6 +5761,11 @@ const comisionDe = totalConIva => Math.round((totalConIva || 0) * COMISION_RATE)
 // 'Seguridad Social' es categoría independiente para análisis financiero.
 const CATEGORIAS_GASTO = ['Arriendo y servicios públicos','Cafetería','Gastos de Representación','Nómina y sueldos','Seguridad Social','Telas e insumos','Transporte','Maquinaria','Marketing y visual','Suscripciones','Impuesto','Otro'];
 const TIPO_BADGE = t => t==='fijo' ? 'badge-info' : t==='extraordinario' ? 'badge-warn' : 'badge-gray';
+function tipoChip(t){
+  const map = { fijo:['F','tipo-F','Fijo'], variable:['V','tipo-V','Variable'], extraordinario:['E','tipo-E','Extraordinario'] };
+  const [l,cls,label] = map[t] || ['?','tipo-V', t||'—'];
+  return `<span class="tipo-chip ${cls}" title="${label}">${l}</span>`;
+}
 
 function iniciarContabilidad() {
   const f = document.getElementById('g-fecha'); if (!f.value) f.value = hoy();
@@ -6020,17 +6037,19 @@ async function cargarGastos() {
     const sopCell = (n || tieneLegacy)
       ? `<button onclick="abrirSoportes('${g.id}')" class="badge badge-info" style="border:none;cursor:pointer">${n || 1} archivo${(n||1)>1?'s':''}</button>`
       : `<button onclick="abrirSoportes('${g.id}')" style="background:none;border:none;color:var(--azul);cursor:pointer;font-size:12px;text-decoration:underline">+ agregar</button>`;
+    const provNom = g.proveedor_id ? (provNombre(g.proveedor_id) || 'proveedor') : '';
     return `
     <tr>
       <td>${g.fecha}</td>
-      <td><strong>${g.descripcion}</strong>${g.proveedor_id?`<div style="margin-top:2px"><span class="badge badge-gray" style="font-size:9px">${provNombre(g.proveedor_id)||'proveedor'}</span></div>`:''}${g.observaciones?`<div style="font-size:11px;color:var(--gris-medio)">${g.observaciones}</div>`:''}</td>
+      <td><strong>${g.descripcion}</strong>${provNom?`<div class="prov-inline" style="font-size:11px;color:var(--gris-medio)">🏭 ${provNom}</div>`:''}${g.observaciones?`<div style="font-size:11px;color:var(--gris-medio)">${g.observaciones}</div>`:''}</td>
       <td>${g.categoria?`<span class="badge badge-rosa">${g.categoria}</span>`:'<span style="color:var(--gris-medio);font-size:12px">—</span>'}</td>
-      <td><span class="badge ${TIPO_BADGE(g.tipo)}">${g.tipo}</span></td>
+      <td class="col-prov">${provNom?`<span style="font-size:12px">${provNom}</span>`:'<span style="color:var(--gris-medio);font-size:12px">—</span>'}</td>
+      <td>${tipoChip(g.tipo)}</td>
       <td style="text-align:right;font-weight:700">${COP(g.valor)}</td>
       <td>${sopCell}</td>
       <td><button onclick="deleteGasto('${g.id}')" style="background:none;border:none;color:var(--rojo);cursor:pointer;font-size:15px;padding:2px 6px">✕</button></td>
     </tr>`;
-  }).join('') || '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--gris-medio)">Sin gastos registrados.</td></tr>';
+  }).join('') || '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--gris-medio)">Sin gastos registrados.</td></tr>';
 }
 
 async function deleteGasto(id) {
