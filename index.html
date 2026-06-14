@@ -2192,7 +2192,7 @@ async function cargarDash() {
     sb.from('gastos').select('valor, periodo, categoria').eq('periodo', periodoVista).limit(500),
     sb.from('ventas').select('periodo').order('periodo', { ascending: false }).limit(5000),
     sb.from('nomina_pagos').select('valor, colaborador_id').eq('periodo', periodoVista).limit(500),
-    sb.from('colaboradores').select('id, tipo'),
+    sb.from('colaboradores').select('id, tipo, salario, activo'),
     sb.from('personal_temporal').select('valor_pagado, fecha_inicio').limit(500),
     sb.from('consignaciones').select('valor').eq('periodo', periodoVista).limit(500)
   ]);
@@ -2211,8 +2211,8 @@ async function cargarDash() {
   const bajosStock = (criticos || []).length;
   const baseVtas = baseSinIva(totalVentasCOP);
   const totalGastos = (gastosUlt || []).reduce((a, g) => a + (g.valor || 0), 0);
-  const tipoById = {}; (colabs || []).forEach(c => tipoById[c.id] = c.tipo);
-  let nominaOper = (nomPagos || []).reduce((a, n) => a + (tipoById[n.colaborador_id] === 'Socia' ? 0 : (n.valor || 0)), 0);
+  // Nómina recurrente: suma de salarios de colaboradores fijos activos (no socias), igual cada mes
+  let nominaOper = (colabs || []).reduce((a, c) => a + ((c.activo !== false && c.tipo !== 'Socia') ? (c.salario || 0) : 0), 0);
   nominaOper += (temporal || []).reduce((a, t) => a + ((t.fecha_inicio || '').slice(0, 7) === periodoVista ? (t.valor_pagado || 0) : 0), 0);
   const recibidoCaja = (consPer || []).reduce((a, c) => a + (c.valor || 0), 0);
   const egresos = totalGastos + nominaOper;
@@ -5796,12 +5796,15 @@ async function cargarNomina() {
   const sociaPagos = lista.filter(p => esSocia(p.colab));
   const totalFija = fijaPagos.reduce((s,p)=>s+(p.valor||0),0);
   const totalSocia = sociaPagos.reduce((s,p)=>s+(p.valor||0),0);
+  // Nómina fija RECURRENTE = suma de salarios de colaboradores fijos activos (no socias), igual cada mes
+  const fijosActivos = _colaboradores.filter(c => c.activo!==false && !esSocia(c));
+  const nominaFija = fijosActivos.reduce((s,c)=>s+(c.salario||0),0);
 
   // Personal temporal del período (atribuido por fecha_inicio); si no hay período → año actual
   const anioActual = String(new Date().getFullYear());
   const tempPeriodo = _temporal.filter(t => periodo ? (t.fecha_inicio||'').slice(0,7)===periodo : (t.fecha_inicio||'').slice(0,4)===anioActual);
   const totalTemp = tempPeriodo.reduce((s,t)=>s+(t.valor_pagado||0),0);
-  const costoLaboral = totalFija + totalTemp;
+  const costoLaboral = nominaFija + totalTemp;
   const periodoLbl = periodo ? mesNombre(periodo) : `año ${anioActual}`;
 
   // Costo por cargo (solo personal fijo)
@@ -5810,7 +5813,7 @@ async function cargarNomina() {
   const cargosRows = Object.entries(porCargo).sort((a,b)=>b[1]-a[1]);
 
   document.getElementById('nom-kpis').innerHTML = `
-    <div class="metric-card accent"><div class="m-label">Nómina fija ${periodoLbl}</div><div class="m-val">${COP(totalFija)}</div><div class="m-sub">${fijaPagos.length} pago(s) · ${new Set(fijaPagos.map(p=>p.colaborador_id)).size} pers.</div></div>
+    <div class="metric-card accent"><div class="m-label">Nómina fija mensual</div><div class="m-val">${COP(nominaFija)}</div><div class="m-sub">${fijosActivos.length} colaborador(es) · recurrente cada mes</div></div>
     <div class="metric-card"><div class="m-label">Personal temporal</div><div class="m-val">${COP(totalTemp)}</div><div class="m-sub">${tempPeriodo.length} contratación(es)</div></div>
     <div class="metric-card"><div class="m-label">Costo laboral total</div><div class="m-val">${COP(costoLaboral)}</div><div class="m-sub">fija + temporal</div></div>
     <div class="metric-card"><div class="m-label">Retiro socias</div><div class="m-val">${COP(totalSocia)}</div><div class="m-sub">aparte de nómina operativa</div></div>`;
@@ -5874,7 +5877,7 @@ async function cargarNomina() {
       <td><span class="badge ${esSocia(c)?'badge-info':'badge-gray'}">${c.tipo||'Personal fijo'}</span></td>
       <td>${c.cedula||'—'}</td>
       <td><span class="badge badge-rosa">${c.cargo}</span></td>
-      <td style="text-align:right">${COP(c.salario)}</td>
+      <td style="text-align:right">${COP(c.salario)}<div style="font-size:10px;color:var(--gris-medio)">quinc. ${COP(Math.round((c.salario||0)/2))}</div></td>
       <td style="white-space:nowrap">
         <button onclick="abrirModalColaborador('${c.id}')" style="background:none;border:none;color:var(--azul);cursor:pointer;font-size:13px">editar</button>
         <button onclick="eliminarColaborador('${c.id}')" style="background:none;border:none;color:var(--rojo);cursor:pointer;font-size:15px;padding:2px 6px">✕</button>
@@ -6283,13 +6286,13 @@ async function cargarReportes() {
   const [gastos, ventMap, almMap, nomPagos, colabs, temporal, consData] = await Promise.all([
     selectAll('gastos', 'periodo, valor, tipo, categoria'), ventasPorPeriodo(), ventasPorAlmacen(),
     selectAll('nomina_pagos', 'periodo, valor, colaborador_id'),
-    selectAll('colaboradores', 'id, tipo'),
+    selectAll('colaboradores', 'id, tipo, salario, activo'),
     selectAll('personal_temporal', 'fecha_inicio, valor_pagado'),
     selectAll('consignaciones', 'periodo, valor') ]);
   const gByP = {}, nByP = {}, consByP = {};
   (gastos||[]).forEach(g=>{ const p=g.periodo||''; gByP[p]=(gByP[p]||0)+g.valor; });
-  const tipoById = {}; (colabs||[]).forEach(c=>tipoById[c.id]=c.tipo);
-  (nomPagos||[]).forEach(n=>{ if (tipoById[n.colaborador_id]==='Socia') return; const p=n.periodo||''; nByP[p]=(nByP[p]||0)+(n.valor||0); });
+  // Nómina recurrente (fija): misma cada mes = suma de salarios de colaboradores fijos activos (no socias)
+  const nominaFijaMes = (colabs||[]).reduce((a,c)=> a + ((c.activo!==false && c.tipo!=='Socia') ? (c.salario||0) : 0), 0);
   (temporal||[]).forEach(t=>{ const p=(t.fecha_inicio||'').slice(0,7); if(!p) return; nByP[p]=(nByP[p]||0)+(t.valor_pagado||0); });
   (consData||[]).forEach(c=>{ const p=c.periodo||''; consByP[p]=(consByP[p]||0)+(c.valor||0); });
 
@@ -6308,7 +6311,7 @@ async function cargarReportes() {
     const b = bucketDe(p, gran);
     const o = buckets[b.key] = buckets[b.key] || { key:b.key, label:b.label, sort:b.sort, meses:[], conIva:0, gas:0, nom:0, ingPrev:0 };
     o.meses.push(p);
-    o.conIva += conIvaMes[p]||0; o.gas += gByP[p]||0; o.nom += nByP[p]||0;
+    o.conIva += conIvaMes[p]||0; o.gas += gByP[p]||0; o.nom += (nByP[p]||0) + nominaFijaMes;
   });
   const bArr = Object.values(buckets).sort((a,b)=> a.sort<b.sort?-1:a.sort>b.sort?1:0);
   bArr.forEach(o=>{
@@ -6339,7 +6342,7 @@ async function cargarReportes() {
   mesesFlujo.forEach(p => {
     const b = bucketDe(p, gran);
     const o = fb[b.key] = fb[b.key] || { key:b.key, label:b.label, sort:b.sort, meses:[], gas:0, nom:0 };
-    o.meses.push(p); o.gas += gByP[p]||0; o.nom += nByP[p]||0;
+    o.meses.push(p); o.gas += gByP[p]||0; o.nom += (nByP[p]||0) + nominaFijaMes;
   });
   const fArr = Object.values(fb).sort((a,b)=> a.sort<b.sort?-1:a.sort>b.sort?1:0);
   fArr.forEach(o=>{
