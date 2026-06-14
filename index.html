@@ -6557,11 +6557,11 @@ async function cargarDocumentos() {
   const { data } = await sb.from('documentos').select('*').order('fecha_documento', { ascending:false });
   let docs = (data||[]).map(d=>({ ...d, _origen:'doc' }));
   // Integrar soportes de gastos (solo lectura, se gestionan en Gastos)
-  const gs = await selectAll('gasto_soportes', 'id, gasto_id, nombre_archivo, url_archivo, tipo_archivo, gastos!inner(fecha, descripcion, valor, periodo)');
+  const gs = await selectAll('gasto_soportes', 'id, gasto_id, nombre_archivo, url_archivo, tipo_archivo, gastos!inner(fecha, descripcion, valor, periodo, proveedor_id)');
   const porGasto = {};
   (gs||[]).forEach(s => {
     const g = s.gastos || {};
-    const reg = porGasto[s.gasto_id] = porGasto[s.gasto_id] || { id:'g-'+s.gasto_id, nombre: g.descripcion||'Gasto', categoria:'Gastos Operativos', fecha_documento: g.fecha, valor: g.valor, proveedor:'', descripcion:'Soporte registrado en Gastos', observaciones:'', archivos:[], periodo: g.periodo || periodoDe(g.fecha), _origen:'gasto' };
+    const reg = porGasto[s.gasto_id] = porGasto[s.gasto_id] || { id:'g-'+s.gasto_id, nombre: g.descripcion||'Gasto', categoria:'Gastos Operativos', fecha_documento: g.fecha, valor: g.valor, proveedor_id: g.proveedor_id||null, proveedor: provNombre(g.proveedor_id)||'', descripcion:'Soporte registrado en Gastos', observaciones:'', archivos:[], periodo: g.periodo || periodoDe(g.fecha), _origen:'gasto' };
     reg.archivos.push({ url: s.url_archivo, nombre: s.nombre_archivo||'archivo', ext: (s.tipo_archivo||'') });
   });
   docs = docs.concat(Object.values(porGasto));
