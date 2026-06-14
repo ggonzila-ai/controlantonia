@@ -1171,15 +1171,24 @@
         <span style="font-size:11px;color:var(--gris-medio);max-width:300px">Archivo digital central: facturas, pagos, nómina, seguridad social, impuestos… (PDF, imágenes, Excel).</span>
       </div>
       <div class="metrics" id="docs-kpis" style="margin:14px 16px"></div>
+      <div style="padding:0 16px 6px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <div class="form-group" style="margin:0;min-width:120px"><label>Ver por</label>
+          <select id="docs-pertipo" onchange="onDocPerTipo()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)">
+            <option value="mensual">Mensual</option><option value="trimestral">Trimestral</option><option value="cuatrimestral">Cuatrimestral</option><option value="semestral">Semestral</option><option value="anual">Anual</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin:0"><label>Período</label>
+          <div style="display:flex;gap:4px;align-items:center">
+            <button type="button" onclick="docPerNav(-1)" title="Anterior" style="height:36px;width:30px;border:1.5px solid var(--borde);background:var(--blanco);border-radius:var(--radius-sm);cursor:pointer;font-size:16px;line-height:1">‹</button>
+            <select id="docs-peridx" onchange="renderDocs()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"></select>
+            <select id="docs-peranio" onchange="renderDocs()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"></select>
+            <button type="button" onclick="docPerNav(1)" title="Siguiente" style="height:36px;width:30px;border:1.5px solid var(--borde);background:var(--blanco);border-radius:var(--radius-sm);cursor:pointer;font-size:16px;line-height:1">›</button>
+          </div>
+        </div>
+      </div>
       <div style="padding:0 16px 10px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-        <div class="form-group" style="margin:0;min-width:160px"><label>Categoría</label>
+        <div class="form-group" style="margin:0;min-width:170px"><label>Categoría</label>
           <select id="docs-cat" onchange="renderDocs()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"><option value="">Todas</option></select>
-        </div>
-        <div class="form-group" style="margin:0;min-width:90px"><label>Año</label>
-          <select id="docs-anio" onchange="renderDocs()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"><option value="">Todos</option></select>
-        </div>
-        <div class="form-group" style="margin:0;min-width:110px"><label>Mes</label>
-          <select id="docs-mes" onchange="renderDocs()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"><option value="">Todos</option></select>
         </div>
         <div class="form-group" style="margin:0;flex:1;min-width:150px"><label>Buscar</label>
           <input type="text" id="docs-buscar" placeholder="Nombre, proveedor, descripción…" oninput="renderDocs()" style="width:100%;padding:8px 10px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit">
@@ -6363,9 +6372,57 @@ function bucketDe(periodo, gran) {
 function bucketAnioAnterior(periodo, gran) { const [y,m]=periodo.split('-').map(Number); return bucketDe(`${y-1}-${String(m).padStart(2,'0')}`, gran).key; }
 
 // ─── SOPORTES Y DOCUMENTOS ────────────────────
-const DOC_CATEGORIAS = ['Gastos','Pagos','Nómina','Seguridad Social','Facturación','Impuestos y Contabilidad','Otros'];
+const DOC_CATEGORIAS = ['Seguridad Social','Nómina','Reportes Feria del Brasier — Cierre Contable','Reportes Feria del Brasier — Cierre Comercial','Gastos Operativos','Impuestos','Contratos y Legal'];
+const DOC_CAT_COLORS = {
+  'Seguridad Social':'#3b82f6', 'Nómina':'#8b5cf6',
+  'Reportes Feria del Brasier — Cierre Contable':'var(--verde)',
+  'Reportes Feria del Brasier — Cierre Comercial':'#0d9488',
+  'Gastos Operativos':'#f97316', 'Impuestos':'var(--rojo)', 'Contratos y Legal':'#374151'
+};
 const DOC_EXTS = ['pdf','jpg','jpeg','png','xlsx','xls'];
 let _docs = [], _docEdit = null, _docFilesActuales = [];
+function docCatBadge(cat) { const col = DOC_CAT_COLORS[cat] || 'var(--gris-medio)'; return `<span style="display:inline-block;font-size:10px;font-weight:700;color:#fff;background:${col};padding:2px 8px;border-radius:20px">${cat||'Sin categoría'}</span>`; }
+function docIcono(ext) { ext=(ext||'').toLowerCase(); if(ext==='pdf')return '📄'; if(['xlsx','xls'].includes(ext))return '📊'; if(['jpg','jpeg','png'].includes(ext))return '🖼'; return '📎'; }
+function docFechaLarga(f) { return f ? new Date(f+'T00:00:00').toLocaleDateString('es-CO',{day:'numeric',month:'long',year:'numeric'}) : '—'; }
+// ── Filtro de período ──
+function docPerN(tipo){ return tipo==='trimestral'?4:tipo==='cuatrimestral'?3:tipo==='semestral'?2:tipo==='mensual'?12:1; }
+function docPerOpts(tipo){
+  if(tipo==='mensual') return MESES.map((n,i)=>`<option value="${i+1}">${n}</option>`).join('');
+  if(tipo==='trimestral') return [1,2,3,4].map(q=>`<option value="${q}">Q${q} (${MESES[(q-1)*3].slice(0,3)}–${MESES[q*3-1].slice(0,3)})</option>`).join('');
+  if(tipo==='cuatrimestral') return [1,2,3].map(c=>`<option value="${c}">C${c} (${MESES[(c-1)*4].slice(0,3)}–${MESES[c*4-1].slice(0,3)})</option>`).join('');
+  if(tipo==='semestral') return [1,2].map(s=>`<option value="${s}">S${s} (${MESES[(s-1)*6].slice(0,3)}–${MESES[s*6-1].slice(0,3)})</option>`).join('');
+  return '';
+}
+function docMesesDe(tipo, idx){ if(tipo==='mensual') return [idx,idx]; if(tipo==='trimestral') return [(idx-1)*3+1, idx*3]; if(tipo==='cuatrimestral') return [(idx-1)*4+1, idx*4]; if(tipo==='semestral') return [(idx-1)*6+1, idx*6]; return [1,12]; }
+function docPerLabel(tipo, idx, anio){ if(tipo==='mensual') return `${MESES[idx-1]} ${anio}`; if(tipo==='trimestral') return `Q${idx} ${anio}`; if(tipo==='cuatrimestral') return `C${idx} ${anio}`; if(tipo==='semestral') return `S${idx} ${anio}`; return `${anio}`; }
+function docRango(){
+  const tipo = document.getElementById('docs-pertipo').value;
+  const anio = +document.getElementById('docs-peranio').value || new Date().getFullYear();
+  const idx = +document.getElementById('docs-peridx').value || 1;
+  const [m1,m2] = docMesesDe(tipo, idx);
+  return { desde:`${anio}-${String(m1).padStart(2,'0')}-01`, hasta:`${anio}-${String(m2).padStart(2,'0')}-${String(ultimoDiaMes(anio,m2)).padStart(2,'0')}`, label: docPerLabel(tipo, idx, anio) };
+}
+function onDocPerTipo(){
+  const tipo = document.getElementById('docs-pertipo').value;
+  const idxSel = document.getElementById('docs-peridx');
+  if(tipo==='anual'){ idxSel.style.display='none'; idxSel.innerHTML=''; }
+  else {
+    idxSel.style.display=''; idxSel.innerHTML = docPerOpts(tipo);
+    const m = new Date().getMonth()+1;
+    idxSel.value = tipo==='mensual'?m : tipo==='trimestral'?Math.ceil(m/3) : tipo==='cuatrimestral'?Math.ceil(m/4) : Math.ceil(m/6);
+  }
+  renderDocs();
+}
+function docPerNav(dir){
+  const tipo = document.getElementById('docs-pertipo').value;
+  const aSel = document.getElementById('docs-peranio'), iSel = document.getElementById('docs-peridx');
+  let anio = +aSel.value;
+  const setAnio = y => { if([...aSel.options].some(o=>+o.value===y)) aSel.value=y; };
+  if(tipo==='anual'){ setAnio(anio+dir); renderDocs(); return; }
+  const N = docPerN(tipo); let idx = (+iSel.value||1)+dir;
+  if(idx<1){ idx=N; anio--; } else if(idx>N){ idx=1; anio++; }
+  setAnio(anio); iSel.value = idx; renderDocs();
+}
 
 function validarDocs(files) {
   for (const f of files) {
@@ -6385,9 +6442,7 @@ async function subirArchivoDoc(file) {
 
 async function cargarDocumentos() {
   const cs = document.getElementById('docs-cat');
-  if (cs.options.length <= 1) cs.innerHTML = '<option value="">Todas</option>' + DOC_CATEGORIAS.map(c=>`<option>${c}</option>`).join('');
-  const mSel = document.getElementById('docs-mes');
-  if (mSel.options.length <= 1) mSel.innerHTML = '<option value="">Todos</option>' + MESES.map((n,i)=>`<option value="${i+1}">${n}</option>`).join('');
+  if (cs.options.length <= 1) cs.innerHTML = '<option value="">Todas</option>' + DOC_CATEGORIAS.map(c=>`<option>${c}</option>`).join('') + '<option value="__sin__">Sin categoría</option>';
   document.getElementById('docs-list').innerHTML = '<div class="loader"><div class="spinner"></div></div>';
   const { data } = await sb.from('documentos').select('*').order('fecha_documento', { ascending:false });
   let docs = (data||[]).map(d=>({ ...d, _origen:'doc' }));
@@ -6396,39 +6451,46 @@ async function cargarDocumentos() {
   const porGasto = {};
   (gs||[]).forEach(s => {
     const g = s.gastos || {};
-    const reg = porGasto[s.gasto_id] = porGasto[s.gasto_id] || { id:'g-'+s.gasto_id, nombre: g.descripcion||'Gasto', categoria:'Gastos', fecha_documento: g.fecha, valor: g.valor, proveedor:'', descripcion:'Soporte registrado en Gastos', observaciones:'', archivos:[], periodo: g.periodo || periodoDe(g.fecha), _origen:'gasto' };
+    const reg = porGasto[s.gasto_id] = porGasto[s.gasto_id] || { id:'g-'+s.gasto_id, nombre: g.descripcion||'Gasto', categoria:'Gastos Operativos', fecha_documento: g.fecha, valor: g.valor, proveedor:'', descripcion:'Soporte registrado en Gastos', observaciones:'', archivos:[], periodo: g.periodo || periodoDe(g.fecha), _origen:'gasto' };
     reg.archivos.push({ url: s.url_archivo, nombre: s.nombre_archivo||'archivo', ext: (s.tipo_archivo||'') });
   });
   docs = docs.concat(Object.values(porGasto));
-  const aSel = document.getElementById('docs-anio');
-  const anios = [...new Set(docs.map(d=>(d.fecha_documento||'').slice(0,4)).filter(Boolean))].sort().reverse();
-  if (aSel.options.length <= 1) aSel.innerHTML = '<option value="">Todos</option>' + anios.map(y=>`<option>${y}</option>`).join('');
   _docs = docs;
+  const aSel = document.getElementById('docs-peranio');
+  if (aSel.options.length === 0) {
+    const ahoraY = new Date().getFullYear();
+    const ys = [...new Set([ahoraY, ...docs.map(d=>+(d.fecha_documento||'').slice(0,4)).filter(Boolean)])].sort((a,b)=>b-a);
+    aSel.innerHTML = ys.map(y=>`<option value="${y}">${y}</option>`).join('');
+    aSel.value = ahoraY;
+    onDocPerTipo();   // inicializa período (mensual, mes actual) y renderiza
+    return;
+  }
   renderDocs();
 }
 
 function renderDocs() {
   const cat = document.getElementById('docs-cat').value;
-  const anio = document.getElementById('docs-anio').value;
-  const mes = document.getElementById('docs-mes').value;
   const q = (document.getElementById('docs-buscar').value||'').toLowerCase();
-  let docs = _docs.slice();
-  if (cat) docs = docs.filter(d => (d.categoria||'') === cat);
-  if (anio) docs = docs.filter(d => (d.fecha_documento||'').slice(0,4) === anio);
-  if (mes) docs = docs.filter(d => (d.fecha_documento||'').slice(5,7) === String(mes).padStart(2,'0'));
+  const { desde, hasta, label } = docRango();
+  const esSinCat = d => !d.categoria || d.categoria==='Otros' || !DOC_CATEGORIAS.includes(d.categoria);
+  let docs = _docs.filter(d => { const f = d.fecha_documento||''; return f && f>=desde && f<=hasta; });
+  if (cat==='__sin__') docs = docs.filter(esSinCat);
+  else if (cat) docs = docs.filter(d => (d.categoria||'')===cat);
   if (q) docs = docs.filter(d => ((d.nombre||'')+' '+(d.proveedor||'')+' '+(d.descripcion||'')+' '+(d.observaciones||'')).toLowerCase().includes(q));
-  const total = _docs.length;
-  const esteMes = _docs.filter(d => (d.fecha_documento||'').slice(0,7) === periodoActual()).length;
-  const pend = _docs.filter(d => !d.categoria || d.categoria === 'Otros').length;
-  const cats = new Set(_docs.map(d=>d.categoria).filter(Boolean)).size;
+  // ── Tarjetas de estado accionable ──
+  const pMes = periodoActual();
+  const ssMes = _docs.some(d => d.categoria==='Seguridad Social' && (d.fecha_documento||'').slice(0,7)===pMes);
+  const cierres = _docs.filter(d => (d.categoria||'').startsWith('Reportes Feria del Brasier')).sort((a,b)=>(b.fecha_documento||'').localeCompare(a.fecha_documento||''));
+  const ult = cierres[0];
+  const sinCat = _docs.filter(esSinCat).length;
   document.getElementById('docs-kpis').innerHTML = `
-    <div class="metric-card"><div class="m-label">Documentos</div><div class="m-val">${NUM(total)}</div><div class="m-sub">${NUM(docs.length)} mostrados</div></div>
-    <div class="metric-card"><div class="m-label">Este mes</div><div class="m-val">${NUM(esteMes)}</div><div class="m-sub">${mesNombreCorto(periodoActual())}</div></div>
-    <div class="metric-card"><div class="m-label">Categorías</div><div class="m-val">${cats}</div><div class="m-sub">con documentos</div></div>
-    <div class="metric-card"><div class="m-label">Sin clasificar</div><div class="m-val">${NUM(pend)}</div><div class="m-sub">"Otros" o vacío</div></div>`;
+    <div class="metric-card" style="border-left:4px solid ${ssMes?'var(--verde)':'var(--amarillo)'}"><div class="m-label">Seguridad Social</div><div class="m-val" style="font-size:16px;color:${ssMes?'var(--verde)':'var(--amarillo)'}">${ssMes?'✓ Pagada':'⚠ Pendiente'}</div><div class="m-sub">${mesNombre(pMes)}</div></div>
+    <div class="metric-card"><div class="m-label">Último cierre Feria</div><div class="m-val" style="font-size:14px">${ult?_fmtFechaCorte(ult.fecha_documento):'<span style=\"color:var(--gris-medio)\">Sin reportes</span>'}</div><div class="m-sub">${ult?(ult.categoria.includes('Comercial')?'Comercial':'Contable'):'aún'}</div></div>
+    <div class="metric-card" onclick="document.getElementById('docs-cat').value='__sin__';renderDocs()" style="cursor:pointer;border-left:4px solid ${sinCat?'var(--amarillo)':'var(--verde)'}"><div class="m-label">Sin categoría</div><div class="m-val" style="font-size:16px;color:${sinCat?'var(--amarillo)':'var(--verde)'}">${sinCat?sinCat+' docs':'✓ Todo'}</div><div class="m-sub">${sinCat?'clic para ver':'clasificado'}</div></div>
+    <div class="metric-card accent"><div class="m-label">Documentos del período</div><div class="m-val">${NUM(docs.length)}</div><div class="m-sub">${label}</div></div>`;
   document.getElementById('docs-list').innerHTML = docs.length ? docs.map(d => {
     const archivos = Array.isArray(d.archivos) ? d.archivos : [];
-    const fileLinks = archivos.map(a => `<a href="${a.url}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--brand-dark);text-decoration:none;border:1px solid var(--borde);border-radius:6px;padding:3px 7px;margin:3px 4px 0 0">📎 ${(a.nombre||'archivo').slice(0,24)}</a>`).join('');
+    const fileLinks = archivos.map(a => `<a href="${a.url}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--brand-dark);text-decoration:none;border:1px solid var(--borde);border-radius:6px;padding:3px 7px;margin:3px 4px 0 0">${docIcono(a.ext)} ${(a.nombre||'archivo').slice(0,24)}</a>`).join('');
     const esGasto = d._origen === 'gasto';
     const acciones = esGasto
       ? '<span style="font-size:10px;color:var(--gris-medio)">desde Gastos</span>'
@@ -6437,14 +6499,14 @@ function renderDocs() {
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
         <div style="min-width:0">
           <div style="font-weight:700;font-size:14px">${d.nombre||'(sin nombre)'}</div>
-          <div style="font-size:11px;color:var(--gris-medio);margin-top:2px"><span class="badge badge-rosa">${d.categoria||'Sin clasificar'}</span> · ${d.fecha_documento?_fmtFechaCorte(d.fecha_documento):'—'}${d.proveedor?' · '+d.proveedor:''}${d.valor?' · '+COP(d.valor):''}</div>
+          <div style="font-size:11px;color:var(--gris-medio);margin-top:3px">${docCatBadge(d.categoria)} · ${docFechaLarga(d.fecha_documento)}${d.proveedor?' · '+d.proveedor:''}${d.valor?' · '+COP(d.valor):''}</div>
         </div>
         <div style="flex-shrink:0;white-space:nowrap">${acciones}</div>
       </div>
       ${d.descripcion?`<div style="font-size:12px;color:var(--gris-medio);margin-top:4px">${d.descripcion}</div>`:''}
       <div style="margin-top:2px">${fileLinks||'<span style="font-size:11px;color:var(--gris-medio)">sin archivos</span>'}</div>
     </div>`;
-  }).join('') : '<div style="padding:24px 16px;text-align:center;color:var(--gris-medio);font-size:13px">No hay documentos con esos filtros.</div>';
+  }).join('') : `<div style="padding:24px 16px;text-align:center;color:var(--gris-medio);font-size:13px">No hay documentos en ${label}${cat?(cat==='__sin__'?' · sin categoría':' · '+cat):''}.</div>`;
 }
 
 function abrirModalDoc(id) {
@@ -6455,7 +6517,7 @@ function abrirModalDoc(id) {
     _docEdit = id;
     document.getElementById('doc-modal-title').textContent = 'Editar documento';
     document.getElementById('doc-nombre').value = d.nombre||'';
-    document.getElementById('doc-cat').value = d.categoria||'Otros';
+    document.getElementById('doc-cat').value = DOC_CATEGORIAS.includes(d.categoria) ? d.categoria : 'Gastos Operativos';
     document.getElementById('doc-fecha').value = d.fecha_documento||'';
     document.getElementById('doc-valor').value = d.valor||'';
     document.getElementById('doc-prov').value = d.proveedor||'';
@@ -6466,7 +6528,7 @@ function abrirModalDoc(id) {
     _docEdit = null;
     document.getElementById('doc-modal-title').textContent = 'Nuevo documento';
     ['doc-nombre','doc-valor','doc-prov','doc-desc','doc-obs'].forEach(x=>document.getElementById(x).value='');
-    document.getElementById('doc-cat').value = 'Gastos';
+    document.getElementById('doc-cat').value = 'Gastos Operativos';
     document.getElementById('doc-fecha').value = hoy();
   }
   document.getElementById('doc-files').value = '';
