@@ -1064,6 +1064,12 @@
     <!-- GASTOS -->
     <div id="tab-content-cont-gastos" style="display:none">
       <div class="section-card" style="margin-top:14px">
+        <div class="section-header"><div class="section-title">Gastos fijos mensuales (recurrentes)</div><button class="btn btn-sm btn-primary" onclick="abrirModalGastoFijo()">+ Gasto fijo</button></div>
+        <div style="padding:0 16px 8px;font-size:11px;color:var(--gris-medio)">Se asumen automáticamente en TODOS los meses (incluidos los pasados de 2026). Para inversiones puntuales (maquinaria, diseño de marca…) usa el registro de abajo como <strong>extraordinario</strong>.</div>
+        <div id="gfijos-list"><div class="loader"><div class="spinner"></div></div></div>
+      </div>
+      <div class="section-card">
+        <div style="padding:12px 16px 0;font-size:12px;font-weight:600;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Registrar gasto (variable / extraordinario)</div>
         <div class="form-section">
           <div class="form-row">
             <div class="form-group"><label>Fecha</label><input type="date" id="g-fecha"></div>
@@ -1675,6 +1681,25 @@
   </div>
 </div>
 
+<!-- MODAL GASTO FIJO -->
+<div class="modal-overlay" id="modal-gasto-fijo">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="gfijo-modal-title">Nuevo gasto fijo</div>
+    <div class="form-group"><label>Concepto</label><input type="text" id="gfijo-concepto" placeholder="Ej: Arriendo y servicios públicos"></div>
+    <div class="form-row">
+      <div class="form-group"><label>Categoría</label><select id="gfijo-categoria"></select></div>
+      <div class="form-group"><label>Valor mensual (COP)</label><input type="number" id="gfijo-valor" placeholder="0"></div>
+    </div>
+    <div class="form-group"><label>Desde (mes)</label><input type="month" id="gfijo-desde" value="2026-01"></div>
+    <div class="form-group"><label>Observaciones</label><input type="text" id="gfijo-obs" placeholder="Opcional"></div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-gasto-fijo')">Cancelar</button>
+      <button class="btn btn-primary" style="flex:2" id="gfijo-btn" onclick="guardarGastoFijo()">Guardar</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL DOCUMENTO -->
 <div class="modal-overlay" id="modal-doc">
   <div class="modal">
@@ -2210,7 +2235,8 @@ async function cargarDash() {
   const sinStock = (bodegaTodos || []).filter(p => p.stock === 0).length;
   const bajosStock = (criticos || []).length;
   const baseVtas = baseSinIva(totalVentasCOP);
-  const totalGastos = (gastosUlt || []).reduce((a, g) => a + (g.valor || 0), 0);
+  await loadGastosFijos();
+  const totalGastos = (gastosUlt || []).reduce((a, g) => a + (g.valor || 0), 0) + gastoFijoDe(periodoVista);
   // Nómina recurrente: suma de salarios de colaboradores fijos activos (no socias), igual cada mes
   let nominaOper = (colabs || []).reduce((a, c) => a + ((c.activo !== false && c.tipo !== 'Socia') ? (c.salario || 0) : 0), 0);
   nominaOper += (temporal || []).reduce((a, t) => a + ((t.fecha_inicio || '').slice(0, 7) === periodoVista ? (t.valor_pagado || 0) : 0), 0);
@@ -5615,7 +5641,66 @@ async function guardarGasto() {
   cargarGastos();
 }
 
+// ─── GASTOS FIJOS (recurrentes) ───────────────
+let _gfijos = [], _editGfijo = null;
+const GFIJO_DESDE_DEF = '2026-01';
+function gastoFijoDe(periodo) {
+  return _gfijos.filter(g => g.activo !== false && (!g.desde_periodo || g.desde_periodo <= periodo) && (!g.hasta_periodo || g.hasta_periodo >= periodo)).reduce((s,g)=>s+(g.valor||0),0);
+}
+async function loadGastosFijos() {
+  const { data } = await sb.from('gastos_fijos').select('*').order('valor', { ascending:false });
+  _gfijos = data || [];
+  return _gfijos;
+}
+function renderGastosFijos() {
+  const cont = document.getElementById('gfijos-list'); if (!cont) return;
+  const total = _gfijos.filter(g=>g.activo!==false).reduce((s,g)=>s+(g.valor||0),0);
+  cont.innerHTML = _gfijos.length ? `<div class="tabla-wrap"><table>
+    <thead><tr><th>Concepto</th><th>Categoría</th><th style="text-align:right">Valor/mes</th><th>Desde</th><th></th></tr></thead>
+    <tbody>${_gfijos.map(g=>`<tr style="${g.activo===false?'opacity:.5':''}">
+      <td><strong>${g.concepto}</strong>${g.activo===false?' <span class="badge badge-gray" style="font-size:9px">inactivo</span>':''}${g.observaciones?`<div style="font-size:11px;color:var(--gris-medio)">${g.observaciones}</div>`:''}</td>
+      <td><span class="badge badge-rosa">${g.categoria||'—'}</span></td>
+      <td style="text-align:right;font-weight:700">${COP(g.valor)}</td>
+      <td style="font-size:12px;color:var(--gris-medio)">${g.desde_periodo||'—'}</td>
+      <td style="white-space:nowrap"><button onclick="abrirModalGastoFijo('${g.id}')" style="background:none;border:none;color:var(--azul);cursor:pointer;font-size:13px">editar</button><button onclick="eliminarGastoFijo('${g.id}')" style="background:none;border:none;color:var(--rojo);cursor:pointer;font-size:15px;padding:2px 6px">✕</button></td>
+    </tr>`).join('')}
+    <tr style="background:var(--gris-claro);font-weight:700"><td colspan="2">TOTAL fijo mensual</td><td style="text-align:right">${COP(total)}</td><td colspan="2"></td></tr></tbody></table></div>`
+    : '<div style="padding:18px 16px;text-align:center;color:var(--gris-medio);font-size:13px">Aún no hay gastos fijos. Agrega arriendo y servicios, cafetería, gastos de representación…</div>';
+}
+function abrirModalGastoFijo(id) {
+  document.getElementById('gfijo-categoria').innerHTML = CATEGORIAS_GASTO.map(c=>`<option>${c}</option>`).join('');
+  const g = id ? _gfijos.find(x=>x.id===id) : null;
+  _editGfijo = id || null;
+  document.getElementById('gfijo-modal-title').textContent = g ? 'Editar gasto fijo' : 'Nuevo gasto fijo';
+  document.getElementById('gfijo-concepto').value = g?.concepto || '';
+  document.getElementById('gfijo-categoria').value = g?.categoria || 'Arriendo y servicios públicos';
+  document.getElementById('gfijo-valor').value = g?.valor || '';
+  document.getElementById('gfijo-desde').value = g?.desde_periodo || GFIJO_DESDE_DEF;
+  document.getElementById('gfijo-obs').value = g?.observaciones || '';
+  document.getElementById('modal-gasto-fijo').classList.add('open');
+}
+async function guardarGastoFijo() {
+  const concepto = document.getElementById('gfijo-concepto').value.trim();
+  const valor = parseInt(document.getElementById('gfijo-valor').value)||0;
+  if (!concepto || valor<=0) { toast('Escribe concepto y valor', 'err'); return; }
+  const row = { concepto, categoria: document.getElementById('gfijo-categoria').value, valor, desde_periodo: document.getElementById('gfijo-desde').value || GFIJO_DESDE_DEF, observaciones: document.getElementById('gfijo-obs').value.trim()||null, activo:true };
+  let error;
+  if (_editGfijo) ({ error } = await sb.from('gastos_fijos').update(row).eq('id', _editGfijo));
+  else ({ error } = await sb.from('gastos_fijos').insert(row));
+  if (error) { toast('Error al guardar el gasto fijo', 'err'); console.error(error); return; }
+  toast('✓ Gasto fijo guardado');
+  cerrarModal('modal-gasto-fijo');
+  cargarGastos();
+}
+async function eliminarGastoFijo(id) {
+  if (!confirm('¿Eliminar este gasto fijo?')) return;
+  const { error } = await sb.from('gastos_fijos').delete().eq('id', id);
+  if (error) { toast('Error al eliminar', 'err'); return; }
+  cargarGastos();
+}
+
 async function cargarGastos() {
+  await loadGastosFijos(); renderGastosFijos();
   const fmes = document.getElementById('g-filtro-mes');
   if (fmes && !fmes.options.length) fmes.innerHTML = periodoOpciones('', true);
   const mes = fmes ? fmes.value : '';
@@ -5628,7 +5713,8 @@ async function cargarGastos() {
   const { data } = await q;
   const gastos = data || [];
   const total = gastos.reduce((a,g)=>a+g.valor,0);
-  document.getElementById('g-total-label').textContent = `${gastos.length} gastos · ${COP(total)}`;
+  const fijosMes = mes ? gastoFijoDe(mes) : _gfijos.filter(g=>g.activo!==false).reduce((s,g)=>s+(g.valor||0),0);
+  document.getElementById('g-total-label').textContent = `${gastos.length} gastos · ${COP(total)}${fijosMes?` + fijos ${COP(fijosMes)}`:''}`;
 
   // Conteo de soportes por gasto (una sola consulta para todos los visibles)
   const conteo = {};
@@ -6289,6 +6375,7 @@ async function cargarReportes() {
     selectAll('colaboradores', 'id, tipo, salario, activo'),
     selectAll('personal_temporal', 'fecha_inicio, valor_pagado'),
     selectAll('consignaciones', 'periodo, valor') ]);
+  await loadGastosFijos();
   const gByP = {}, nByP = {}, consByP = {};
   (gastos||[]).forEach(g=>{ const p=g.periodo||''; gByP[p]=(gByP[p]||0)+g.valor; });
   // Nómina recurrente (fija): misma cada mes = suma de salarios de colaboradores fijos activos (no socias)
@@ -6311,7 +6398,7 @@ async function cargarReportes() {
     const b = bucketDe(p, gran);
     const o = buckets[b.key] = buckets[b.key] || { key:b.key, label:b.label, sort:b.sort, meses:[], conIva:0, gas:0, nom:0, ingPrev:0 };
     o.meses.push(p);
-    o.conIva += conIvaMes[p]||0; o.gas += gByP[p]||0; o.nom += (nByP[p]||0) + nominaFijaMes;
+    o.conIva += conIvaMes[p]||0; o.gas += (gByP[p]||0) + gastoFijoDe(p); o.nom += (nByP[p]||0) + nominaFijaMes;
   });
   const bArr = Object.values(buckets).sort((a,b)=> a.sort<b.sort?-1:a.sort>b.sort?1:0);
   bArr.forEach(o=>{
@@ -6342,7 +6429,7 @@ async function cargarReportes() {
   mesesFlujo.forEach(p => {
     const b = bucketDe(p, gran);
     const o = fb[b.key] = fb[b.key] || { key:b.key, label:b.label, sort:b.sort, meses:[], gas:0, nom:0 };
-    o.meses.push(p); o.gas += gByP[p]||0; o.nom += (nByP[p]||0) + nominaFijaMes;
+    o.meses.push(p); o.gas += (gByP[p]||0) + gastoFijoDe(p); o.nom += (nByP[p]||0) + nominaFijaMes;
   });
   const fArr = Object.values(fb).sort((a,b)=> a.sort<b.sort?-1:a.sort>b.sort?1:0);
   fArr.forEach(o=>{
