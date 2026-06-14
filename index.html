@@ -2885,19 +2885,8 @@ function recalcCostos() {
     if (cell) cell.innerHTML = `${COP(sinIva)}<div style="font-size:9px;color:var(--gris-medio);font-weight:400">${COP(conIva)} c/IVA</div>`;
     mp += sinIva; mpIva += conIva;
   });
-  const comision = comisionDe(precio);
-  const iva = ivaDe(precio);
-  const costoTotal = mp + prod + com + comision + iva;
-  const margen = precio - costoTotal;
-  const pct = precio ? Math.round(margen/precio*100) : 0;
-  const col = pct>=40?'var(--verde)':pct>=20?'var(--amarillo)':'var(--rojo)';
-  document.getElementById('costo-calc').innerHTML = `
-    <div style="display:flex;justify-content:space-between;padding:2px 0"><span>Materia prima (sin IVA)</span><strong>${COP(mp)}</strong></div>
-    <div style="display:flex;justify-content:space-between;padding:2px 0;font-size:11px;color:var(--gris-medio)"><span>Materia prima con IVA</span><span>${COP(mpIva)}</span></div>
-    <div style="display:flex;justify-content:space-between;padding:2px 0"><span>Comisión Feria del Brasier (16%)</span><strong>${COP(comision)}</strong></div>
-    <div style="display:flex;justify-content:space-between;padding:2px 0"><span>IVA de la venta (incluido, 19%)</span><strong>${COP(iva)}</strong></div>
-    <div style="display:flex;justify-content:space-between;padding:2px 0;border-top:1px solid var(--borde);margin-top:4px;padding-top:6px"><span>Costo total unitario</span><strong>${COP(costoTotal)}</strong></div>
-    <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:15px"><span style="font-weight:600">Margen bruto</span><strong style="color:${col}">${COP(margen)} · ${pct}%</strong></div>`;
+  // El cálculo correcto y único es el "Análisis de rentabilidad" (cadena base sin IVA) de abajo.
+  const _cc = document.getElementById('costo-calc'); if (_cc) _cc.innerHTML = `<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Materia prima (sin IVA)</span><strong>${COP(mp)}</strong></div><div style="display:flex;justify-content:space-between;padding:2px 0;font-size:11px;color:var(--gris-medio)"><span>Materia prima con IVA</span><span>${COP(mpIva)}</span></div>`;
   // Análisis de rentabilidad (cadena base sin IVA) — solo admin
   const _ca = document.getElementById('costo-analisis');
   if (_ca && !esVendedora()) {
