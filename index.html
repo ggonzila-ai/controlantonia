@@ -1051,6 +1051,7 @@
       <div class="tab" id="tab-cont-nomina" onclick="showTab('tab-cont-nomina')">Nómina</div>
       <div class="tab" id="tab-cont-consignaciones" onclick="showTab('tab-cont-consignaciones')">Consignaciones</div>
       <div class="tab" id="tab-cont-soportes" onclick="showTab('tab-cont-soportes')">Soportes</div>
+      <div class="tab" id="tab-cont-proveedores" onclick="showTab('tab-cont-proveedores')">Proveedores</div>
     </div>
 
     <!-- INGRESOS -->
@@ -1079,12 +1080,16 @@
 
     <!-- GASTOS -->
     <div id="tab-content-cont-gastos" style="display:none">
+      <div style="padding:14px 16px 0;display:flex;gap:10px;flex-wrap:wrap">
+        <button onclick="abrirModalGastoFijo()" style="flex:1;min-width:160px;background:linear-gradient(135deg,var(--brand),#0192bb);color:#fff;border:none;border-radius:14px;padding:14px;font-size:14px;font-weight:800;cursor:pointer;box-shadow:0 4px 12px rgba(2,171,213,.3);-webkit-tap-highlight-color:transparent">📌 + Gasto Fijo Mensual</button>
+        <button onclick="irAGastoVariable()" style="flex:1;min-width:160px;background:#fff;color:var(--brand-dark);border:2px solid var(--brand);border-radius:14px;padding:14px;font-size:14px;font-weight:800;cursor:pointer;-webkit-tap-highlight-color:transparent">🧾 + Gasto Variable / Extraordinario</button>
+      </div>
       <div class="section-card" style="margin-top:14px">
-        <div class="section-header"><div class="section-title">Gastos fijos mensuales (recurrentes)</div><button class="btn btn-sm btn-primary" onclick="abrirModalGastoFijo()">+ Gasto fijo</button></div>
+        <div class="section-header"><div class="section-title">Gastos fijos mensuales (recurrentes)</div></div>
         <div style="padding:0 16px 8px;font-size:11px;color:var(--gris-medio)">Se asumen automáticamente en TODOS los meses (incluidos los pasados de 2026). Para inversiones puntuales (maquinaria, diseño de marca…) usa el registro de abajo como <strong>extraordinario</strong>.</div>
         <div id="gfijos-list"><div class="loader"><div class="spinner"></div></div></div>
       </div>
-      <div class="section-card">
+      <div class="section-card" id="gasto-var-form">
         <div style="padding:12px 16px 0;font-size:12px;font-weight:600;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Registrar gasto (variable / extraordinario)</div>
         <div class="form-section">
           <div class="form-row">
@@ -1096,6 +1101,7 @@
             <div class="form-group"><label>Valor (COP)</label><input type="number" id="g-valor" placeholder="0"></div>
           </div>
           <div class="form-group"><label>Descripción</label><input type="text" id="g-desc" placeholder="Ej: Arriendo local"></div>
+          <div class="form-group"><label>Proveedor (opcional)</label><select id="g-proveedor" onchange="onProvSelect(this)"><option value="">— Sin proveedor —</option></select></div>
           <div class="form-group"><label>Soportes — opcional (PDF/JPG/PNG, varios)</label><input type="file" id="g-soporte" accept=".pdf,.png,.jpg,.jpeg" multiple onchange="previewSoportesForm()"><div id="g-soporte-lista" style="margin-top:6px;font-size:12px;color:var(--gris-medio)"></div></div>
           <div class="form-group"><label>Observaciones</label><input type="text" id="g-obs" placeholder="Opcional"></div>
           <button class="btn btn-primary btn-full" id="g-btn" onclick="guardarGasto()">Registrar gasto</button>
@@ -1108,6 +1114,7 @@
           <select id="g-filtro-tipo" onchange="cargarGastos()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)">
             <option value="">Todos los tipos</option><option value="fijo">Fijos</option><option value="variable">Variables</option><option value="extraordinario">Extraordinarios</option>
           </select>
+          <select id="g-filtro-prov" onchange="cargarGastos()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"><option value="">Todos los proveedores</option></select>
           <span id="g-total-label" style="font-size:12px;color:var(--gris-medio);margin-left:auto"></span>
         </div>
         <div class="tabla-wrap"><table>
@@ -1187,14 +1194,29 @@
         </div>
       </div>
       <div style="padding:0 16px 10px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-        <div class="form-group" style="margin:0;min-width:170px"><label>Categoría</label>
+        <div class="form-group" style="margin:0;min-width:160px"><label>Categoría</label>
           <select id="docs-cat" onchange="renderDocs()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"><option value="">Todas</option></select>
         </div>
-        <div class="form-group" style="margin:0;flex:1;min-width:150px"><label>Buscar</label>
+        <div class="form-group" style="margin:0;min-width:150px"><label>Proveedor</label>
+          <select id="docs-prov" onchange="renderDocs()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"><option value="">Todos los proveedores</option></select>
+        </div>
+        <div class="form-group" style="margin:0;flex:1;min-width:140px"><label>Buscar</label>
           <input type="text" id="docs-buscar" placeholder="Nombre, proveedor, descripción…" oninput="renderDocs()" style="width:100%;padding:8px 10px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit">
         </div>
       </div>
       <div id="docs-list"><div class="loader"><div class="spinner"></div></div></div>
+    </div>
+
+    <!-- PROVEEDORES -->
+    <div id="tab-content-cont-proveedores" style="display:none">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--borde);display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between">
+        <span style="font-size:11px;color:var(--gris-medio)">Proveedores de telas, insumos y servicios. Se usan en Gastos y Soportes.</span>
+        <button class="btn btn-sm btn-primary" onclick="abrirModalProveedor()">+ Nuevo proveedor</button>
+      </div>
+      <div class="tabla-wrap"><table>
+        <thead><tr><th>Nombre comercial</th><th>Razón social</th><th>NIT</th><th>Tipo</th><th></th></tr></thead>
+        <tbody id="prov-tbody"><tr><td colspan="5"><div class="loader"><div class="spinner"></div></div></td></tr></tbody>
+      </table></div>
     </div>
 
     <!-- REPORTES -->
@@ -1216,6 +1238,11 @@
       <div class="section-card">
         <div class="section-header"><div class="section-title">⚖️ Punto de Equilibrio del Mes</div><span style="font-size:11px;color:var(--gris-medio)">cuánto vender para cubrir los costos fijos</span></div>
         <div id="rep-equilibrio" style="padding:12px 16px"><div class="loader"><div class="spinner"></div></div></div>
+      </div>
+
+      <div class="section-card">
+        <div class="section-header"><div class="section-title">🏭 Gastos por Proveedor</div><span style="font-size:11px;color:var(--gris-medio)">histórico</span></div>
+        <div id="rep-proveedores" class="tabla-wrap"><div class="loader"><div class="spinner"></div></div></div>
       </div>
 
       <div class="metrics" id="cont-rep-kpis" style="margin:14px 16px"></div>
@@ -1751,6 +1778,25 @@
   </div>
 </div>
 
+<!-- MODAL PROVEEDOR -->
+<div class="modal-overlay" id="modal-proveedor">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="prov-modal-title">Nuevo proveedor</div>
+    <div class="form-group"><label>Nombre comercial</label><input type="text" id="prov-nombre" placeholder="Ej: Portofino Telas"></div>
+    <div class="form-group"><label>Razón social (opcional)</label><input type="text" id="prov-razon" placeholder="Ej: PASH S.A.S"></div>
+    <div class="form-row">
+      <div class="form-group"><label>NIT (opcional)</label><input type="text" id="prov-nit" placeholder="Ej: 860503159-1"></div>
+      <div class="form-group"><label>Tipo</label><select id="prov-tipo"><option>Telas</option><option>Insumos</option><option>Servicios</option><option>Impuestos</option><option>Otro</option></select></div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:14px"><input type="checkbox" id="prov-activo" checked style="width:auto"> Activo</label>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-proveedor')">Cancelar</button>
+      <button class="btn btn-primary" style="flex:2" onclick="guardarProveedor()">Guardar</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL GASTO FIJO -->
 <div class="modal-overlay" id="modal-gasto-fijo">
   <div class="modal">
@@ -1782,7 +1828,7 @@
     </div>
     <div class="form-row">
       <div class="form-group"><label>Valor (opcional)</label><input type="number" id="doc-valor" placeholder="0"></div>
-      <div class="form-group"><label>Proveedor / tercero</label><input type="text" id="doc-prov" placeholder="Opcional"></div>
+      <div class="form-group"><label>Proveedor (opcional)</label><select id="doc-prov-id" onchange="onProvSelect(this)"><option value="">— Sin proveedor —</option></select></div>
     </div>
     <div class="form-group"><label>Descripción</label><input type="text" id="doc-desc" placeholder="Opcional"></div>
     <div class="form-group"><label>Observaciones</label><input type="text" id="doc-obs" placeholder="Opcional"></div>
@@ -2108,6 +2154,7 @@ function showTab(tabId) {
   if (tabId === 'tab-cont-nomina') cargarNomina();
   if (tabId === 'tab-cont-consignaciones') cargarConsignaciones();
   if (tabId === 'tab-cont-soportes') cargarDocumentos();
+  if (tabId === 'tab-cont-proveedores') cargarProveedoresTab();
   if (tabId === 'tab-cont-reportes') cargarReportes();
 }
 
@@ -5817,6 +5864,8 @@ async function guardarGasto() {
   const tipo = document.getElementById('g-tipo').value;
   const valor = parseInt(document.getElementById('g-valor').value)||0;
   const obs = document.getElementById('g-obs').value.trim();
+  const provSel = document.getElementById('g-proveedor').value;
+  const proveedor_id = (provSel && provSel !== '__nuevo__') ? provSel : null;
   const files = Array.from(document.getElementById('g-soporte').files || []);
   if (!fecha || !desc || valor<=0) { toast('Completa fecha, descripción y valor', 'err'); return; }
 
@@ -5830,7 +5879,7 @@ async function guardarGasto() {
 
   // 1) Guardar el gasto primero (soporte_url legacy queda vacío; usamos gasto_soportes)
   const { data: gastoIns, error: gErr } = await sb.from('gastos')
-    .insert({ fecha, descripcion: desc, categoria, tipo, valor, observaciones: obs, periodo: periodoDe(fecha) })
+    .insert({ fecha, descripcion: desc, categoria, tipo, valor, observaciones: obs, periodo: periodoDe(fecha), proveedor_id })
     .select('id').single();
   if (gErr) {
     btn.disabled=false; btn.textContent=prevTxt;
@@ -5858,6 +5907,7 @@ async function guardarGasto() {
   toast(files.length ? `✓ Gasto registrado con ${files.length} soporte(s)` : '✓ Gasto registrado');
   document.getElementById('g-desc').value=''; document.getElementById('g-valor').value=''; document.getElementById('g-obs').value='';
   document.getElementById('g-soporte').value=''; document.getElementById('g-soporte-lista').textContent='';
+  document.getElementById('g-proveedor').value='';
   cargarGastos();
 }
 
@@ -5927,17 +5977,28 @@ async function eliminarGastoFijo(id) {
   cargarGastos();
 }
 
+function irAGastoVariable() {
+  const el = document.getElementById('gasto-var-form');
+  if (el) el.scrollIntoView({ behavior:'smooth', block:'start' });
+  const t = document.getElementById('g-tipo'); if (t) t.value = 'variable';
+  setTimeout(() => document.getElementById('g-desc')?.focus(), 350);
+}
+
 async function cargarGastos() {
-  await Promise.all([loadGastosFijos(), loadColaboradores()]); renderGastosFijos();
+  await Promise.all([loadGastosFijos(), loadColaboradores(), _proveedores.length?Promise.resolve():cargarProveedores()]); renderGastosFijos();
+  const gp = document.getElementById('g-proveedor'); if (gp && gp.options.length<=1) gp.innerHTML = provOptions();
+  const fp = document.getElementById('g-filtro-prov'); if (fp && fp.options.length<=1) fp.innerHTML = provFiltroOptions();
   const fmes = document.getElementById('g-filtro-mes');
   if (fmes && !fmes.options.length) fmes.innerHTML = periodoOpciones('', true);
   const mes = fmes ? fmes.value : '';
   const cat = document.getElementById('g-filtro-cat')?.value || '';
   const tipo = document.getElementById('g-filtro-tipo').value;
+  const prov = document.getElementById('g-filtro-prov')?.value || '';
   let q = sb.from('gastos').select('*').order('fecha',{ascending:false}).limit(1000);
   if (mes) q = q.eq('periodo', mes);
   if (cat) q = q.eq('categoria', cat);
   if (tipo) q = q.eq('tipo', tipo);
+  if (prov) q = q.eq('proveedor_id', prov);
   const { data } = await q;
   const gastos = data || [];
   const total = gastos.reduce((a,g)=>a+g.valor,0);
@@ -5962,7 +6023,7 @@ async function cargarGastos() {
     return `
     <tr>
       <td>${g.fecha}</td>
-      <td><strong>${g.descripcion}</strong>${g.observaciones?`<div style="font-size:11px;color:var(--gris-medio)">${g.observaciones}</div>`:''}</td>
+      <td><strong>${g.descripcion}</strong>${g.proveedor_id?`<div style="margin-top:2px"><span class="badge badge-gray" style="font-size:9px">${provNombre(g.proveedor_id)||'proveedor'}</span></div>`:''}${g.observaciones?`<div style="font-size:11px;color:var(--gris-medio)">${g.observaciones}</div>`:''}</td>
       <td>${g.categoria?`<span class="badge badge-rosa">${g.categoria}</span>`:'<span style="color:var(--gris-medio);font-size:12px">—</span>'}</td>
       <td><span class="badge ${TIPO_BADGE(g.tipo)}">${g.tipo}</span></td>
       <td style="text-align:right;font-weight:700">${COP(g.valor)}</td>
@@ -6441,8 +6502,10 @@ async function subirArchivoDoc(file) {
 }
 
 async function cargarDocumentos() {
+  if (!_proveedores.length) await cargarProveedores();
   const cs = document.getElementById('docs-cat');
   if (cs.options.length <= 1) cs.innerHTML = '<option value="">Todas</option>' + DOC_CATEGORIAS.map(c=>`<option>${c}</option>`).join('') + '<option value="__sin__">Sin categoría</option>';
+  const pf = document.getElementById('docs-prov'); if (pf && pf.options.length <= 1) pf.innerHTML = provFiltroOptions();
   document.getElementById('docs-list').innerHTML = '<div class="loader"><div class="spinner"></div></div>';
   const { data } = await sb.from('documentos').select('*').order('fecha_documento', { ascending:false });
   let docs = (data||[]).map(d=>({ ...d, _origen:'doc' }));
@@ -6470,12 +6533,14 @@ async function cargarDocumentos() {
 
 function renderDocs() {
   const cat = document.getElementById('docs-cat').value;
+  const prov = document.getElementById('docs-prov')?.value || '';
   const q = (document.getElementById('docs-buscar').value||'').toLowerCase();
   const { desde, hasta, label } = docRango();
   const esSinCat = d => !d.categoria || d.categoria==='Otros' || !DOC_CATEGORIAS.includes(d.categoria);
   let docs = _docs.filter(d => { const f = d.fecha_documento||''; return f && f>=desde && f<=hasta; });
   if (cat==='__sin__') docs = docs.filter(esSinCat);
   else if (cat) docs = docs.filter(d => (d.categoria||'')===cat);
+  if (prov) docs = docs.filter(d => d.proveedor_id===prov);
   if (q) docs = docs.filter(d => ((d.nombre||'')+' '+(d.proveedor||'')+' '+(d.descripcion||'')+' '+(d.observaciones||'')).toLowerCase().includes(q));
   // ── Tarjetas de estado accionable ──
   const pMes = periodoActual();
@@ -6499,7 +6564,7 @@ function renderDocs() {
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
         <div style="min-width:0">
           <div style="font-weight:700;font-size:14px">${d.nombre||'(sin nombre)'}</div>
-          <div style="font-size:11px;color:var(--gris-medio);margin-top:3px">${docCatBadge(d.categoria)} · ${docFechaLarga(d.fecha_documento)}${d.proveedor?' · '+d.proveedor:''}${d.valor?' · '+COP(d.valor):''}</div>
+          <div style="font-size:11px;color:var(--gris-medio);margin-top:3px">${docCatBadge(d.categoria)}${(provNombre(d.proveedor_id)||d.proveedor)?` <span class="badge badge-gray" style="font-size:9px">${provNombre(d.proveedor_id)||d.proveedor}</span>`:''} · ${docFechaLarga(d.fecha_documento)}${d.valor?' · '+COP(d.valor):''}</div>
         </div>
         <div style="flex-shrink:0;white-space:nowrap">${acciones}</div>
       </div>
@@ -6520,14 +6585,15 @@ function abrirModalDoc(id) {
     document.getElementById('doc-cat').value = DOC_CATEGORIAS.includes(d.categoria) ? d.categoria : 'Gastos Operativos';
     document.getElementById('doc-fecha').value = d.fecha_documento||'';
     document.getElementById('doc-valor').value = d.valor||'';
-    document.getElementById('doc-prov').value = d.proveedor||'';
+    document.getElementById('doc-prov-id').innerHTML = provOptions(d.proveedor_id);
     document.getElementById('doc-desc').value = d.descripcion||'';
     document.getElementById('doc-obs').value = d.observaciones||'';
     _docFilesActuales = Array.isArray(d.archivos) ? d.archivos.slice() : [];
   } else {
     _docEdit = null;
     document.getElementById('doc-modal-title').textContent = 'Nuevo documento';
-    ['doc-nombre','doc-valor','doc-prov','doc-desc','doc-obs'].forEach(x=>document.getElementById(x).value='');
+    ['doc-nombre','doc-valor','doc-desc','doc-obs'].forEach(x=>document.getElementById(x).value='');
+    document.getElementById('doc-prov-id').innerHTML = provOptions();
     document.getElementById('doc-cat').value = 'Gastos Operativos';
     document.getElementById('doc-fecha').value = hoy();
   }
@@ -6567,7 +6633,8 @@ async function guardarDoc() {
     fecha_documento: fecha,
     descripcion: document.getElementById('doc-desc').value.trim() || null,
     valor: parseInt(document.getElementById('doc-valor').value) || null,
-    proveedor: document.getElementById('doc-prov').value.trim() || null,
+    proveedor_id: (document.getElementById('doc-prov-id').value && document.getElementById('doc-prov-id').value !== '__nuevo__') ? document.getElementById('doc-prov-id').value : null,
+    proveedor: provNombre(document.getElementById('doc-prov-id').value) || null,
     observaciones: document.getElementById('doc-obs').value.trim() || null,
     archivos,
     periodo: fecha ? fecha.slice(0,7) : null
@@ -6591,6 +6658,79 @@ async function eliminarDoc(id) {
   if (error) { toast('Error al eliminar', 'err'); return; }
   toast('Documento eliminado');
   cargarDocumentos();
+}
+
+// ─── PROVEEDORES ──────────────────────────────
+let _proveedores = [], _provEdit = null, _provReturnSel = null;
+async function cargarProveedores() {
+  const { data } = await sb.from('proveedores').select('*').order('nombre_comercial');
+  _proveedores = data || [];
+}
+function provActivos() { return _proveedores.filter(p => p.activo !== false); }
+function provNombre(id) { const p = _proveedores.find(x => x.id === id); return p ? p.nombre_comercial : ''; }
+function provOptions(selId) {
+  return '<option value="">— Sin proveedor —</option>' +
+    provActivos().map(p => `<option value="${p.id}" ${p.id===selId?'selected':''}>${p.nombre_comercial}</option>`).join('') +
+    '<option value="__nuevo__">+ Agregar proveedor nuevo</option>';
+}
+function provFiltroOptions() {
+  return '<option value="">Todos los proveedores</option>' + provActivos().map(p => `<option value="${p.id}">${p.nombre_comercial}</option>`).join('');
+}
+// "+ Agregar proveedor nuevo" en cualquier dropdown
+function onProvSelect(sel) { if (sel.value === '__nuevo__') { sel.value = ''; abrirModalProveedor(null, sel.id); } }
+function abrirModalProveedor(id, returnSelId) {
+  _provEdit = id || null; _provReturnSel = returnSelId || null;
+  const p = id ? _proveedores.find(x=>x.id===id) : null;
+  document.getElementById('prov-modal-title').textContent = p ? 'Editar proveedor' : 'Nuevo proveedor';
+  document.getElementById('prov-nombre').value = p?.nombre_comercial || '';
+  document.getElementById('prov-razon').value = p?.razon_social || '';
+  document.getElementById('prov-nit').value = p?.nit || '';
+  document.getElementById('prov-tipo').value = p?.tipo || 'Telas';
+  document.getElementById('prov-activo').checked = p ? p.activo !== false : true;
+  document.getElementById('modal-proveedor').classList.add('open');
+}
+async function guardarProveedor() {
+  const nombre_comercial = document.getElementById('prov-nombre').value.trim();
+  if (!nombre_comercial) { toast('El nombre comercial es obligatorio', 'err'); return; }
+  const row = { nombre_comercial, razon_social: document.getElementById('prov-razon').value.trim()||null, nit: document.getElementById('prov-nit').value.trim()||null, tipo: document.getElementById('prov-tipo').value, activo: document.getElementById('prov-activo').checked };
+  const res = _provEdit
+    ? await sb.from('proveedores').update(row).eq('id', _provEdit).select().single()
+    : await sb.from('proveedores').insert(row).select().single();
+  if (res.error) { toast('Error al guardar el proveedor', 'err'); console.error(res.error); return; }
+  await cargarProveedores();
+  toast('✓ Proveedor guardado');
+  cerrarModal('modal-proveedor');
+  refrescarDropdownsProv();
+  if (_provReturnSel) { const sel = document.getElementById(_provReturnSel); if (sel) sel.value = res.data?.id || ''; }
+  _provReturnSel = null;
+  if (document.getElementById('tab-content-cont-proveedores')?.style.display !== 'none') renderProveedores();
+}
+async function desactivarProveedor(id) {
+  const p = _proveedores.find(x=>x.id===id); if (!p) return;
+  const act = p.activo !== false;
+  if (!confirm(`¿${act?'Desactivar':'Reactivar'} "${p.nombre_comercial}"?`)) return;
+  await sb.from('proveedores').update({ activo: !act }).eq('id', id);
+  await cargarProveedores(); renderProveedores(); refrescarDropdownsProv();
+}
+function refrescarDropdownsProv() {
+  ['g-proveedor','doc-prov-id'].forEach(id => { const s=document.getElementById(id); if(s){ const c=s.value; s.innerHTML=provOptions(); if(c&&c!=='__nuevo__')s.value=c; } });
+  ['g-filtro-prov','docs-prov'].forEach(id => { const s=document.getElementById(id); if(s){ const c=s.value; s.innerHTML=provFiltroOptions(); s.value=c; } });
+}
+async function cargarProveedoresTab() {
+  if (esVendedora()) return;
+  if (!_proveedores.length) await cargarProveedores();
+  renderProveedores();
+}
+function renderProveedores() {
+  const tb = document.getElementById('prov-tbody'); if (!tb) return;
+  tb.innerHTML = _proveedores.length ? _proveedores.map(p=>`
+    <tr style="${p.activo===false?'opacity:.5':''}">
+      <td><strong>${p.nombre_comercial}</strong>${p.activo===false?' <span class="badge badge-gray" style="font-size:9px">inactivo</span>':''}</td>
+      <td style="font-size:12px">${p.razon_social||'—'}</td>
+      <td>${p.nit||'—'}</td>
+      <td>${p.tipo?`<span class="badge badge-rosa">${p.tipo}</span>`:'—'}</td>
+      <td style="white-space:nowrap"><button onclick="abrirModalProveedor('${p.id}')" title="Editar" style="background:none;border:none;color:var(--azul);cursor:pointer;font-size:14px">✏️</button><button onclick="desactivarProveedor('${p.id}')" title="${p.activo===false?'Reactivar':'Desactivar'}" style="background:none;border:none;color:${p.activo===false?'var(--verde)':'var(--rojo)'};cursor:pointer;font-size:14px;padding:2px 6px">${p.activo===false?'↺':'🗑'}</button></td>
+    </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--gris-medio)">Sin proveedores. Usa "+ Nuevo proveedor".</td></tr>';
 }
 
 // ─── CONTABILIDAD: CONSIGNACIONES (ingresos manuales) ─────────
@@ -6685,16 +6825,34 @@ async function renderPuntoEquilibrio() {
     <div style="font-size:11px;color:var(--gris-medio);margin-top:8px">⚖️ Casi todo el año se opera cerca del equilibrio; la <strong>utilidad real se concentra en diciembre</strong> (~2.000 prendas). En prendas es una referencia (la batola de tiras es barata y de volumen) — la base firme es el valor en ventas.</div>`;
 }
 
+function renderGastosPorProveedor(gastos) {
+  const cont = document.getElementById('rep-proveedores'); if (!cont) return;
+  const map = {};
+  (gastos||[]).forEach(g => { const k = g.proveedor_id || '__sin__'; const m = map[k] = map[k] || { total:0, n:0, ultima:'' }; m.total += g.valor||0; m.n++; if ((g.fecha||'') > m.ultima) m.ultima = g.fecha||''; });
+  const rows = Object.entries(map).map(([k,v])=>({ k, nombre: k==='__sin__'?'Sin proveedor asignado':(provNombre(k)||'(proveedor)'), ...v }));
+  rows.sort((a,b)=> ((a.k==='__sin__')-(b.k==='__sin__')) || b.total-a.total);
+  cont.innerHTML = rows.length ? `<table>
+    <thead><tr><th>Proveedor</th><th style="text-align:right">Total</th><th style="text-align:right">Nº</th><th style="text-align:right">Último pago</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr>
+      <td><strong>${r.nombre}</strong></td>
+      <td style="text-align:right;font-weight:700">${COP(r.total)}</td>
+      <td style="text-align:right">${NUM(r.n)}</td>
+      <td style="text-align:right;font-size:12px;color:var(--gris-medio)">${r.ultima?_fmtFechaCorte(r.ultima):'—'}</td>
+    </tr>`).join('')}</tbody></table>` : '<div style="padding:18px 16px;text-align:center;color:var(--gris-medio);font-size:13px">Sin gastos registrados.</div>';
+}
+
 async function cargarReportes() {
   const gran = document.getElementById('rep-gran')?.value || 'mes';
   renderPuntoEquilibrio();
+  if (!_proveedores.length) await cargarProveedores();
   const [gastos, ventMap, almMap, nomPagos, colabs, temporal, consData] = await Promise.all([
-    selectAll('gastos', 'periodo, valor, tipo, categoria'), ventasPorPeriodo(), ventasPorAlmacen(),
+    selectAll('gastos', 'periodo, valor, tipo, categoria, fecha, proveedor_id'), ventasPorPeriodo(), ventasPorAlmacen(),
     selectAll('nomina_pagos', 'periodo, valor, colaborador_id'),
     selectAll('colaboradores', 'id, tipo, salario, activo'),
     selectAll('personal_temporal', 'fecha_inicio, valor_pagado'),
     selectAll('consignaciones', 'periodo, valor') ]);
   await loadGastosFijos();
+  renderGastosPorProveedor(gastos);
   const gByP = {}, nByP = {}, consByP = {};
   (gastos||[]).forEach(g=>{ const p=g.periodo||''; gByP[p]=(gByP[p]||0)+g.valor; });
   // Nómina recurrente (fija): misma cada mes = suma de salarios de colaboradores fijos activos (no socias)
@@ -6959,6 +7117,7 @@ function inyectarCierreModales() {
 window.addEventListener('DOMContentLoaded', () => {
   inyectarCierreModales();
   verificarConexion();
+  cargarProveedores();
   initAuth();
   setInterval(verificarConexion, 30000);
 });
