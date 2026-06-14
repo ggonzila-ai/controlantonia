@@ -1664,8 +1664,8 @@
     <button class="btn btn-secondary btn-sm btn-full" style="margin-bottom:14px" onclick="addInsumoRow()">+ Agregar insumo</button>
 
     <div class="form-row">
-      <div class="form-group"><label>Costo producción unit.</label><input type="number" id="costo-produccion" placeholder="0" oninput="recalcCostos()"></div>
-      <div class="form-group"><label>Costo comercial unit.</label><input type="number" id="costo-comercial" placeholder="0" oninput="recalcCostos()"></div>
+      <div class="form-group"><label>Costo producción unit.</label><input type="number" id="costo-produccion" readonly tabindex="-1" style="background:var(--gris-claro);color:var(--gris-medio);cursor:not-allowed"><div style="font-size:10px;color:var(--gris-medio);margin-top:2px">Calculado desde Parámetros del mes</div></div>
+      <div class="form-group"><label>Costo comercial unit.</label><input type="number" id="costo-comercial" readonly tabindex="-1" style="background:var(--gris-claro);color:var(--gris-medio);cursor:not-allowed"><div style="font-size:10px;color:var(--gris-medio);margin-top:2px">Calculado desde Parámetros del mes</div></div>
     </div>
 
     <div id="costo-calc" style="background:var(--gris-claro);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:14px;font-size:13px"></div>
@@ -2742,8 +2742,8 @@ function analisisRef(ref) {
   const margenBruto = precioSinIva - mp;
   const comision = Math.round(precioSinIva * COMISION_RATE);
   const margenPostCom = margenBruto - comision;
-  const cProd = (c.costo_produccion>0) ? c.costo_produccion : _paramProdPrenda;
-  const cCom = (c.costo_comercial>0) ? c.costo_comercial : _paramComPrenda;
+  const cProd = _paramProdPrenda;
+  const cCom = _paramComPrenda;
   const utilidad = margenPostCom - cProd - cCom;
   const pct = x => precioSinIva>0 ? +(x/precioSinIva*100).toFixed(1) : 0;
   return { precioConIva:c.precio_venta, precioSinIva, mp, margenBruto, comision, margenPostCom, cProd, cCom, utilidad,
@@ -2814,7 +2814,8 @@ function renderCostos() {
   }).join('') || '<div class="empty"><p>Sin referencias.</p></div>';
 }
 
-function abrirModalCostos(ref) {
+async function abrirModalCostos(ref) {
+  if (!_paramCargados) await loadParametros();
   const c = _costos[ref] || {};
   let insumos = (_insumos[ref]||[]).map(i=>{
     // legado: si no hay precio_iva pero hay valor (sin IVA, consumo 1), reconstruimos el precio con IVA
@@ -2826,8 +2827,9 @@ function abrirModalCostos(ref) {
   _costoEdit = { ref, insumos };
   document.getElementById('costos-modal-title').textContent = 'Costos · ' + ref;
   document.getElementById('costo-precio').value = c.precio_venta || '';
-  document.getElementById('costo-produccion').value = c.costo_produccion || '';
-  document.getElementById('costo-comercial').value = c.costo_comercial || '';
+  // Producción y comercial unit. = valores calculados en Parámetros del mes (solo lectura)
+  document.getElementById('costo-produccion').value = _paramProdPrenda;
+  document.getElementById('costo-comercial').value = _paramComPrenda;
   renderInsumoRows();
   recalcCostos();
   document.getElementById('modal-costos').classList.add('open');
