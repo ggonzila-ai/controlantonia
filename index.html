@@ -1192,6 +1192,11 @@
       <div id="cont-rep-variaciones" style="margin:0 16px 14px"></div>
 
       <div class="section-card">
+        <div class="section-header"><div class="section-title">⚖️ Punto de Equilibrio del Mes</div><span style="font-size:11px;color:var(--gris-medio)">cuánto vender para cubrir los costos fijos</span></div>
+        <div id="rep-equilibrio" style="padding:12px 16px"><div class="loader"><div class="spinner"></div></div></div>
+      </div>
+
+      <div class="section-card">
         <div class="section-header"><div class="section-title">📈 Evolución</div><span id="cont-rep-evol-label" style="font-size:11px;color:var(--gris-medio)"></span></div>
         <div id="cont-rep-evol" style="padding:8px 0"></div>
       </div>
@@ -2281,13 +2286,21 @@ async function cargarDash() {
 
   // ── 3) CONTABILIDAD Y RENTABILIDAD ──
   const insConta = [];
+  const mesNumV = +((periodoVista.split('-')[1]) || 0);
+  const mesesEquilibrio = mesNumV >= 1 && mesNumV <= 11; // ene–nov: meses de equilibrio (la utilidad del año se hace en diciembre)
   if (totalVentasCOP > 0 || egresos > 0) {
-    insConta.push(utilidad >= 0
-      ? { tipo: 'ok', icono: '✅', texto: `Utilidad ${mesNombre(periodoVista)}: ${COP(utilidad)} (margen ${margen}%)`, accion: () => showPage('contabilidad') }
-      : { tipo: 'danger', icono: '📉', texto: `Utilidad negativa ${mesNombre(periodoVista)}: ${COP(utilidad)}`, accion: () => showPage('contabilidad') });
+    if (utilidad >= 0 && margen >= 20) {
+      insConta.push({ tipo: 'ok', icono: '✅', texto: `Utilidad ${mesNombre(periodoVista)}: ${COP(utilidad)} (margen ${margen}%)`, accion: () => showPage('contabilidad') });
+    } else if (mesesEquilibrio) {
+      insConta.push({ tipo: 'info', icono: '⚖️', texto: `En equilibrio — normal para la época (resultado ${COP(utilidad)}). La utilidad del año se concentra en diciembre.`, accion: () => showPage('contabilidad') });
+    } else {
+      insConta.push(utilidad >= 0
+        ? { tipo: 'ok', icono: '✅', texto: `Utilidad ${mesNombre(periodoVista)}: ${COP(utilidad)} (margen ${margen}%)`, accion: () => showPage('contabilidad') }
+        : { tipo: 'danger', icono: '📉', texto: `Utilidad negativa en diciembre: ${COP(utilidad)} — conviene revisar`, accion: () => showPage('contabilidad') });
+    }
     if (egresos > 0) insConta.push({ tipo: 'info', icono: '💸', texto: `Egresos: ${COP(egresos)} — gastos ${COP(totalGastos)} · nómina ${COP(nominaOper)}`, accion: () => showPage('contabilidad') });
     if (catTop && catTop[1] > 0) insConta.push({ tipo: 'info', icono: '📂', texto: `Mayor gasto: ${catTop[0]} (${COP(catTop[1])})`, accion: () => showPage('contabilidad') });
-    if (baseVtas > 0 && margen < 20) insConta.push({ tipo: 'warn', icono: '⚠️', texto: `Margen bajo (${margen}%) — revisa gastos y precios`, accion: () => showPage('contabilidad') });
+    if (baseVtas > 0 && margen < 20 && !mesesEquilibrio) insConta.push({ tipo: 'warn', icono: '⚠️', texto: `Margen bajo (${margen}%) — revisa gastos y precios`, accion: () => showPage('contabilidad') });
   }
   if (recibidoCaja > 0) insConta.push({ tipo: 'info', icono: '💵', texto: `Recibido en caja ${mesNombre(periodoVista)}: ${COP(recibidoCaja)}`, accion: () => showPage('contabilidad') });
   if (egresos === 0 && recibidoCaja === 0) insConta.push({ tipo: 'info', icono: '💰', texto: `Sin gastos ni nómina registrados en ${mesNombre(periodoVista)}`, accion: () => showPage('contabilidad') });
@@ -6375,8 +6388,39 @@ async function eliminarConsignacion(id) {
   cargarReportes();
 }
 
+async function renderPuntoEquilibrio() {
+  const cont = document.getElementById('rep-equilibrio'); if (!cont) return;
+  await Promise.all([loadCostosData(), loadGastosFijos(), loadColaboradores()]);
+  const periodo = periodoActual();
+  const nominaFija = (_colaboradores||[]).filter(c => c.activo!==false && !esSocia(c)).reduce((s,c)=>s+(c.salario||0),0);
+  const fijosMes = gastoFijoDe(periodo) + nominaFija;
+  const ventas = await selectAll('ventas', 'referencia, cantidad, precio_unitario, periodo', q => q.gte('periodo','2026-01').lte('periodo','2026-12'));
+  let undMes = 0; const porRef = {};
+  (ventas||[]).forEach(v => { if (v.periodo === periodo) undMes += v.cantidad; porRef[v.referencia] = (porRef[v.referencia]||0) + v.cantidad; });
+  let sumMargen = 0, sumPrecio = 0, undConCosto = 0;
+  Object.entries(porRef).forEach(([ref, u]) => { const m = margenReferencia(ref); if (m) { sumMargen += m.margen*u; sumPrecio += m.precio*u; undConCosto += u; } });
+  const margenProm = undConCosto>0 ? Math.round(sumMargen/undConCosto) : 0;
+  const precioProm = undConCosto>0 ? Math.round(sumPrecio/undConCosto) : 0;
+  const eqUnid = margenProm>0 ? Math.ceil(fijosMes/margenProm) : 0;
+  const eqCOP = eqUnid * precioProm;
+  const pct = eqUnid>0 ? Math.round(undMes/eqUnid*100) : 0;
+  const col = pct>=100 ? 'var(--verde)' : pct>=70 ? 'var(--amarillo)' : 'var(--rosa-oscuro)';
+  const estado = !margenProm ? 'Define costos en Bodega → Costos para calcular el equilibrio'
+    : pct>=100 ? '✅ Cubriste los costos fijos del mes' : `Vas en ${pct}% del equilibrio`;
+  cont.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px">
+      <div class="metric-card"><div class="m-label">Costos fijos del mes</div><div class="m-val">${COP(fijosMes)}</div><div class="m-sub">nómina + gastos fijos</div></div>
+      <div class="metric-card"><div class="m-label">Margen contrib./prenda</div><div class="m-val">${COP(margenProm)}</div><div class="m-sub">promedio ponderado por ventas</div></div>
+      <div class="metric-card accent"><div class="m-label">Equilibrio</div><div class="m-val">${NUM(eqUnid)} prendas</div><div class="m-sub">≈ ${COP(eqCOP)} en ventas</div></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px;flex-wrap:wrap;gap:6px"><span>Vendidas en ${mesNombre(periodo)}: <strong>${NUM(undMes)}</strong> de ${NUM(eqUnid)}</span><span style="font-weight:600;color:${col}">${estado}</span></div>
+    <div style="height:13px;background:var(--gris-claro);border-radius:7px;overflow:hidden"><div style="height:100%;width:${Math.min(100,pct)}%;background:${col};border-radius:7px;transition:width .3s"></div></div>
+    <div style="font-size:11px;color:var(--gris-medio);margin-top:8px">⚖️ Casi todo el año el negocio opera cerca del equilibrio; la <strong>utilidad real se concentra en diciembre</strong> (~2.000 prendas). Que un mes quede en equilibrio es normal. Como hay productos de precios muy distintos (la batola de tiras es barata y de volumen), el equilibrio en prendas es una referencia — la base firme es el valor en ventas.</div>`;
+}
+
 async function cargarReportes() {
   const gran = document.getElementById('rep-gran')?.value || 'mes';
+  renderPuntoEquilibrio();
   const [gastos, ventMap, almMap, nomPagos, colabs, temporal, consData] = await Promise.all([
     selectAll('gastos', 'periodo, valor, tipo, categoria'), ventasPorPeriodo(), ventasPorAlmacen(),
     selectAll('nomina_pagos', 'periodo, valor, colaborador_id'),
