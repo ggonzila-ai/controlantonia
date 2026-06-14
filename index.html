@@ -300,6 +300,11 @@
   .tipo-F { background: var(--brand-light); color: var(--brand-mid); }
   .tipo-V { background: var(--bg-hover); color: var(--text-secondary); }
   .tipo-E { background: var(--warning-bg); color: var(--warning-text); }
+  /* Carpetas de Soportes: 1 columna en móvil, 2 en escritorio */
+  .doc-folders { display:grid; grid-template-columns:1fr; gap:12px; }
+  @media (min-width:600px){ .doc-folders { grid-template-columns:1fr 1fr; } }
+  .doc-folder-card { background:var(--bg-card,#fff); border:1px solid var(--border-light,var(--borde)); border-radius:14px; padding:16px; cursor:pointer; transition:transform .08s, box-shadow .12s; }
+  .doc-folder-card:hover { transform:translateY(-2px); box-shadow:0 6px 16px rgba(0,0,0,.08); }
   /* Proveedor: columna en escritorio, texto bajo la descripción en móvil */
   .prov-inline { display:none; }
   @media (max-width: 559px) {
@@ -1185,12 +1190,8 @@
 
     <!-- SOPORTES Y DOCUMENTOS -->
     <div id="tab-content-cont-soportes" style="display:none">
-      <div style="padding:12px 16px;border-bottom:1px solid var(--borde);display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-        <button class="btn btn-sm btn-primary" onclick="abrirModalDoc()">+ Nuevo documento</button>
-        <span style="font-size:11px;color:var(--gris-medio);max-width:300px">Archivo digital central: facturas, pagos, nómina, seguridad social, impuestos… (PDF, imágenes, Excel).</span>
-      </div>
-      <div class="metrics" id="docs-kpis" style="margin:14px 16px"></div>
-      <div style="padding:0 16px 6px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+      <!-- Filtro de período (aplica a carpetas e interior) -->
+      <div style="padding:12px 16px 6px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
         <div class="form-group" style="margin:0;min-width:120px"><label>Ver por</label>
           <select id="docs-pertipo" onchange="onDocPerTipo()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)">
             <option value="mensual">Mensual</option><option value="trimestral">Trimestral</option><option value="cuatrimestral">Cuatrimestral</option><option value="semestral">Semestral</option><option value="anual">Anual</option>
@@ -1199,24 +1200,45 @@
         <div class="form-group" style="margin:0"><label>Período</label>
           <div style="display:flex;gap:4px;align-items:center">
             <button type="button" onclick="docPerNav(-1)" title="Anterior" style="height:36px;width:30px;border:1.5px solid var(--borde);background:var(--blanco);border-radius:var(--radius-sm);cursor:pointer;font-size:16px;line-height:1">‹</button>
-            <select id="docs-peridx" onchange="renderDocs()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"></select>
-            <select id="docs-peranio" onchange="renderDocs()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"></select>
+            <select id="docs-peridx" onchange="renderDocsView()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"></select>
+            <select id="docs-peranio" onchange="renderDocsView()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"></select>
             <button type="button" onclick="docPerNav(1)" title="Siguiente" style="height:36px;width:30px;border:1.5px solid var(--borde);background:var(--blanco);border-radius:var(--radius-sm);cursor:pointer;font-size:16px;line-height:1">›</button>
           </div>
         </div>
       </div>
-      <div style="padding:0 16px 10px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-        <div class="form-group" style="margin:0;min-width:160px"><label>Categoría</label>
-          <select id="docs-cat" onchange="renderDocs()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"><option value="">Todas</option></select>
-        </div>
-        <div class="form-group" style="margin:0;min-width:150px"><label>Proveedor</label>
-          <select id="docs-prov" onchange="renderDocs()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"><option value="">Todos los proveedores</option></select>
-        </div>
-        <div class="form-group" style="margin:0;flex:1;min-width:140px"><label>Buscar</label>
-          <input type="text" id="docs-buscar" placeholder="Nombre, proveedor, descripción…" oninput="renderDocs()" style="width:100%;padding:8px 10px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit">
-        </div>
+
+      <!-- VISTA DE CARPETAS -->
+      <div id="docs-cards-view">
+        <div id="docs-cards" class="doc-folders" style="margin:14px 16px"><div class="loader"><div class="spinner"></div></div></div>
+        <div style="padding:0 16px 20px"><a onclick="verDocsAntiguos()" style="font-size:12px;color:var(--gris-medio);text-decoration:underline;cursor:pointer">Ver documentos anteriores</a></div>
       </div>
-      <div id="docs-list"><div class="loader"><div class="spinner"></div></div></div>
+
+      <!-- VISTA INTERIOR DE CARPETA -->
+      <div id="docs-folder-view" style="display:none">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--borde);display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <button class="btn btn-sm btn-secondary" onclick="volverACarpetas()">← Volver</button>
+          <div id="docs-folder-title" style="font-size:15px;font-weight:700;flex:1;min-width:120px"></div>
+          <button class="btn btn-sm btn-primary" onclick="abrirModalDoc()">+ Nuevo documento</button>
+        </div>
+        <div style="padding:10px 16px 4px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+          <div class="form-group" style="margin:0;min-width:180px"><label>Subcategoría</label>
+            <select id="docs-sub" onchange="renderDocFolder()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"></select>
+          </div>
+          <div class="form-group" style="margin:0;flex:1;min-width:140px"><label>Buscar</label>
+            <input type="text" id="docs-buscar" placeholder="Nombre, descripción…" oninput="renderDocFolder()" style="width:100%;padding:8px 10px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit">
+          </div>
+        </div>
+        <div id="docs-folder-list"><div class="loader"><div class="spinner"></div></div></div>
+      </div>
+
+      <!-- VISTA DOCUMENTOS ANTERIORES -->
+      <div id="docs-old-view" style="display:none">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--borde);display:flex;gap:10px;align-items:center">
+          <button class="btn btn-sm btn-secondary" onclick="volverACarpetas()">← Volver</button>
+          <div style="font-size:15px;font-weight:700">Documentos anteriores</div>
+        </div>
+        <div id="docs-old-list"></div>
+      </div>
     </div>
 
     <!-- PROVEEDORES -->
@@ -1833,17 +1855,16 @@
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title" id="doc-modal-title">Nuevo documento</div>
+    <div class="form-group"><label>Carpeta</label><input type="text" id="doc-cat-label" readonly style="background:var(--gris-claro);color:var(--gris-medio);font-weight:600"></div>
     <div class="form-group"><label>Nombre del documento</label><input type="text" id="doc-nombre" placeholder="Ej: Factura arriendo junio"></div>
+    <div class="form-group"><label>Subcategoría</label><select id="doc-sub"></select></div>
     <div class="form-row">
-      <div class="form-group"><label>Categoría</label><select id="doc-cat"></select></div>
       <div class="form-group"><label>Fecha del documento</label><input type="date" id="doc-fecha"></div>
+      <div class="form-group"><label>Período al que corresponde</label><input type="month" id="doc-periodo"></div>
     </div>
-    <div class="form-row">
-      <div class="form-group"><label>Valor (opcional)</label><input type="number" id="doc-valor" placeholder="0"></div>
-      <div class="form-group"><label>Proveedor (opcional)</label><select id="doc-prov-id" onchange="onProvSelect(this)"><option value="">— Sin proveedor —</option></select></div>
-    </div>
-    <div class="form-group"><label>Descripción</label><input type="text" id="doc-desc" placeholder="Opcional"></div>
-    <div class="form-group"><label>Observaciones</label><input type="text" id="doc-obs" placeholder="Opcional"></div>
+    <div class="form-group"><label>Valor (opcional)</label><input type="number" id="doc-valor" placeholder="0"></div>
+    <div class="form-group"><label>Descripción (opcional)</label><input type="text" id="doc-desc" placeholder="Opcional"></div>
+    <div class="form-group"><label>Observaciones (opcional)</label><input type="text" id="doc-obs" placeholder="Opcional"></div>
     <div class="form-group"><label>Archivos (PDF, JPG, PNG, Excel) — puedes elegir varios</label>
       <input type="file" id="doc-files" multiple accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls" onchange="previewDocFiles()" style="width:100%;font-size:13px">
     </div>
@@ -2165,7 +2186,7 @@ function showTab(tabId) {
   if (tabId === 'tab-cont-gastos') cargarGastos();
   if (tabId === 'tab-cont-nomina') cargarNomina();
   if (tabId === 'tab-cont-consignaciones') cargarConsignaciones();
-  if (tabId === 'tab-cont-soportes') cargarDocumentos();
+  if (tabId === 'tab-cont-soportes') { _docFolderActual = null; cargarDocumentos(); }
   if (tabId === 'tab-cont-proveedores') cargarProveedoresTab();
   if (tabId === 'tab-cont-reportes') cargarReportes();
 }
@@ -6488,7 +6509,27 @@ const DOC_CAT_COLORS = {
   'Gastos Operativos':'#f97316', 'Impuestos':'var(--rojo)', 'Contratos y Legal':'#374151'
 };
 const DOC_EXTS = ['pdf','jpg','jpeg','png','xlsx','xls'];
-let _docs = [], _docEdit = null, _docFilesActuales = [];
+// ── Carpetas de Soportes v2 (categoria = id de carpeta) ──
+const DOC_FOLDERS = [
+  { id:'Feria del Brasier / Solo Kukos', color:'var(--brand)', estado:'feria',
+    subs:['Reporte de ventas 1-31','Reporte cierre contable 25-26','Liquidaciones y consignaciones','Contratos de concesión'] },
+  { id:'Seguridad Social', color:'#3b82f6', estado:'ss',
+    subs:['Planilla PILA mensual'] },
+  { id:'Nómina', color:'#8b5cf6',
+    subs:['Comprobantes de pago'] },
+  { id:'Impuestos / DIAN', color:'var(--rojo)',
+    subs:['Declaración de IVA','Otros pagos DIAN'] },
+  { id:'Gastos y Proveedores', color:'#f97316',
+    subs:['Facturas de insumos','Facturas de tela','Servicios','Otros'] },
+  { id:'Contratos y Legal', color:'#374151',
+    subs:['Contratos laborales','Arriendo taller','Otros contratos'] },
+];
+const DOC_FOLDER_NAMES = DOC_FOLDERS.map(f => f.id);
+const docFolder = id => DOC_FOLDERS.find(f => f.id === id);
+const docPeriodo = d => d.periodo || (d.fecha_documento||'').slice(0,7);
+function docSubColor(folderId){ const f = docFolder(folderId); return f ? f.color : 'var(--gris-medio)'; }
+function docSubBadge(sub, folderId){ if(!sub) return ''; const col = docSubColor(folderId); return `<span style="display:inline-block;font-size:10px;font-weight:700;color:#fff;background:${col};padding:2px 8px;border-radius:20px">${sub}</span>`; }
+let _docs = [], _docEdit = null, _docFilesActuales = [], _docFolderActual = null, _docModalFolder = null;
 function docCatBadge(cat) { const col = DOC_CAT_COLORS[cat] || 'var(--gris-medio)'; return `<span style="display:inline-block;font-size:10px;font-weight:700;color:#fff;background:${col};padding:2px 8px;border-radius:20px">${cat||'Sin categoría'}</span>`; }
 function docIcono(ext) { ext=(ext||'').toLowerCase(); if(ext==='pdf')return '📄'; if(['xlsx','xls'].includes(ext))return '📊'; if(['jpg','jpeg','png'].includes(ext))return '🖼'; return '📎'; }
 function docFechaLarga(f) { return f ? new Date(f+'T00:00:00').toLocaleDateString('es-CO',{day:'numeric',month:'long',year:'numeric'}) : '—'; }
@@ -6519,17 +6560,17 @@ function onDocPerTipo(){
     const m = new Date().getMonth()+1;
     idxSel.value = tipo==='mensual'?m : tipo==='trimestral'?Math.ceil(m/3) : tipo==='cuatrimestral'?Math.ceil(m/4) : Math.ceil(m/6);
   }
-  renderDocs();
+  renderDocsView();
 }
 function docPerNav(dir){
   const tipo = document.getElementById('docs-pertipo').value;
   const aSel = document.getElementById('docs-peranio'), iSel = document.getElementById('docs-peridx');
   let anio = +aSel.value;
   const setAnio = y => { if([...aSel.options].some(o=>+o.value===y)) aSel.value=y; };
-  if(tipo==='anual'){ setAnio(anio+dir); renderDocs(); return; }
+  if(tipo==='anual'){ setAnio(anio+dir); renderDocsView(); return; }
   const N = docPerN(tipo); let idx = (+iSel.value||1)+dir;
   if(idx<1){ idx=N; anio--; } else if(idx>N){ idx=1; anio++; }
-  setAnio(anio); iSel.value = idx; renderDocs();
+  setAnio(anio); iSel.value = idx; renderDocsView();
 }
 
 function validarDocs(files) {
@@ -6550,18 +6591,14 @@ async function subirArchivoDoc(file) {
 
 async function cargarDocumentos() {
   if (!_proveedores.length) await cargarProveedores();
-  const cs = document.getElementById('docs-cat');
-  if (cs.options.length <= 1) cs.innerHTML = '<option value="">Todas</option>' + DOC_CATEGORIAS.map(c=>`<option>${c}</option>`).join('') + '<option value="__sin__">Sin categoría</option>';
-  const pf = document.getElementById('docs-prov'); if (pf && pf.options.length <= 1) pf.innerHTML = provFiltroOptions();
-  document.getElementById('docs-list').innerHTML = '<div class="loader"><div class="spinner"></div></div>';
   const { data } = await sb.from('documentos').select('*').order('fecha_documento', { ascending:false });
   let docs = (data||[]).map(d=>({ ...d, _origen:'doc' }));
-  // Integrar soportes de gastos (solo lectura, se gestionan en Gastos)
+  // Soportes de gastos (solo lectura) → carpeta "Gastos y Proveedores"
   const gs = await selectAll('gasto_soportes', 'id, gasto_id, nombre_archivo, url_archivo, tipo_archivo, gastos!inner(fecha, descripcion, valor, periodo, proveedor_id)');
   const porGasto = {};
   (gs||[]).forEach(s => {
     const g = s.gastos || {};
-    const reg = porGasto[s.gasto_id] = porGasto[s.gasto_id] || { id:'g-'+s.gasto_id, nombre: g.descripcion||'Gasto', categoria:'Gastos Operativos', fecha_documento: g.fecha, valor: g.valor, proveedor_id: g.proveedor_id||null, proveedor: provNombre(g.proveedor_id)||'', descripcion:'Soporte registrado en Gastos', observaciones:'', archivos:[], periodo: g.periodo || periodoDe(g.fecha), _origen:'gasto' };
+    const reg = porGasto[s.gasto_id] = porGasto[s.gasto_id] || { id:'g-'+s.gasto_id, nombre: g.descripcion||'Gasto', categoria:'Gastos y Proveedores', subcategoria:'Otros', fecha_documento: g.fecha, valor: g.valor, proveedor_id: g.proveedor_id||null, proveedor: provNombre(g.proveedor_id)||'', descripcion:'Soporte registrado en Gastos', observaciones:'', archivos:[], periodo: g.periodo || periodoDe(g.fecha), _origen:'gasto' };
     reg.archivos.push({ url: s.url_archivo, nombre: s.nombre_archivo||'archivo', ext: (s.tipo_archivo||'') });
   });
   docs = docs.concat(Object.values(porGasto));
@@ -6569,81 +6606,143 @@ async function cargarDocumentos() {
   const aSel = document.getElementById('docs-peranio');
   if (aSel.options.length === 0) {
     const ahoraY = new Date().getFullYear();
-    const ys = [...new Set([ahoraY, ...docs.map(d=>+(d.fecha_documento||'').slice(0,4)).filter(Boolean)])].sort((a,b)=>b-a);
+    const ys = [...new Set([ahoraY, ...docs.map(d=>+(docPeriodo(d)||'').slice(0,4)).filter(Boolean)])].sort((a,b)=>b-a);
     aSel.innerHTML = ys.map(y=>`<option value="${y}">${y}</option>`).join('');
     aSel.value = ahoraY;
-    onDocPerTipo();   // inicializa período (mensual, mes actual) y renderiza
+    onDocPerTipo();   // setea período (mensual, mes actual) y renderiza vista
     return;
   }
-  renderDocs();
+  renderDocsView();
 }
 
-function renderDocs() {
-  const cat = document.getElementById('docs-cat').value;
-  const prov = document.getElementById('docs-prov')?.value || '';
+function periodoSeleccionadoDocs(){ try { return docRango().desde.slice(0,7); } catch(e){ return periodoActual(); } }
+
+// Router de vistas: carpetas / interior / anteriores
+function renderDocsView(){
+  const cardsV=document.getElementById('docs-cards-view'), folderV=document.getElementById('docs-folder-view'), oldV=document.getElementById('docs-old-view');
+  if(!cardsV) return;
+  if(_docFolderActual==='__old__'){ cardsV.style.display='none'; folderV.style.display='none'; oldV.style.display=''; renderDocsAntiguos(); }
+  else if(_docFolderActual){ cardsV.style.display='none'; folderV.style.display=''; oldV.style.display='none'; renderDocFolder(); }
+  else { cardsV.style.display=''; folderV.style.display='none'; oldV.style.display='none'; renderDocCards(); }
+}
+
+// Vista 1: las 6 carpetas con conteo y badges de estado
+function renderDocCards(){
+  const { desde, hasta, label } = docRango();
+  const m1=desde.slice(0,7), m2=hasta.slice(0,7);
+  const tipo = document.getElementById('docs-pertipo').value;
+  const docsP = _docs.filter(d=>{ const p=docPeriodo(d); return p && p>=m1 && p<=m2; });
+  document.getElementById('docs-cards').innerHTML = DOC_FOLDERS.map(f=>{
+    const n = docsP.filter(d=>d.categoria===f.id).length;
+    let badge='';
+    if (tipo==='mensual' && f.estado==='feria'){
+      const subs = new Set(_docs.filter(d=>d.categoria===f.id && docPeriodo(d)===m1).map(d=>d.subcategoria));
+      const ok = subs.has('Reporte de ventas 1-31') && subs.has('Reporte cierre contable 25-26');
+      badge = ok ? '<span class="badge badge-ok" style="font-size:10px">✓ Completo</span>' : '<span class="badge badge-warn" style="font-size:10px">⚠ Incompleto</span>';
+    } else if (tipo==='mensual' && f.estado==='ss'){
+      const ok = _docs.some(d=>d.categoria===f.id && docPeriodo(d)===m1 && d.subcategoria==='Planilla PILA mensual');
+      badge = ok ? '<span class="badge badge-ok" style="font-size:10px">✓ Pagada</span>' : '<span class="badge badge-warn" style="font-size:10px">⚠ Pendiente</span>';
+    }
+    return `<div class="doc-folder-card" onclick="abrirCarpeta('${f.id.replace(/'/g,"\\'")}')" style="border-left:5px solid ${f.color}">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:26px;line-height:1">📁</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:13px;color:var(--carbon);line-height:1.25">${f.id}</div>
+          <div style="font-size:11px;color:var(--gris-medio);margin-top:2px">${n} documento${n===1?'':'s'} · ${label}</div>
+        </div>
+        <div style="font-size:22px;font-weight:800;color:${f.color}">${n}</div>
+      </div>
+      ${badge?`<div style="margin-top:8px">${badge}</div>`:''}
+    </div>`;
+  }).join('');
+}
+function abrirCarpeta(id){ _docFolderActual = id; const b=document.getElementById('docs-buscar'); if(b) b.value=''; renderDocsView(); }
+function volverACarpetas(){ _docFolderActual = null; renderDocsView(); }
+function verDocsAntiguos(){ _docFolderActual = '__old__'; renderDocsView(); }
+
+// Render compartido de un documento
+function docItemHtml(d){
+  const archivos = Array.isArray(d.archivos) ? d.archivos : [];
+  const fileLinks = archivos.map(a => `<a href="${a.url}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--brand-dark);text-decoration:none;border:1px solid var(--borde);border-radius:6px;padding:3px 7px;margin:3px 4px 0 0">${docIcono(a.ext)} ${(a.nombre||'archivo').slice(0,24)}</a>`).join('');
+  const esGasto = d._origen === 'gasto';
+  const acciones = esGasto
+    ? '<span style="font-size:10px;color:var(--gris-medio)">desde Gastos</span>'
+    : `<button onclick="abrirModalDoc('${d.id}')" title="Editar" style="background:none;border:none;color:var(--brand-dark);cursor:pointer;font-size:14px;padding:2px 6px">✏️</button><button onclick="eliminarDoc('${d.id}')" title="Eliminar" style="background:none;border:none;color:var(--rojo);cursor:pointer;font-size:14px;padding:2px 6px">🗑️</button>`;
+  const badge = d.subcategoria ? docSubBadge(d.subcategoria, d.categoria) : docCatBadge(d.categoria);
+  const per = docPeriodo(d), fechaMes = (d.fecha_documento||'').slice(0,7);
+  const perChip = (per && per!==fechaMes) ? ` · <span style="font-size:10px;color:var(--gris-medio)">corresponde a ${mesNombre(per)}</span>` : '';
+  const extra = [d.descripcion, d.observaciones].filter(Boolean).join(' · ');
+  return `<div style="padding:13px 16px;border-bottom:1px solid var(--borde)">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+      <div style="min-width:0">
+        <div style="font-size:11px;color:var(--gris-medio)">${docFechaLarga(d.fecha_documento)}${perChip}</div>
+        <div style="font-weight:700;font-size:14px;margin-top:2px">${d.nombre||'(sin nombre)'}</div>
+        <div style="margin-top:4px">${badge}${d.proveedor?` <span class="badge badge-gray" style="font-size:9px">${d.proveedor}</span>`:''}${d.valor?` <span style="font-size:11px;color:var(--gris-medio)">${COP(d.valor)}</span>`:''}</div>
+      </div>
+      <div style="flex-shrink:0;white-space:nowrap">${acciones}</div>
+    </div>
+    ${extra?`<div style="font-size:12px;color:var(--gris-medio);margin-top:4px">${extra}</div>`:''}
+    <div style="margin-top:4px">${fileLinks||'<span style="font-size:11px;color:var(--gris-medio)">sin archivos</span>'}</div>
+  </div>`;
+}
+
+// Vista 2: interior de una carpeta
+function renderDocFolder(){
+  const f = docFolder(_docFolderActual); if(!f){ volverACarpetas(); return; }
+  document.getElementById('docs-folder-title').textContent = f.id;
+  const subSel = document.getElementById('docs-sub');
+  if (subSel.getAttribute('data-folder') !== f.id){
+    subSel.innerHTML = '<option value="">Todas las subcategorías</option>' + f.subs.map(s=>`<option>${s}</option>`).join('');
+    subSel.setAttribute('data-folder', f.id);
+    subSel.value = '';
+  }
+  const sub = subSel.value;
   const q = (document.getElementById('docs-buscar').value||'').toLowerCase();
   const { desde, hasta, label } = docRango();
-  const esSinCat = d => !d.categoria || d.categoria==='Otros' || !DOC_CATEGORIAS.includes(d.categoria);
-  let docs = _docs.filter(d => { const f = d.fecha_documento||''; return f && f>=desde && f<=hasta; });
-  if (cat==='__sin__') docs = docs.filter(esSinCat);
-  else if (cat) docs = docs.filter(d => (d.categoria||'')===cat);
-  if (prov) docs = docs.filter(d => d.proveedor_id===prov);
-  if (q) docs = docs.filter(d => ((d.nombre||'')+' '+(d.proveedor||'')+' '+(d.descripcion||'')+' '+(d.observaciones||'')).toLowerCase().includes(q));
-  // ── Tarjetas de estado accionable ──
-  const pMes = periodoActual();
-  const ssMes = _docs.some(d => d.categoria==='Seguridad Social' && (d.fecha_documento||'').slice(0,7)===pMes);
-  const cierres = _docs.filter(d => (d.categoria||'').startsWith('Reportes Feria del Brasier')).sort((a,b)=>(b.fecha_documento||'').localeCompare(a.fecha_documento||''));
-  const ult = cierres[0];
-  const sinCat = _docs.filter(esSinCat).length;
-  document.getElementById('docs-kpis').innerHTML = `
-    <div class="metric-card" style="border-left:4px solid ${ssMes?'var(--verde)':'var(--amarillo)'}"><div class="m-label">Seguridad Social</div><div class="m-val" style="font-size:16px;color:${ssMes?'var(--verde)':'var(--amarillo)'}">${ssMes?'✓ Pagada':'⚠ Pendiente'}</div><div class="m-sub">${mesNombre(pMes)}</div></div>
-    <div class="metric-card"><div class="m-label">Último cierre Feria</div><div class="m-val" style="font-size:14px">${ult?_fmtFechaCorte(ult.fecha_documento):'<span style=\"color:var(--gris-medio)\">Sin reportes</span>'}</div><div class="m-sub">${ult?(ult.categoria.includes('Comercial')?'Comercial':'Contable'):'aún'}</div></div>
-    <div class="metric-card" onclick="document.getElementById('docs-cat').value='__sin__';renderDocs()" style="cursor:pointer;border-left:4px solid ${sinCat?'var(--amarillo)':'var(--verde)'}"><div class="m-label">Sin categoría</div><div class="m-val" style="font-size:16px;color:${sinCat?'var(--amarillo)':'var(--verde)'}">${sinCat?sinCat+' docs':'✓ Todo'}</div><div class="m-sub">${sinCat?'clic para ver':'clasificado'}</div></div>
-    <div class="metric-card accent"><div class="m-label">Documentos del período</div><div class="m-val">${NUM(docs.length)}</div><div class="m-sub">${label}</div></div>`;
-  document.getElementById('docs-list').innerHTML = docs.length ? docs.map(d => {
-    const archivos = Array.isArray(d.archivos) ? d.archivos : [];
-    const fileLinks = archivos.map(a => `<a href="${a.url}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--brand-dark);text-decoration:none;border:1px solid var(--borde);border-radius:6px;padding:3px 7px;margin:3px 4px 0 0">${docIcono(a.ext)} ${(a.nombre||'archivo').slice(0,24)}</a>`).join('');
-    const esGasto = d._origen === 'gasto';
-    const acciones = esGasto
-      ? '<span style="font-size:10px;color:var(--gris-medio)">desde Gastos</span>'
-      : `<button onclick="abrirModalDoc('${d.id}')" title="Editar" style="background:none;border:none;color:var(--rosa-oscuro);cursor:pointer;font-size:14px;padding:2px 6px">✎</button><button onclick="eliminarDoc('${d.id}')" title="Eliminar" style="background:none;border:none;color:var(--rojo);cursor:pointer;font-size:14px;padding:2px 6px">🗑️</button>`;
-    return `<div style="padding:13px 16px;border-bottom:1px solid var(--borde)">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-        <div style="min-width:0">
-          <div style="font-weight:700;font-size:14px">${d.nombre||'(sin nombre)'}</div>
-          <div style="font-size:11px;color:var(--gris-medio);margin-top:3px">${docCatBadge(d.categoria)}${(provNombre(d.proveedor_id)||d.proveedor)?` <span class="badge badge-gray" style="font-size:9px">${provNombre(d.proveedor_id)||d.proveedor}</span>`:''} · ${docFechaLarga(d.fecha_documento)}${d.valor?' · '+COP(d.valor):''}</div>
-        </div>
-        <div style="flex-shrink:0;white-space:nowrap">${acciones}</div>
-      </div>
-      ${d.descripcion?`<div style="font-size:12px;color:var(--gris-medio);margin-top:4px">${d.descripcion}</div>`:''}
-      <div style="margin-top:2px">${fileLinks||'<span style="font-size:11px;color:var(--gris-medio)">sin archivos</span>'}</div>
-    </div>`;
-  }).join('') : `<div style="padding:24px 16px;text-align:center;color:var(--gris-medio);font-size:13px">No hay documentos en ${label}${cat?(cat==='__sin__'?' · sin categoría':' · '+cat):''}.</div>`;
+  const m1=desde.slice(0,7), m2=hasta.slice(0,7);
+  let docs = _docs.filter(d => d.categoria===f.id && (()=>{ const p=docPeriodo(d); return p && p>=m1 && p<=m2; })());
+  if(sub) docs = docs.filter(d => (d.subcategoria||'')===sub);
+  if(q) docs = docs.filter(d => ((d.nombre||'')+' '+(d.descripcion||'')+' '+(d.observaciones||'')+' '+(d.proveedor||'')).toLowerCase().includes(q));
+  docs.sort((a,b)=>(b.fecha_documento||'').localeCompare(a.fecha_documento||''));
+  document.getElementById('docs-folder-list').innerHTML = docs.length
+    ? docs.map(docItemHtml).join('')
+    : `<div style="padding:30px 16px;text-align:center;color:var(--gris-medio);font-size:13px">No hay documentos en este período (${label}).<br>¿Quieres agregar uno?<br><button class="btn btn-sm btn-primary" style="margin-top:12px" onclick="abrirModalDoc()">+ Nuevo documento</button></div>`;
+}
+
+// Vista 3: documentos anteriores (categorías que no son de las 6 carpetas)
+function renderDocsAntiguos(){
+  let docs = _docs.filter(d => d._origen!=='gasto' && !DOC_FOLDER_NAMES.includes(d.categoria));
+  docs.sort((a,b)=>(b.fecha_documento||'').localeCompare(a.fecha_documento||''));
+  document.getElementById('docs-old-list').innerHTML = docs.length
+    ? `<div style="padding:10px 16px;font-size:11px;color:var(--gris-medio)">${docs.length} documento(s) en categorías anteriores. Puedes editarlos para reubicarlos en las carpetas nuevas.</div>` + docs.map(docItemHtml).join('')
+    : `<div style="padding:30px 16px;text-align:center;color:var(--gris-medio);font-size:13px">No hay documentos en categorías anteriores.</div>`;
 }
 
 function abrirModalDoc(id) {
-  document.getElementById('doc-cat').innerHTML = DOC_CATEGORIAS.map(c=>`<option>${c}</option>`).join('');
   _docFilesActuales = [];
+  let folderId, d = null;
   if (id) {
-    const d = _docs.find(x=>x.id===id); if (!d) return;
-    _docEdit = id;
-    document.getElementById('doc-modal-title').textContent = 'Editar documento';
-    document.getElementById('doc-nombre').value = d.nombre||'';
-    document.getElementById('doc-cat').value = DOC_CATEGORIAS.includes(d.categoria) ? d.categoria : 'Gastos Operativos';
-    document.getElementById('doc-fecha').value = d.fecha_documento||'';
-    document.getElementById('doc-valor').value = d.valor||'';
-    document.getElementById('doc-prov-id').innerHTML = provOptions(d.proveedor_id);
-    document.getElementById('doc-desc').value = d.descripcion||'';
-    document.getElementById('doc-obs').value = d.observaciones||'';
-    _docFilesActuales = Array.isArray(d.archivos) ? d.archivos.slice() : [];
+    d = _docs.find(x=>x.id===id); if (!d) return;
+    if (d._origen === 'gasto') { toast('Este soporte se gestiona desde la pestaña Gastos', 'err'); return; }
+    _docEdit = id; folderId = d.categoria;
   } else {
     _docEdit = null;
-    document.getElementById('doc-modal-title').textContent = 'Nuevo documento';
-    ['doc-nombre','doc-valor','doc-desc','doc-obs'].forEach(x=>document.getElementById(x).value='');
-    document.getElementById('doc-prov-id').innerHTML = provOptions();
-    document.getElementById('doc-cat').value = 'Gastos Operativos';
-    document.getElementById('doc-fecha').value = hoy();
+    folderId = (_docFolderActual && _docFolderActual !== '__old__') ? _docFolderActual : DOC_FOLDERS[0].id;
   }
+  _docModalFolder = folderId;
+  const f = docFolder(folderId);
+  document.getElementById('doc-modal-title').textContent = id ? 'Editar documento' : 'Nuevo documento';
+  document.getElementById('doc-cat-label').value = folderId;
+  const subs = f ? f.subs : (d?.subcategoria ? [d.subcategoria] : []);
+  document.getElementById('doc-sub').innerHTML = '<option value="">— Elegir subcategoría —</option>' + subs.map(s=>`<option ${d&&d.subcategoria===s?'selected':''}>${s}</option>`).join('');
+  document.getElementById('doc-sub').value = d?.subcategoria || '';
+  document.getElementById('doc-nombre').value = d?.nombre || '';
+  document.getElementById('doc-fecha').value = d?.fecha_documento || hoy();
+  document.getElementById('doc-periodo').value = d ? (docPeriodo(d) || periodoSeleccionadoDocs()) : periodoSeleccionadoDocs();
+  document.getElementById('doc-valor').value = d?.valor || '';
+  document.getElementById('doc-desc').value = d?.descripcion || '';
+  document.getElementById('doc-obs').value = d?.observaciones || '';
+  _docFilesActuales = (d && Array.isArray(d.archivos)) ? d.archivos.slice() : [];
   document.getElementById('doc-files').value = '';
   document.getElementById('doc-files-nuevos').textContent = '';
   renderDocFilesActuales();
@@ -6663,6 +6762,8 @@ function previewDocFiles() {
 async function guardarDoc() {
   const nombre = document.getElementById('doc-nombre').value.trim();
   if (!nombre) { toast('Ponle un nombre al documento', 'err'); return; }
+  const sub = document.getElementById('doc-sub').value;
+  if (!sub) { toast('Elige una subcategoría', 'err'); return; }
   const files = [...document.getElementById('doc-files').files];
   const val = validarDocs(files);
   if (!val.ok) { toast(val.error, 'err'); return; }
@@ -6674,17 +6775,17 @@ async function guardarDoc() {
     archivos.push({ url:up.url, nombre:up.nombre, ext:up.ext });
   }
   const fecha = document.getElementById('doc-fecha').value || null;
+  const periodo = document.getElementById('doc-periodo').value || (fecha ? fecha.slice(0,7) : null);
   const row = {
     nombre,
-    categoria: document.getElementById('doc-cat').value,
+    categoria: _docModalFolder,
+    subcategoria: sub,
     fecha_documento: fecha,
     descripcion: document.getElementById('doc-desc').value.trim() || null,
     valor: parseInt(document.getElementById('doc-valor').value) || null,
-    proveedor_id: (document.getElementById('doc-prov-id').value && document.getElementById('doc-prov-id').value !== '__nuevo__') ? document.getElementById('doc-prov-id').value : null,
-    proveedor: provNombre(document.getElementById('doc-prov-id').value) || null,
     observaciones: document.getElementById('doc-obs').value.trim() || null,
     archivos,
-    periodo: fecha ? fecha.slice(0,7) : null
+    periodo
   };
   let error;
   if (_docEdit) ({ error } = await sb.from('documentos').update(row).eq('id', _docEdit));
