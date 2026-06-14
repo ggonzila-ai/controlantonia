@@ -484,38 +484,9 @@
     <!-- COSTOS POR REFERENCIA -->
     <div id="tab-content-bod-costos" style="display:none">
       <div class="section-card" style="border-radius:0;margin-bottom:0;border-bottom:none">
-        <div onclick="const b=document.getElementById('param-body');b.style.display=b.style.display==='none'?'block':'none'" style="padding:12px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
-          <strong style="font-size:14px">⚙ Parámetros del mes</strong>
-          <span style="font-size:11px;color:var(--gris-medio)">costos fijos por prenda · clic para abrir</span>
-        </div>
-        <div id="param-body" style="display:none;padding:0 16px 14px">
-          <div style="font-size:12px;font-weight:700;color:var(--brand);margin:4px 0 6px">Producción</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <div class="form-group" style="margin:0;min-width:110px"><label>Costureras TC</label><input type="number" id="pp-costureras" value="2" oninput="recalcParametros()"></div>
-            <div class="form-group" style="margin:0;min-width:160px"><label>Taller (arriendo+serv.+varios)</label><input type="number" id="pp-taller" value="1446000" oninput="recalcParametros()"></div>
-            <div class="form-group" style="margin:0;min-width:120px"><label>Unidades a producir</label><input type="number" id="pp-undprod" value="1000" oninput="recalcParametros()"></div>
-          </div>
-          <div style="font-size:12px;font-weight:700;color:var(--brand);margin:12px 0 6px">Comercial</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <div class="form-group" style="margin:0;min-width:90px"><label>Vend. TC</label><input type="number" id="pc-tc" value="1" oninput="recalcParametros()"></div>
-            <div class="form-group" style="margin:0;min-width:90px"><label>Vend. MT</label><input type="number" id="pc-mt" value="1" oninput="recalcParametros()"></div>
-            <div class="form-group" style="margin:0;min-width:100px"><label>Temporales TC</label><input type="number" id="pc-temp" value="0" oninput="recalcParametros()"></div>
-            <div class="form-group" style="margin:0;min-width:110px"><label>Transporte</label><input type="number" id="pc-transp" value="400000" oninput="recalcParametros()"></div>
-            <div class="form-group" style="margin:0;min-width:110px"><label>Unidades a vender</label><input type="number" id="pc-undventa" value="1000" oninput="recalcParametros()"></div>
-          </div>
-          <div id="param-resumen" style="background:#eef9fc;border-radius:8px;padding:10px 12px;margin-top:12px;font-size:13px;line-height:1.8"></div>
-          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-            <button class="btn btn-secondary btn-sm" onclick="aplicarParametros()">Aplicar a análisis</button>
-            <button class="btn btn-primary btn-sm" onclick="guardarParametros()">Guardar mes</button>
-          </div>
-          <div style="border-top:1px solid var(--borde);margin-top:14px;padding-top:12px">
-            <div style="font-size:12px;font-weight:700;color:var(--brand);margin-bottom:6px">Simulador de precio</div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <div class="form-group" style="margin:0;min-width:160px"><label>Precio de venta (con IVA)</label><input type="number" id="sim-precio" placeholder="32900" oninput="recalcSimulador()"></div>
-              <div class="form-group" style="margin:0;min-width:160px"><label>Materia prima estimada/prenda</label><input type="number" id="sim-mp" placeholder="8854" oninput="recalcSimulador()"></div>
-            </div>
-            <div id="sim-resultado" style="margin-top:8px;font-size:13px;color:var(--gris-medio)">Ingresa precio y materia prima para evaluar.</div>
-          </div>
+        <div style="padding:12px 16px">
+          <button onclick="abrirCostosMensuales()" style="width:100%;background:linear-gradient(135deg,var(--brand),#0192bb);color:#fff;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:800;cursor:pointer;box-shadow:0 4px 14px rgba(2,171,213,.35);display:flex;align-items:center;justify-content:center;gap:10px;-webkit-tap-highlight-color:transparent">💰 Costos Mensuales</button>
+          <div style="font-size:11px;color:var(--gris-medio);margin-top:6px">Define los costos fijos del mes (taller, costureras, vendedoras, arriendo, transporte). El sistema los reparte por prenda y los usa en la rentabilidad de cada referencia.</div>
         </div>
       </div>
       <div class="section-card" style="border-radius:0;margin-bottom:0;border-bottom:none">
@@ -533,7 +504,7 @@
     <!-- RENTABILIDAD -->
     <div id="tab-content-bod-rentab" style="display:none">
       <div class="metrics" id="rentab-kpis" style="margin:14px 16px"></div>
-      <div style="padding:0 16px 8px;font-size:11px;color:var(--gris-medio)">Cadena: precio sin IVA − materia prima = margen bruto; − comisión 16% = margen post-comisión; − producción/prenda − comercial/prenda = utilidad operativa. Producción/comercial salen de ⚙ Parámetros del mes. Umbrales: ✓ ≥20% · ⚠ 10–19% · ✗ &lt;10%.</div>
+      <div style="padding:0 16px 8px;font-size:11px;color:var(--gris-medio)">Cadena: precio sin IVA − materia prima = margen bruto; − comisión 16% = margen post-comisión; − producción/prenda − comercial/prenda = utilidad operativa. Producción/comercial salen de 💰 Costos Mensuales. Umbrales: ✓ ≥20% · ⚠ 10–19% · ✗ &lt;10%.</div>
       <div class="tabla-wrap" id="rentab-tabla"><div class="loader"><div class="spinner"></div></div></div>
     </div>
 
@@ -1664,8 +1635,8 @@
     <button class="btn btn-secondary btn-sm btn-full" style="margin-bottom:14px" onclick="addInsumoRow()">+ Agregar insumo</button>
 
     <div class="form-row">
-      <div class="form-group"><label>Costo producción unit.</label><input type="number" id="costo-produccion" readonly tabindex="-1" style="background:var(--gris-claro);color:var(--gris-medio);cursor:not-allowed"><div style="font-size:10px;color:var(--gris-medio);margin-top:2px">Calculado desde Parámetros del mes</div></div>
-      <div class="form-group"><label>Costo comercial unit.</label><input type="number" id="costo-comercial" readonly tabindex="-1" style="background:var(--gris-claro);color:var(--gris-medio);cursor:not-allowed"><div style="font-size:10px;color:var(--gris-medio);margin-top:2px">Calculado desde Parámetros del mes</div></div>
+      <div class="form-group"><label>Costo producción unit.</label><input type="number" id="costo-produccion" readonly tabindex="-1" style="background:var(--gris-claro);color:var(--gris-medio);cursor:not-allowed"><div style="font-size:10px;color:var(--gris-medio);margin-top:2px">Calculado en 💰 Costos Mensuales</div></div>
+      <div class="form-group"><label>Costo comercial unit.</label><input type="number" id="costo-comercial" readonly tabindex="-1" style="background:var(--gris-claro);color:var(--gris-medio);cursor:not-allowed"><div style="font-size:10px;color:var(--gris-medio);margin-top:2px">Calculado en 💰 Costos Mensuales</div></div>
     </div>
 
     <div id="costo-calc" style="background:var(--gris-claro);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:14px;font-size:13px"></div>
@@ -1726,6 +1697,45 @@
     <div style="display:flex;gap:10px">
       <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-terminar')">Cancelar</button>
       <button class="btn btn-primary" style="flex:2" onclick="confirmarTerminarCorte()">Agregar a bodega</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL COSTOS MENSUALES -->
+<div class="modal-overlay" id="modal-costos-mensuales">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">💰 Costos Mensuales</div>
+    <div style="font-size:12px;color:var(--gris-medio);margin-bottom:12px">Costos fijos del mes repartidos por prenda. Se usan en la rentabilidad de todas las referencias.</div>
+    <div style="font-size:12px;font-weight:700;color:var(--brand);margin:4px 0 6px">Producción</div>
+    <div class="form-row">
+      <div class="form-group"><label>Costureras TC</label><input type="number" id="pp-costureras" value="2" oninput="recalcParametros()"></div>
+      <div class="form-group"><label>Costo taller mensual</label><input type="number" id="pp-taller" value="1446000" oninput="recalcParametros()"></div>
+    </div>
+    <div class="form-group"><label>Unidades a producir este mes</label><input type="number" id="pp-undprod" value="1000" oninput="recalcParametros()"></div>
+    <div style="font-size:12px;font-weight:700;color:var(--brand);margin:14px 0 6px">Comercial</div>
+    <div class="form-row">
+      <div class="form-group"><label>Vendedoras TC</label><input type="number" id="pc-tc" value="1" oninput="recalcParametros()"></div>
+      <div class="form-group"><label>Vendedoras MT</label><input type="number" id="pc-mt" value="1" oninput="recalcParametros()"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Vendedoras temporales</label><input type="number" id="pc-temp" value="0" oninput="recalcParametros()"></div>
+      <div class="form-group"><label>Transporte mensual</label><input type="number" id="pc-transp" value="400000" oninput="recalcParametros()"></div>
+    </div>
+    <div class="form-group"><label>Unidades a vender este mes</label><input type="number" id="pc-undventa" value="1000" oninput="recalcParametros()"></div>
+    <div id="param-resumen" style="background:#eef9fc;border-radius:8px;padding:10px 12px;margin:12px 0;font-size:13px;line-height:1.8"></div>
+    <div style="border-top:1px solid var(--borde);padding-top:12px;margin-bottom:12px">
+      <div style="font-size:12px;font-weight:700;color:var(--brand);margin-bottom:6px">Simulador de precio</div>
+      <div class="form-row">
+        <div class="form-group"><label>Precio de venta (con IVA)</label><input type="number" id="sim-precio" placeholder="32900" oninput="recalcSimulador()"></div>
+        <div class="form-group"><label>Materia prima estimada/prenda</label><input type="number" id="sim-mp" placeholder="8854" oninput="recalcSimulador()"></div>
+      </div>
+      <div id="sim-resultado" style="margin-top:6px;font-size:13px;color:var(--gris-medio)">Ingresa precio y materia prima para evaluar.</div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-costos-mensuales')">Cerrar</button>
+      <button class="btn btn-secondary" style="flex:1" onclick="aplicarParametros()">Aplicar</button>
+      <button class="btn btn-primary" style="flex:1" onclick="guardarParametros()">Guardar mes</button>
     </div>
   </div>
 </div>
@@ -2067,7 +2077,7 @@ function showTab(tabId) {
   if (tabId === 'tab-if-res') cargarResultadosConteo();
   if (tabId === 'tab-alm-conc') { llenarSelectAlmacenes(); renderConciliacion(); }
   if (tabId === 'tab-bod-catalogo') cargarCatalogo();
-  if (tabId === 'tab-bod-costos') { cargarCostos(); loadParametros(); }
+  if (tabId === 'tab-bod-costos') cargarCostos();
   if (tabId === 'tab-bod-rentab') cargarRentabilidadCostos();
   if (tabId === 'tab-bod-despachos') {
     llenarSelectAlmacenes();
@@ -2686,6 +2696,17 @@ const SALARIO_TC = 2722000, SALARIO_MT = 1361000;
 let _paramProdPrenda = 6890, _paramComPrenda = 4483, _paramCargados = false;
 const _v = id => document.getElementById(id)?.value;
 const _setV = (id, val) => { const e = document.getElementById(id); if (e && val != null) e.value = val; };
+// Aplicar persiste en localStorage; al cargar la app, esos valores mandan en toda la rentabilidad
+(function(){ const a=localStorage.getItem('param_costo_produccion'), b=localStorage.getItem('param_costo_comercial'); if(a!=null&&a!=='') _paramProdPrenda=+a; if(b!=null&&b!=='') _paramComPrenda=+b; })();
+// Costo por prenda efectivo: localStorage (Aplicar) > valor por referencia > default del panel
+function costoProdPrenda(c) { const ls=localStorage.getItem('param_costo_produccion'); if(ls!=null&&ls!=='') return +ls; return (c&&c.costo_produccion>0)?c.costo_produccion:_paramProdPrenda; }
+function costoComPrenda(c) { const ls=localStorage.getItem('param_costo_comercial'); if(ls!=null&&ls!=='') return +ls; return (c&&c.costo_comercial>0)?c.costo_comercial:_paramComPrenda; }
+
+async function abrirCostosMensuales() {
+  if (esVendedora()) return;
+  await loadParametros();
+  document.getElementById('modal-costos-mensuales').classList.add('open');
+}
 
 function recalcParametros() {
   const prodPrenda = Math.round(((parseFloat(_v('pp-costureras'))||0)*SALARIO_TC + (parseFloat(_v('pp-taller'))||0)) / (parseFloat(_v('pp-undprod'))||1));
@@ -2696,18 +2717,26 @@ function recalcParametros() {
 }
 function aplicarParametros() {
   const r = recalcParametros(); _paramProdPrenda = r.prodPrenda; _paramComPrenda = r.comPrenda; _paramCargados = true;
-  toast('✓ Parámetros aplicados al análisis');
+  localStorage.setItem('param_costo_produccion', r.prodPrenda);
+  localStorage.setItem('param_costo_comercial', r.comPrenda);
+  toast('✓ Costos aplicados al análisis');
+  cerrarModal('modal-costos-mensuales');
   renderCostos();
   if (document.getElementById('tab-content-bod-rentab')?.style.display !== 'none') cargarRentabilidadCostos();
 }
 async function guardarParametros() {
   const r = recalcParametros(); _paramProdPrenda = r.prodPrenda; _paramComPrenda = r.comPrenda; _paramCargados = true;
+  localStorage.setItem('param_costo_produccion', r.prodPrenda);
+  localStorage.setItem('param_costo_comercial', r.comPrenda);
   const row = { periodo: periodoActual(), costureras:+_v('pp-costureras')||0, taller:+_v('pp-taller')||0, unidades_produccion:+_v('pp-undprod')||0,
     vend_tc:+_v('pc-tc')||0, vend_mt:+_v('pc-mt')||0, vend_temp:+_v('pc-temp')||0, transporte:+_v('pc-transp')||0, unidades_venta:+_v('pc-undventa')||0,
     costo_produccion_prenda:r.prodPrenda, costo_comercial_prenda:r.comPrenda, updated_at:new Date().toISOString() };
   const { error } = await sb.from('parametros_mes').upsert(row, { onConflict:'periodo' });
   if (error) { toast('Error al guardar parámetros', 'err'); console.error(error); return; }
-  toast('✓ Parámetros del mes guardados');
+  toast('✓ Costos del mes guardados');
+  cerrarModal('modal-costos-mensuales');
+  renderCostos();
+  if (document.getElementById('tab-content-bod-rentab')?.style.display !== 'none') cargarRentabilidadCostos();
 }
 async function loadParametros() {
   const { data } = await sb.from('parametros_mes').select('*').eq('periodo', periodoActual()).maybeSingle();
@@ -2727,7 +2756,7 @@ function recalcSimulador() {
   const out = document.getElementById('sim-resultado'); if (!out) return;
   if (precio<=0) { out.textContent = 'Ingresa precio y materia prima para evaluar.'; return; }
   const sinIva = baseSinIva(precio), mb = sinIva - mp, com = Math.round(sinIva*COMISION_RATE), mpc = mb - com;
-  const util = mpc - _paramProdPrenda - _paramComPrenda, uPct = sinIva>0 ? util/sinIva*100 : 0;
+  const util = mpc - costoProdPrenda() - costoComPrenda(), uPct = sinIva>0 ? util/sinIva*100 : 0;
   const sem = uPct>=20 ? ['var(--verde)','✓ Rentable'] : uPct>=10 ? ['var(--amarillo)','⚠ Ajustado — viable en volumen'] : ['var(--rojo)','✗ En riesgo'];
   const p = x => sinIva>0 ? (x/sinIva*100).toFixed(1) : '0';
   out.innerHTML = `Precio sin IVA <strong>${COP(sinIva)}</strong> · Margen bruto <strong>${p(mb)}%</strong> · Post-comisión <strong>${p(mpc)}%</strong><br>Utilidad operativa <strong style="color:${sem[0]}">${COP(util)} (${p(util)}%)</strong> — <span style="color:${sem[0]};font-weight:600">${sem[1]}</span>`;
@@ -2742,8 +2771,8 @@ function analisisRef(ref) {
   const margenBruto = precioSinIva - mp;
   const comision = Math.round(precioSinIva * COMISION_RATE);
   const margenPostCom = margenBruto - comision;
-  const cProd = _paramProdPrenda;
-  const cCom = _paramComPrenda;
+  const cProd = costoProdPrenda(c);
+  const cCom = costoComPrenda(c);
   const utilidad = margenPostCom - cProd - cCom;
   const pct = x => precioSinIva>0 ? +(x/precioSinIva*100).toFixed(1) : 0;
   return { precioConIva:c.precio_venta, precioSinIva, mp, margenBruto, comision, margenPostCom, cProd, cCom, utilidad,
@@ -2827,9 +2856,9 @@ async function abrirModalCostos(ref) {
   _costoEdit = { ref, insumos };
   document.getElementById('costos-modal-title').textContent = 'Costos · ' + ref;
   document.getElementById('costo-precio').value = c.precio_venta || '';
-  // Producción y comercial unit. = valores calculados en Parámetros del mes (solo lectura)
-  document.getElementById('costo-produccion').value = _paramProdPrenda;
-  document.getElementById('costo-comercial').value = _paramComPrenda;
+  // Producción y comercial unit. = valores de Costos Mensuales (localStorage) o por referencia (solo lectura)
+  document.getElementById('costo-produccion').value = costoProdPrenda(c);
+  document.getElementById('costo-comercial').value = costoComPrenda(c);
   renderInsumoRows();
   recalcCostos();
   document.getElementById('modal-costos').classList.add('open');
