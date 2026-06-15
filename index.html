@@ -2987,7 +2987,7 @@ function renderCostos() {
   document.getElementById('costos-resumen').textContent = `${conCosto}/${bodegaData.length} con costos definidos`;
   document.getElementById('costos-list').innerHTML = refs.map(p=>{
     const m = margenReferencia(p.referencia);
-    const col = !m ? 'var(--gris-medio)' : m.margenPct>=0.4?'var(--verde)':m.margenPct>=0.2?'var(--amarillo)':'var(--rojo)';
+    const col = !m ? 'var(--gris-medio)' : semaforoUtil(m.margenPct*100)[0];
     return `<div onclick="abrirModalCostos('${p.referencia.replace(/'/g,"\\'")}')" style="padding:13px 16px;border-bottom:1px solid var(--borde);cursor:pointer">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
         <div style="min-width:0">
@@ -5103,7 +5103,7 @@ function renderRankingRentabilidad() {
         <td><strong>${r.ref}</strong> <span class="badge badge-rosa" style="font-size:9px">${r.cat||'—'}</span></td>
         <td style="text-align:right">${r.precio!=null?COP(r.precio):'<span style="color:var(--gris-medio)">—</span>'}</td>
         <td style="text-align:right">${r.margen!=null?COP(r.margen):'<span style="color:var(--gris-medio)" title="define costos en Bodega → Costos">—</span>'}</td>
-        <td style="text-align:right">${r.margenPct!=null?`<span class="badge ${r.margenPct>=40?'badge-ok':r.margenPct>=20?'badge-warn':'badge-err'}">${r.margenPct}%</span>`:'—'}</td>
+        <td style="text-align:right">${r.margenPct!=null?`<span class="badge ${r.margenPct>=20?'badge-ok':r.margenPct>=10?'badge-warn':'badge-err'}">${r.margenPct}%</span>`:'—'}</td>
         <td style="text-align:right;font-weight:700">${NUM(r.uds)}</td>
         <td style="text-align:right;font-weight:700">${r.utilidad!=null?COP(r.utilidad):'<span style="color:var(--gris-medio)">—</span>'}</td>
       </tr>`).join('')}</tbody>
@@ -5588,7 +5588,7 @@ function renderVpaTabla() {
       <td style="text-align:right">${r.totalDesc>0?COP(r.totalDesc):'<span style="color:var(--gris-medio)">—</span>'}</td>
       <td style="text-align:right">${COP(r.precioProm)}${r.precioProm<r.precioLista?` <span style="color:var(--rosa-oscuro);font-size:10px" title="vendido bajo precio lista">▼</span>`:''}</td>
       <td style="text-align:right">${r.margen!=null?COP(r.margen):'<span style="color:var(--gris-medio)" title="define costos en Bodega">—</span>'}</td>
-      <td style="text-align:right">${r.margenPct!=null?`<span class="badge ${r.margenPct>=40?'badge-ok':r.margenPct>=20?'badge-warn':'badge-err'}">${r.margenPct}%</span>`:'<span style="color:var(--gris-medio)">—</span>'}</td>
+      <td style="text-align:right">${r.margenPct!=null?`<span class="badge ${r.margenPct>=20?'badge-ok':r.margenPct>=10?'badge-warn':'badge-err'}">${r.margenPct}%</span>`:'<span style="color:var(--gris-medio)">—</span>'}</td>
       <td style="text-align:right;font-weight:700">${r.utilidad!=null?COP(r.utilidad):'<span style="color:var(--gris-medio)">—</span>'}</td>
       <td><span class="badge badge-rosa">${r.cat||'—'}</span></td>
     </tr>`).join('') + (rows.length ? `
