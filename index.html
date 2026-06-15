@@ -3989,7 +3989,7 @@ async function procesarExcel() {
     for (let i = hi+1; i < raw.length; i++) {
       const r = raw[i]; if (!r || r[cCO] == null || r[cRef] == null) continue;
       const co = String(r[cCO]).trim().padStart(3,'0');
-      const cant = parseInt(r[cCant]) || 0; if (cant < 1) continue;
+      const cant = parseInt(r[cCant]) || 0; if (!cant) continue;   // incluye devoluciones (cantidad negativa); solo salta filas en 0/ inválidas
       const neto = Math.round(Number(r[cNeto]) || 0);
       const descto = cDescto>=0 ? Math.round(Number(r[cDescto]) || 0) : 0;
       const { base, talla } = parseSku(r[cRef]);
