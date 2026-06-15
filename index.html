@@ -1188,7 +1188,7 @@
         <div class="tabla-wrap"><table>
           <thead><tr>
             <th>Período de ventas</th><th>Mes consignación</th>
-            <th style="text-align:right">Ventas s/IVA</th><th style="text-align:right">Com. %</th>
+            <th style="text-align:right">Ventas c/IVA</th><th style="text-align:right">Com. %</th>
             <th style="text-align:right">Comisión</th><th style="text-align:right">Neto esperado</th>
             <th>Fecha esperada</th><th>Estado</th><th style="text-align:right">Recibido</th>
             <th style="text-align:right">Diferencia</th><th></th>
@@ -1889,9 +1889,10 @@
         <div class="form-group"><label>Hasta</label><input type="date" id="dc-hasta" onchange="dcRecalc()"></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>Ventas brutas (sin IVA)</label><input type="text" inputmode="numeric" id="dc-brutas" oninput="dcRecalc()" onblur="this.value=this.value?NUM(pesos(this.value)):''" placeholder="0"></div>
-        <div class="form-group"><label>Comisión %</label><input type="number" id="dc-comision" value="16" oninput="dcRecalc()"></div>
+        <div class="form-group"><label>Ventas sin IVA (base comisión)</label><input type="text" inputmode="numeric" id="dc-brutas" oninput="dcRecalc()" onblur="this.value=this.value?NUM(pesos(this.value)):''" placeholder="0"></div>
+        <div class="form-group"><label>Ventas con IVA (total)</label><input type="text" inputmode="numeric" id="dc-coniva" oninput="dcRecalc()" onblur="this.value=this.value?NUM(pesos(this.value)):''" placeholder="0"></div>
       </div>
+      <div class="form-group" style="max-width:160px"><label>Comisión %</label><input type="number" id="dc-comision" value="16" oninput="dcRecalc()"></div>
       <div id="dc-calc" style="font-size:12px;color:var(--gris-medio);background:var(--gris-claro);border-radius:8px;padding:8px 10px;margin-bottom:8px"></div>
       <div class="form-group"><label>Fecha esperada de consignación</label><input type="date" id="dc-fecha-esp"></div>
     </div>
@@ -1920,9 +1921,10 @@
       <div class="form-group"><label>Hasta</label><input type="date" id="ci-hasta" onchange="ciHastaChange()"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Ventas brutas (sin IVA)</label><input type="text" inputmode="numeric" id="ci-brutas" oninput="ciRecalc()" onblur="this.value=this.value?NUM(pesos(this.value)):''" placeholder="0"></div>
-      <div class="form-group"><label>Comisión %</label><input type="number" id="ci-comision" value="16" oninput="ciRecalc()"></div>
+      <div class="form-group"><label>Ventas sin IVA (base comisión)</label><input type="text" inputmode="numeric" id="ci-brutas" oninput="ciRecalc()" onblur="this.value=this.value?NUM(pesos(this.value)):''" placeholder="0"></div>
+      <div class="form-group"><label>Ventas con IVA (total)</label><input type="text" inputmode="numeric" id="ci-coniva" oninput="ciRecalc()" onblur="this.value=this.value?NUM(pesos(this.value)):''" placeholder="0"></div>
     </div>
+    <div class="form-group" style="max-width:160px"><label>Comisión %</label><input type="number" id="ci-comision" value="16" oninput="ciRecalc()"></div>
     <div id="ci-calc" style="font-size:12px;color:var(--gris-medio);background:var(--gris-claro);border-radius:8px;padding:8px 10px;margin-bottom:10px"></div>
     <div class="form-group"><label>Fecha esperada de consignación</label><input type="date" id="ci-fecha-esp"></div>
     <div class="form-group"><label>Observaciones (opcional)</label><input type="text" id="ci-obs" placeholder="Opcional"></div>
@@ -6819,7 +6821,7 @@ function abrirModalDoc(id) {
   document.getElementById('doc-files-nuevos').textContent = '';
   renderDocFilesActuales();
   // Reset campos de cierre contable y mostrar si aplica
-  ['dc-desde','dc-hasta','dc-brutas','dc-fecha-esp'].forEach(x=>{ const e=document.getElementById(x); if(e) e.value=''; });
+  ['dc-desde','dc-hasta','dc-brutas','dc-coniva','dc-fecha-esp'].forEach(x=>{ const e=document.getElementById(x); if(e) e.value=''; });
   const dcc=document.getElementById('dc-comision'); if(dcc) dcc.value=16;
   const dccalc=document.getElementById('dc-calc'); if(dccalc) dccalc.innerHTML='';
   toggleCierreExtra();
@@ -7073,7 +7075,7 @@ function renderCierresTabla(){
     return `<tr>
       <td style="font-size:12px">${ccPeriodoTexto(c.periodo_desde,c.periodo_hasta)}</td>
       <td style="font-size:12px">${c.mes_consignacion||'—'}</td>
-      <td style="text-align:right;color:var(--gris-medio)">${COP(c.ventas_brutas_sin_iva)}</td>
+      <td style="text-align:right">${COP(c.ventas_con_iva)}<div style="font-size:10px;color:var(--gris-medio)">base ${COP(c.ventas_brutas_sin_iva)}</div></td>
       <td style="text-align:right">${c.comision_pct}%</td>
       <td style="text-align:right;color:var(--rojo)">-${COP(c.comision_valor)}</td>
       <td style="text-align:right;font-weight:700">${COP(c.neto_a_recibir)}</td>
@@ -7095,9 +7097,10 @@ async function verSoporteCierre(id){
 // ── Modal registrar / editar cierre ──
 function ciRecalc(){
   const sinIva = pesos(document.getElementById('ci-brutas').value);
+  const conIva = pesos(document.getElementById('ci-coniva').value);
   const pct = +document.getElementById('ci-comision').value || 0;
-  const com = Math.round(sinIva*pct/100), neto = sinIva-com;
-  document.getElementById('ci-calc').innerHTML = `Comisión (${pct}%): <strong style="color:var(--rojo)">-${COP(com)}</strong> &nbsp;·&nbsp; Neto a recibir: <strong>${COP(neto)}</strong>`;
+  const com = Math.round(sinIva*pct/100), neto = conIva - com;
+  document.getElementById('ci-calc').innerHTML = `Comisión (${pct}% sobre base s/IVA): <strong style="color:var(--rojo)">-${COP(com)}</strong> &nbsp;·&nbsp; Neto a recibir (con IVA − comisión): <strong>${COP(neto)}</strong>`;
 }
 function ciHastaChange(){
   const h = document.getElementById('ci-hasta').value;
@@ -7112,6 +7115,7 @@ function abrirModalCierre(id){
     document.getElementById('ci-desde').value = c.periodo_desde||'';
     document.getElementById('ci-hasta').value = c.periodo_hasta||'';
     document.getElementById('ci-brutas').value = c.ventas_brutas_sin_iva ? NUM(c.ventas_brutas_sin_iva) : '';
+    document.getElementById('ci-coniva').value = c.ventas_con_iva ? NUM(c.ventas_con_iva) : '';
     document.getElementById('ci-comision').value = c.comision_pct||16;
     document.getElementById('ci-fecha-esp').value = c.fecha_esperada_consignacion||'';
     document.getElementById('ci-obs').value = c.observaciones||'';
@@ -7120,6 +7124,7 @@ function abrirModalCierre(id){
     document.getElementById('ci-desde').value = fmtD(new Date(y, m-1, 26));
     document.getElementById('ci-hasta').value = fmtD(new Date(y, m, 25));
     document.getElementById('ci-brutas').value = '';
+    document.getElementById('ci-coniva').value = '';
     document.getElementById('ci-comision').value = 16;
     document.getElementById('ci-fecha-esp').value = fmtD(new Date(y, m+1, 24));
     document.getElementById('ci-obs').value = '';
@@ -7130,11 +7135,12 @@ function abrirModalCierre(id){
 async function guardarCierre(){
   const desde=document.getElementById('ci-desde').value, hasta=document.getElementById('ci-hasta').value;
   const sinIva=pesos(document.getElementById('ci-brutas').value);
+  const conIva=pesos(document.getElementById('ci-coniva').value);
   const pct=+document.getElementById('ci-comision').value||16;
   const fechaEsp=document.getElementById('ci-fecha-esp').value;
-  if(!desde||!hasta||!fechaEsp||sinIva<=0){ toast('Completa período, ventas y fecha esperada','err'); return; }
+  if(!desde||!hasta||!fechaEsp||sinIva<=0||conIva<=0){ toast('Completa período, ventas (sin y con IVA) y fecha esperada','err'); return; }
   const row={ periodo_desde:desde, periodo_hasta:hasta, mes_consignacion:mesNombre(fechaEsp.slice(0,7)),
-    ventas_brutas_sin_iva:sinIva, comision_pct:pct, fecha_esperada_consignacion:fechaEsp,
+    ventas_brutas_sin_iva:sinIva, ventas_con_iva:conIva, comision_pct:pct, fecha_esperada_consignacion:fechaEsp,
     observaciones:document.getElementById('ci-obs').value.trim()||null };
   const btn=document.getElementById('ci-btn'); btn.disabled=true; const prev=btn.textContent; btn.textContent='Guardando…';
   let error;
@@ -7183,9 +7189,10 @@ function toggleCierreExtra(){
 }
 function dcRecalc(){
   const sinIva=pesos(document.getElementById('dc-brutas').value);
+  const conIva=pesos(document.getElementById('dc-coniva').value);
   const pct=+document.getElementById('dc-comision').value||0;
-  const com=Math.round(sinIva*pct/100), neto=sinIva-com;
-  document.getElementById('dc-calc').innerHTML = `Comisión (${pct}%): <strong style="color:var(--rojo)">-${COP(com)}</strong> &nbsp;·&nbsp; Neto a recibir: <strong>${COP(neto)}</strong>`;
+  const com=Math.round(sinIva*pct/100), neto=conIva-com;
+  document.getElementById('dc-calc').innerHTML = `Comisión (${pct}% sobre base s/IVA): <strong style="color:var(--rojo)">-${COP(com)}</strong> &nbsp;·&nbsp; Neto a recibir (con IVA − comisión): <strong>${COP(neto)}</strong>`;
   const h=document.getElementById('dc-hasta').value, fe=document.getElementById('dc-fecha-esp');
   if(h && !fe.value){ const d=new Date(h+'T00:00:00'); d.setDate(d.getDate()+30); fe.value=fmtD(d); }
 }
@@ -7195,6 +7202,7 @@ async function prefillCierreFromDoc(id){
   document.getElementById('dc-desde').value=c.periodo_desde||'';
   document.getElementById('dc-hasta').value=c.periodo_hasta||'';
   document.getElementById('dc-brutas').value=c.ventas_brutas_sin_iva?NUM(c.ventas_brutas_sin_iva):'';
+  document.getElementById('dc-coniva').value=c.ventas_con_iva?NUM(c.ventas_con_iva):'';
   document.getElementById('dc-comision').value=c.comision_pct||16;
   document.getElementById('dc-fecha-esp').value=c.fecha_esperada_consignacion||'';
   dcRecalc();
@@ -7202,12 +7210,13 @@ async function prefillCierreFromDoc(id){
 async function guardarCierreDesdeDoc(docId){
   const desde=document.getElementById('dc-desde').value, hasta=document.getElementById('dc-hasta').value;
   const sinIva=pesos(document.getElementById('dc-brutas').value);
+  const conIva=pesos(document.getElementById('dc-coniva').value);
   const pct=+document.getElementById('dc-comision').value||16;
   let fechaEsp=document.getElementById('dc-fecha-esp').value;
   if(!fechaEsp && hasta){ const d=new Date(hasta+'T00:00:00'); d.setDate(d.getDate()+30); fechaEsp=fmtD(d); }
-  if(!desde||!hasta||!fechaEsp||sinIva<=0) return;
+  if(!desde||!hasta||!fechaEsp||sinIva<=0||conIva<=0) return;
   const row={ periodo_desde:desde, periodo_hasta:hasta, mes_consignacion:mesNombre(fechaEsp.slice(0,7)),
-    ventas_brutas_sin_iva:sinIva, comision_pct:pct, fecha_esperada_consignacion:fechaEsp, soporte_id:docId };
+    ventas_brutas_sin_iva:sinIva, ventas_con_iva:conIva, comision_pct:pct, fecha_esperada_consignacion:fechaEsp, soporte_id:docId };
   const { data: ex } = await sb.from('consignaciones_cierre').select('id').eq('soporte_id', docId).limit(1);
   let err;
   if(ex&&ex[0]) ({error:err}=await sb.from('consignaciones_cierre').update(row).eq('id',ex[0].id));
