@@ -1889,7 +1889,7 @@
         <div class="form-group"><label>Hasta</label><input type="date" id="dc-hasta" onchange="dcRecalc()"></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>Ventas brutas (sin IVA)</label><input type="number" id="dc-brutas" oninput="dcRecalc()" placeholder="0"></div>
+        <div class="form-group"><label>Ventas brutas (sin IVA)</label><input type="text" inputmode="numeric" id="dc-brutas" oninput="dcRecalc()" onblur="this.value=this.value?NUM(pesos(this.value)):''" placeholder="0"></div>
         <div class="form-group"><label>Comisión %</label><input type="number" id="dc-comision" value="16" oninput="dcRecalc()"></div>
       </div>
       <div id="dc-calc" style="font-size:12px;color:var(--gris-medio);background:var(--gris-claro);border-radius:8px;padding:8px 10px;margin-bottom:8px"></div>
@@ -1920,7 +1920,7 @@
       <div class="form-group"><label>Hasta</label><input type="date" id="ci-hasta" onchange="ciHastaChange()"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Ventas brutas (sin IVA)</label><input type="number" id="ci-brutas" oninput="ciRecalc()" placeholder="0"></div>
+      <div class="form-group"><label>Ventas brutas (sin IVA)</label><input type="text" inputmode="numeric" id="ci-brutas" oninput="ciRecalc()" onblur="this.value=this.value?NUM(pesos(this.value)):''" placeholder="0"></div>
       <div class="form-group"><label>Comisión %</label><input type="number" id="ci-comision" value="16" oninput="ciRecalc()"></div>
     </div>
     <div id="ci-calc" style="font-size:12px;color:var(--gris-medio);background:var(--gris-claro);border-radius:8px;padding:8px 10px;margin-bottom:10px"></div>
@@ -1939,7 +1939,7 @@
     <div class="modal-handle"></div>
     <div class="modal-title">Marcar consignación recibida</div>
     <div id="rec-info" style="font-size:12px;color:var(--gris-medio);margin-bottom:10px"></div>
-    <div class="form-group"><label>Valor recibido</label><input type="number" id="rec-valor"></div>
+    <div class="form-group"><label>Valor recibido</label><input type="text" inputmode="numeric" id="rec-valor" onblur="this.value=this.value?NUM(pesos(this.value)):''"></div>
     <div class="form-group"><label>Fecha en que se recibió</label><input type="date" id="rec-fecha"></div>
     <div class="form-group"><label>Observaciones (opcional)</label><input type="text" id="rec-obs" placeholder="Opcional"></div>
     <div style="display:flex;gap:10px">
@@ -6871,7 +6871,7 @@ async function guardarDoc() {
   btn.disabled=false; btn.textContent=prev;
   if (error) { toast('Error al guardar el documento', 'err'); console.error(error); return; }
   // Si es un cierre contable con datos, registrar/actualizar la consignación
-  if (document.getElementById('doc-sub').value === CC_SUBCAT && (+document.getElementById('dc-brutas').value||0) > 0 && docId) {
+  if (document.getElementById('doc-sub').value === CC_SUBCAT && pesos(document.getElementById('dc-brutas').value) > 0 && docId) {
     await guardarCierreDesdeDoc(docId);
   } else {
     toast('✓ Documento guardado');
@@ -7022,6 +7022,7 @@ async function eliminarConsignacion(id) {
 // ─── CONTABILIDAD: CIERRES CONTABLES (consignaciones Feria del Brasier) ───
 let _cierres = [], _cierreEdit = null, _reciboId = null;
 const CC_SUBCAT = 'Cierre contable 26-25';
+const pesos = v => parseInt(String(v==null?'':v).replace(/[^\d]/g,''),10) || 0;   // "32.186.149" / "$32.186.149" → 32186149
 function fmtD(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function ccFechaCorta(d){ if(!d) return '—'; const [y,m,dd]=String(d).split('-').map(Number); return `${dd} ${MESES[(m||1)-1].slice(0,3).toLowerCase()} ${y}`; }
 function ccPeriodoTexto(desde, hasta){
@@ -7093,7 +7094,7 @@ async function verSoporteCierre(id){
 
 // ── Modal registrar / editar cierre ──
 function ciRecalc(){
-  const sinIva = +document.getElementById('ci-brutas').value || 0;
+  const sinIva = pesos(document.getElementById('ci-brutas').value);
   const pct = +document.getElementById('ci-comision').value || 0;
   const com = Math.round(sinIva*pct/100), neto = sinIva-com;
   document.getElementById('ci-calc').innerHTML = `Comisión (${pct}%): <strong style="color:var(--rojo)">-${COP(com)}</strong> &nbsp;·&nbsp; Neto a recibir: <strong>${COP(neto)}</strong>`;
@@ -7110,7 +7111,7 @@ function abrirModalCierre(id){
   if (c){
     document.getElementById('ci-desde').value = c.periodo_desde||'';
     document.getElementById('ci-hasta').value = c.periodo_hasta||'';
-    document.getElementById('ci-brutas').value = c.ventas_brutas_sin_iva||'';
+    document.getElementById('ci-brutas').value = c.ventas_brutas_sin_iva ? NUM(c.ventas_brutas_sin_iva) : '';
     document.getElementById('ci-comision').value = c.comision_pct||16;
     document.getElementById('ci-fecha-esp').value = c.fecha_esperada_consignacion||'';
     document.getElementById('ci-obs').value = c.observaciones||'';
@@ -7128,7 +7129,7 @@ function abrirModalCierre(id){
 }
 async function guardarCierre(){
   const desde=document.getElementById('ci-desde').value, hasta=document.getElementById('ci-hasta').value;
-  const sinIva=+document.getElementById('ci-brutas').value||0;
+  const sinIva=pesos(document.getElementById('ci-brutas').value);
   const pct=+document.getElementById('ci-comision').value||16;
   const fechaEsp=document.getElementById('ci-fecha-esp').value;
   if(!desde||!hasta||!fechaEsp||sinIva<=0){ toast('Completa período, ventas y fecha esperada','err'); return; }
@@ -7149,14 +7150,14 @@ function abrirRecibido(id){
   const c=_cierres.find(x=>x.id===id); if(!c) return;
   _reciboId=id;
   document.getElementById('rec-info').innerHTML = `${ccPeriodoTexto(c.periodo_desde,c.periodo_hasta)} · Neto esperado <strong>${COP(c.neto_a_recibir)}</strong>`;
-  document.getElementById('rec-valor').value = c.neto_a_recibir||'';
+  document.getElementById('rec-valor').value = c.neto_a_recibir ? NUM(c.neto_a_recibir) : '';
   document.getElementById('rec-fecha').value = new Date().toISOString().slice(0,10);
   document.getElementById('rec-obs').value = c.observaciones||'';
   document.getElementById('modal-recibido').classList.add('open');
 }
 async function guardarRecibido(){
   const c=_cierres.find(x=>x.id===_reciboId); if(!c) return;
-  const valor=+document.getElementById('rec-valor').value||0;
+  const valor=pesos(document.getElementById('rec-valor').value);
   const fecha=document.getElementById('rec-fecha').value;
   if(valor<=0||!fecha){ toast('Pon el valor recibido y la fecha','err'); return; }
   const estado = valor >= (c.neto_a_recibir||0) ? 'recibido' : 'parcial';
@@ -7181,7 +7182,7 @@ function toggleCierreExtra(){
   }
 }
 function dcRecalc(){
-  const sinIva=+document.getElementById('dc-brutas').value||0;
+  const sinIva=pesos(document.getElementById('dc-brutas').value);
   const pct=+document.getElementById('dc-comision').value||0;
   const com=Math.round(sinIva*pct/100), neto=sinIva-com;
   document.getElementById('dc-calc').innerHTML = `Comisión (${pct}%): <strong style="color:var(--rojo)">-${COP(com)}</strong> &nbsp;·&nbsp; Neto a recibir: <strong>${COP(neto)}</strong>`;
@@ -7193,14 +7194,14 @@ async function prefillCierreFromDoc(id){
   const c=data&&data[0]; if(!c) return;
   document.getElementById('dc-desde').value=c.periodo_desde||'';
   document.getElementById('dc-hasta').value=c.periodo_hasta||'';
-  document.getElementById('dc-brutas').value=c.ventas_brutas_sin_iva||'';
+  document.getElementById('dc-brutas').value=c.ventas_brutas_sin_iva?NUM(c.ventas_brutas_sin_iva):'';
   document.getElementById('dc-comision').value=c.comision_pct||16;
   document.getElementById('dc-fecha-esp').value=c.fecha_esperada_consignacion||'';
   dcRecalc();
 }
 async function guardarCierreDesdeDoc(docId){
   const desde=document.getElementById('dc-desde').value, hasta=document.getElementById('dc-hasta').value;
-  const sinIva=+document.getElementById('dc-brutas').value||0;
+  const sinIva=pesos(document.getElementById('dc-brutas').value);
   const pct=+document.getElementById('dc-comision').value||16;
   let fechaEsp=document.getElementById('dc-fecha-esp').value;
   if(!fechaEsp && hasta){ const d=new Date(hasta+'T00:00:00'); d.setDate(d.getDate()+30); fechaEsp=fmtD(d); }
