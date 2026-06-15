@@ -513,7 +513,7 @@
           <input type="text" id="costos-buscar" placeholder="Buscar referencia…" style="flex:1;min-width:160px;padding:10px 14px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:14px;font-family:inherit" oninput="renderCostos()">
           <span id="costos-resumen" style="font-size:11px;color:var(--gris-medio)"></span>
         </div>
-        <div style="padding:0 16px 12px;font-size:11px;color:var(--gris-medio)">Costo total = Materia prima + Producción + Comercial + Comisión 16%. Margen bruto = Precio venta − Costo total. Toca una referencia para editar sus insumos.</div>
+        <div style="padding:0 16px 12px;font-size:11px;color:var(--gris-medio)">Costo total = Materia prima + Producción + Comercial + Comisión 16% (sobre precio sin IVA). Utilidad = Precio sin IVA − Costo total. El IVA no es costo (se cobra y se declara). Toca una referencia para editar sus insumos.</div>
       </div>
       <div id="costos-list" class="section-card" style="border-radius:0 0 var(--radius) var(--radius)">
         <div class="loader"><div class="spinner"></div></div>
@@ -2849,11 +2849,11 @@ function margenReferencia(ref) {
   const c = _costos[ref];
   if (!c || !c.precio_venta) return null;
   const mp = (_insumos[ref]||[]).reduce((s,i)=>s+(i.valor||0),0);
-  const comision = comisionDe(c.precio_venta);
-  const iva = ivaDe(c.precio_venta);
-  const costoTotal = mp + (c.costo_produccion||0) + (c.costo_comercial||0) + comision + iva;
-  const margen = c.precio_venta - costoTotal;
-  return { precio:c.precio_venta, mp, comision, iva, costoTotal, margen, margenPct: c.precio_venta ? margen/c.precio_venta : 0 };
+  const sinIva = baseSinIva(c.precio_venta);
+  const comision = Math.round(sinIva * COMISION_RATE);   // comisión Feria sobre la base SIN IVA
+  const costoTotal = mp + (c.costo_produccion||0) + (c.costo_comercial||0) + comision;  // el IVA NO es costo (se cobra y se declara)
+  const margen = sinIva - costoTotal;   // utilidad operativa (igual que el detalle)
+  return { precio:c.precio_venta, sinIva, mp, comision, costoTotal, margen, margenPct: sinIva ? margen/sinIva : 0 };
 }
 
 // ─── COSTOS: PARÁMETROS DEL MES + RENTABILIDAD (cadena base sin IVA) ───
@@ -2995,11 +2995,11 @@ function renderCostos() {
           <div style="font-size:11px;color:var(--gris-medio);margin-top:2px"><span class="badge badge-rosa">${p.categoria||'—'}</span></div>
         </div>
         <div style="text-align:right;flex-shrink:0">
-          ${m ? `<div style="font-weight:700;font-size:14px;color:${col}">${Math.round(m.margenPct*100)}%</div><div style="font-size:11px;color:var(--gris-medio)">margen ${COP(m.margen)}</div>` : '<span class="badge badge-gray">sin costos</span>'}
+          ${m ? `<div style="font-weight:700;font-size:14px;color:${col}">${Math.round(m.margenPct*100)}%</div><div style="font-size:11px;color:var(--gris-medio)">utilidad ${COP(m.margen)}</div>` : '<span class="badge badge-gray">sin costos</span>'}
         </div>
       </div>
       ${m ? `<div style="display:flex;gap:14px;margin-top:8px;font-size:11px;color:var(--gris-medio);flex-wrap:wrap">
-        <span>Precio <strong style="color:var(--carbon)">${COP(m.precio)}</strong></span>
+        <span>Precio s/IVA <strong style="color:var(--carbon)">${COP(m.sinIva)}</strong></span>
         <span>MP <strong style="color:var(--carbon)">${COP(m.mp)}</strong></span>
         <span>Comisión 16% <strong style="color:var(--carbon)">${COP(m.comision)}</strong></span>
         <span>Costo total <strong style="color:var(--carbon)">${COP(m.costoTotal)}</strong></span>
