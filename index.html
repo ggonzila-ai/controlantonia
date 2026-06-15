@@ -6512,7 +6512,7 @@ const DOC_EXTS = ['pdf','jpg','jpeg','png','xlsx','xls'];
 // ── Carpetas de Soportes v2 (categoria = id de carpeta) ──
 const DOC_FOLDERS = [
   { id:'Feria del Brasier / Solo Kukos', color:'var(--brand)', estado:'feria',
-    subs:['Reporte de ventas 1-31','Reporte cierre contable 25-26','Liquidaciones y consignaciones','Contratos de concesión'] },
+    subs:['Cierre 1-31','Cierre contable 26-25','Liquidaciones y consignaciones','Contratos de concesión'] },
   { id:'Seguridad Social', color:'#3b82f6', estado:'ss',
     subs:['Planilla PILA mensual'] },
   { id:'Nómina', color:'#8b5cf6',
@@ -6637,7 +6637,7 @@ function renderDocCards(){
     let badge='';
     if (tipo==='mensual' && f.estado==='feria'){
       const subs = new Set(_docs.filter(d=>d.categoria===f.id && docPeriodo(d)===m1).map(d=>d.subcategoria));
-      const ok = subs.has('Reporte de ventas 1-31') && subs.has('Reporte cierre contable 25-26');
+      const ok = subs.has('Cierre 1-31') && subs.has('Cierre contable 26-25');
       badge = ok ? '<span class="badge badge-ok" style="font-size:10px">✓ Completo</span>' : '<span class="badge badge-warn" style="font-size:10px">⚠ Incompleto</span>';
     } else if (tipo==='mensual' && f.estado==='ss'){
       const ok = _docs.some(d=>d.categoria===f.id && docPeriodo(d)===m1 && d.subcategoria==='Planilla PILA mensual');
