@@ -1075,7 +1075,7 @@
     <div id="tab-content-cont-ingresos" style="display:none">
       <div class="metrics" id="cont-ing-kpis" style="margin-top:14px"></div>
       <div class="section-card">
-        <div class="section-header"><div class="section-title">Por almacén: ventas, comisión y neto</div><span style="font-size:11px;color:var(--gris-medio)">comisión 16% c/IVA</span></div>
+        <div class="section-header"><div class="section-title">Por almacén: ventas, comisión y neto</div><span style="font-size:11px;color:var(--gris-medio)">comisión 16% sobre base sin IVA</span></div>
         <div class="tabla-wrap"><table>
           <thead><tr><th>Almacén</th><th style="text-align:right">Ventas (c/IVA)</th><th style="text-align:right">Comisión 16%</th><th style="text-align:right">Neto</th></tr></thead>
           <tbody id="cont-ing-alm-tbody"><tr><td colspan="4"><div class="loader"><div class="spinner"></div></div></td></tr></tbody>
@@ -1115,7 +1115,7 @@
           </div>
           <div class="form-row">
             <div class="form-group"><label>Tipo</label><select id="g-tipo"><option value="fijo">Fijo</option><option value="variable">Variable</option><option value="extraordinario">Extraordinario (inversión puntual)</option></select></div>
-            <div class="form-group"><label>Valor (COP)</label><input type="number" id="g-valor" placeholder="0"></div>
+            <div class="form-group"><label>Valor (COP)</label><input type="text" inputmode="numeric" id="g-valor" placeholder="0" onblur="this.value=this.value?NUM(pesos(this.value)):''"></div>
           </div>
           <div class="form-group"><label>Descripción</label><input type="text" id="g-desc" placeholder="Ej: Arriendo local"></div>
           <div class="form-group"><label>Proveedor (opcional)</label><select id="g-proveedor" onchange="onProvSelect(this)"><option value="">— Sin proveedor —</option></select></div>
@@ -1332,7 +1332,7 @@
       </div>
 
       <div class="section-card">
-        <div class="section-header"><div class="section-title">🏬 Recaudo Feria del Brasier</div><span style="font-size:11px;color:var(--gris-medio)">venta − 16% = neto</span></div>
+        <div class="section-header"><div class="section-title">🏬 Recaudo Feria del Brasier</div><span style="font-size:11px;color:var(--gris-medio)">neto = venta − comisión (16% s/IVA)</span></div>
         <div style="padding:10px 16px;font-size:11px;color:var(--gris-medio)">Ventas <strong>generadas</strong> (cuándo se vendió) y su neto a recibir, con fecha estimada de recaudo (~30 días después del cierre).</div>
         <div class="tabla-wrap"><table>
           <thead><tr><th>Ventas de</th><th style="text-align:right">Venta bruta</th><th style="text-align:right">Comisión 16%</th><th style="text-align:right">Neto a recibir</th><th>Recaudo estimado</th></tr></thead>
@@ -1706,7 +1706,7 @@
     <div class="modal-title">Registrar consignación</div>
     <div class="form-group"><label>Fecha</label><input type="date" id="cons-fecha"></div>
     <div class="form-group"><label>Concepto</label><input type="text" id="cons-concepto" placeholder="Ej: Feria del Brasier, Solo Kukos, transferencia, etc."></div>
-    <div class="form-group"><label>Valor (COP)</label><input type="number" id="cons-valor" placeholder="0"></div>
+    <div class="form-group"><label>Valor (COP)</label><input type="text" inputmode="numeric" id="cons-valor" placeholder="0" onblur="this.value=this.value?NUM(pesos(this.value)):''"></div>
     <div class="form-group"><label>Observaciones</label><input type="text" id="cons-obs" placeholder="Opcional"></div>
     <div style="display:flex;gap:10px;margin-top:4px">
       <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-consignacion')">Cancelar</button>
@@ -1720,7 +1720,7 @@
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title" id="costos-modal-title">Costos de la referencia</div>
-    <div class="form-group"><label>Precio de venta al público (COP)</label><input type="number" id="costo-precio" placeholder="0" oninput="recalcCostos()"></div>
+    <div class="form-group"><label>Precio de venta al público (COP)</label><input type="text" inputmode="numeric" id="costo-precio" placeholder="0" oninput="recalcCostos()" onblur="this.value=this.value?NUM(pesos(this.value)):''"></div>
 
     <div style="font-size:12px;font-weight:600;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em;margin:6px 0 8px">Materia prima</div>
     <div id="costo-insumos"></div>
@@ -1819,8 +1819,8 @@
     <div style="border-top:1px solid var(--borde);padding-top:12px;margin-bottom:12px">
       <div style="font-size:12px;font-weight:700;color:var(--brand);margin-bottom:6px">Simulador de precio</div>
       <div class="form-row">
-        <div class="form-group"><label>Precio de venta (con IVA)</label><input type="number" id="sim-precio" placeholder="32900" oninput="recalcSimulador()"></div>
-        <div class="form-group"><label>Materia prima estimada/prenda</label><input type="number" id="sim-mp" placeholder="8854" oninput="recalcSimulador()"></div>
+        <div class="form-group"><label>Precio de venta (con IVA)</label><input type="text" inputmode="numeric" id="sim-precio" placeholder="32900" oninput="recalcSimulador()" onblur="this.value=this.value?NUM(pesos(this.value)):''"></div>
+        <div class="form-group"><label>Materia prima estimada/prenda</label><input type="text" inputmode="numeric" id="sim-mp" placeholder="8854" oninput="recalcSimulador()" onblur="this.value=this.value?NUM(pesos(this.value)):''"></div>
       </div>
       <div id="sim-resultado" style="margin-top:6px;font-size:13px;color:var(--gris-medio)">Ingresa precio y materia prima para evaluar.</div>
     </div>
@@ -1859,7 +1859,7 @@
     <div class="form-group"><label>Concepto</label><input type="text" id="gfijo-concepto" placeholder="Ej: Arriendo y servicios públicos"></div>
     <div class="form-row">
       <div class="form-group"><label>Categoría</label><select id="gfijo-categoria"></select></div>
-      <div class="form-group"><label>Valor mensual (COP)</label><input type="number" id="gfijo-valor" placeholder="0"></div>
+      <div class="form-group"><label>Valor mensual (COP)</label><input type="text" inputmode="numeric" id="gfijo-valor" placeholder="0" onblur="this.value=this.value?NUM(pesos(this.value)):''"></div>
     </div>
     <div class="form-group"><label>Desde (mes)</label><input type="month" id="gfijo-desde" value="2026-01"></div>
     <div class="form-group"><label>Observaciones</label><input type="text" id="gfijo-obs" placeholder="Opcional"></div>
@@ -1896,7 +1896,7 @@
       <div id="dc-calc" style="font-size:12px;color:var(--gris-medio);background:var(--gris-claro);border-radius:8px;padding:8px 10px;margin-bottom:8px"></div>
       <div class="form-group"><label>Fecha esperada de consignación</label><input type="date" id="dc-fecha-esp"></div>
     </div>
-    <div class="form-group"><label>Valor (opcional)</label><input type="number" id="doc-valor" placeholder="0"></div>
+    <div class="form-group"><label>Valor (opcional)</label><input type="text" inputmode="numeric" id="doc-valor" placeholder="0" onblur="this.value=this.value?NUM(pesos(this.value)):''"></div>
     <div class="form-group"><label>Descripción (opcional)</label><input type="text" id="doc-desc" placeholder="Opcional"></div>
     <div class="form-group"><label>Observaciones (opcional)</label><input type="text" id="doc-obs" placeholder="Opcional"></div>
     <div class="form-group"><label>Archivos (PDF, JPG, PNG, Excel) — puedes elegir varios</label>
@@ -2466,8 +2466,9 @@ async function cargarDash() {
   let nominaOper = (colabs || []).reduce((a, c) => a + ((c.activo !== false && c.tipo !== 'Socia') ? (c.salario || 0) : 0), 0);
   nominaOper += (temporal || []).reduce((a, t) => a + ((t.fecha_inicio || '').slice(0, 7) === periodoVista ? (t.valor_pagado || 0) : 0), 0);
   const recibidoCaja = (consPer || []).reduce((a, c) => a + (c.valor || 0), 0);
+  const comisionVtas = comisionDe(totalVentasCOP);   // comisión Feria (igual que Reportes y cierres)
   const egresos = totalGastos + nominaOper;
-  const utilidad = baseVtas - egresos;
+  const utilidad = baseVtas - comisionVtas - egresos;
   const margen = baseVtas > 0 ? Math.round(utilidad / baseVtas * 100) : 0;
 
   // Almacén líder y gasto por categoría
@@ -2917,7 +2918,7 @@ async function loadParametros() {
   _paramCargados = true;
 }
 function recalcSimulador() {
-  const precio = parseInt(_v('sim-precio'))||0, mp = parseInt(_v('sim-mp'))||0;
+  const precio = pesos(_v('sim-precio')), mp = pesos(_v('sim-mp'));
   const out = document.getElementById('sim-resultado'); if (!out) return;
   if (precio<=0) { out.textContent = 'Ingresa precio y materia prima para evaluar.'; return; }
   const sinIva = baseSinIva(precio), mb = sinIva - mp, com = Math.round(sinIva*COMISION_RATE), mpc = mb - com;
@@ -3020,7 +3021,7 @@ async function abrirModalCostos(ref) {
   if (!insumos.length) insumos = INSUMOS_DEFAULT.map(n=>({ nombre:n, precio_iva:0, consumo:1 })); // sembrar por defecto
   _costoEdit = { ref, insumos };
   document.getElementById('costos-modal-title').textContent = 'Costos · ' + ref;
-  document.getElementById('costo-precio').value = c.precio_venta || '';
+  document.getElementById('costo-precio').value = c.precio_venta ? NUM(c.precio_venta) : '';
   // Producción y comercial unit. = valores de Costos Mensuales (localStorage) o por referencia (solo lectura)
   document.getElementById('costo-produccion').value = costoProdPrenda(c);
   document.getElementById('costo-comercial').value = costoComPrenda(c);
@@ -3066,7 +3067,7 @@ function addInsumoRow() { syncInsumosDesdeDOM(); _costoEdit.insumos.push({ nombr
 function removeInsumoRow(idx) { syncInsumosDesdeDOM(); _costoEdit.insumos.splice(idx,1); renderInsumoRows(); recalcCostos(); }
 
 function recalcCostos() {
-  const precio = parseInt(document.getElementById('costo-precio').value)||0;
+  const precio = pesos(document.getElementById('costo-precio').value);
   const prod = parseInt(document.getElementById('costo-produccion').value)||0;
   const com = parseInt(document.getElementById('costo-comercial').value)||0;
   let mp = 0, mpIva = 0;
@@ -3112,7 +3113,7 @@ function recalcCostos() {
 async function guardarCostos() {
   syncInsumosDesdeDOM();
   const ref = _costoEdit.ref;
-  const precio_venta = parseInt(document.getElementById('costo-precio').value)||0;
+  const precio_venta = pesos(document.getElementById('costo-precio').value);
   const costo_produccion = parseInt(document.getElementById('costo-produccion').value)||0;
   const costo_comercial = parseInt(document.getElementById('costo-comercial').value)||0;
   const btn = document.getElementById('costo-btn'); btn.disabled=true; const prev=btn.textContent; btn.textContent='Guardando…';
@@ -5850,8 +5851,8 @@ function renderInsightsAlm(almId, ventMapPeriodo) {
 }
 
 // ─── CONTABILIDAD ─────────────────────────────
-const COMISION_RATE = 0.16;   // comisión centros comerciales (Feria del Brasier) sobre venta con IVA
-const comisionDe = totalConIva => Math.round((totalConIva || 0) * COMISION_RATE);
+const COMISION_RATE = 0.16;   // comisión Feria del Brasier sobre la BASE SIN IVA (base contraprestación)
+const comisionDe = totalConIva => Math.round(baseSinIva(totalConIva || 0) * COMISION_RATE);
 // 'Nómina' ya no es categoría de gasto: tiene su propio módulo (colaboradores + pagos).
 // 'Seguridad Social' es categoría independiente para análisis financiero.
 const CATEGORIAS_GASTO = ['Arriendo y servicios públicos','Cafetería','Gastos de Representación','Nómina y sueldos','Seguridad Social','Telas e insumos','Transporte','Maquinaria','Marketing y visual','Suscripciones','Impuesto','Otro'];
@@ -6002,7 +6003,7 @@ async function guardarGasto() {
   const desc = document.getElementById('g-desc').value.trim();
   const categoria = document.getElementById('g-categoria').value;
   const tipo = document.getElementById('g-tipo').value;
-  const valor = parseInt(document.getElementById('g-valor').value)||0;
+  const valor = pesos(document.getElementById('g-valor').value);
   const obs = document.getElementById('g-obs').value.trim();
   const provSel = document.getElementById('g-proveedor').value;
   const proveedor_id = (provSel && provSel !== '__nuevo__') ? provSel : null;
@@ -6092,14 +6093,14 @@ function abrirModalGastoFijo(id) {
   document.getElementById('gfijo-modal-title').textContent = g ? 'Editar gasto fijo' : 'Nuevo gasto fijo';
   document.getElementById('gfijo-concepto').value = g?.concepto || '';
   document.getElementById('gfijo-categoria').value = g?.categoria || 'Arriendo y servicios públicos';
-  document.getElementById('gfijo-valor').value = g?.valor || '';
+  document.getElementById('gfijo-valor').value = g?.valor ? NUM(g.valor) : '';
   document.getElementById('gfijo-desde').value = g?.desde_periodo || GFIJO_DESDE_DEF;
   document.getElementById('gfijo-obs').value = g?.observaciones || '';
   document.getElementById('modal-gasto-fijo').classList.add('open');
 }
 async function guardarGastoFijo() {
   const concepto = document.getElementById('gfijo-concepto').value.trim();
-  const valor = parseInt(document.getElementById('gfijo-valor').value)||0;
+  const valor = pesos(document.getElementById('gfijo-valor').value);
   if (!concepto || valor<=0) { toast('Escribe concepto y valor', 'err'); return; }
   const row = { concepto, categoria: document.getElementById('gfijo-categoria').value, valor, desde_periodo: document.getElementById('gfijo-desde').value || GFIJO_DESDE_DEF, observaciones: document.getElementById('gfijo-obs').value.trim()||null, activo:true };
   let error;
@@ -6813,7 +6814,7 @@ function abrirModalDoc(id) {
   document.getElementById('doc-nombre').value = d?.nombre || '';
   document.getElementById('doc-fecha').value = d?.fecha_documento || hoy();
   document.getElementById('doc-periodo').value = d ? (docPeriodo(d) || periodoSeleccionadoDocs()) : periodoSeleccionadoDocs();
-  document.getElementById('doc-valor').value = d?.valor || '';
+  document.getElementById('doc-valor').value = d?.valor ? NUM(d.valor) : '';
   document.getElementById('doc-desc').value = d?.descripcion || '';
   document.getElementById('doc-obs').value = d?.observaciones || '';
   _docFilesActuales = (d && Array.isArray(d.archivos)) ? d.archivos.slice() : [];
@@ -6862,7 +6863,7 @@ async function guardarDoc() {
     subcategoria: sub,
     fecha_documento: fecha,
     descripcion: document.getElementById('doc-desc').value.trim() || null,
-    valor: parseInt(document.getElementById('doc-valor').value) || null,
+    valor: (pesos(document.getElementById('doc-valor').value) || null),
     observaciones: document.getElementById('doc-obs').value.trim() || null,
     archivos,
     periodo
@@ -6998,7 +6999,7 @@ async function abrirModalConsignacion() {
 async function guardarConsignacion() {
   const fecha = document.getElementById('cons-fecha').value;
   const concepto = document.getElementById('cons-concepto').value.trim();
-  const valor = parseInt(document.getElementById('cons-valor').value)||0;
+  const valor = pesos(document.getElementById('cons-valor').value);
   const obs = document.getElementById('cons-obs').value.trim();
   if (!fecha || !concepto || valor<=0) { toast('Completa fecha, concepto y valor', 'err'); return; }
   const periodo = fecha.slice(0,7);
