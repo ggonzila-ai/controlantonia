@@ -2525,6 +2525,10 @@ async function cargarDash() {
   }
   if (recibidoCaja > 0) insConta.push({ tipo: 'info', icono: '💵', texto: `Recibido en caja ${mesNombre(periodoVista)}: ${COP(recibidoCaja)}`, accion: () => showPage('contabilidad') });
   if (egresos === 0 && recibidoCaja === 0) insConta.push({ tipo: 'info', icono: '💰', texto: `Sin gastos ni nómina registrados en ${mesNombre(periodoVista)}`, accion: () => showPage('contabilidad') });
+  // Alerta de posible doble conteo de nómina: gasto manual en "Nómina y sueldos" + nómina fija automática
+  const gastoNominaMes = (gastosUlt || []).filter(g => (g.categoria || '') === 'Nómina y sueldos').reduce((s, g) => s + (g.valor || 0), 0);
+  const nominaFijaAuto = (colabs || []).reduce((a, c) => a + ((c.activo !== false && c.tipo !== 'Socia') ? (c.salario || 0) : 0), 0);
+  if (gastoNominaMes > 0 && nominaFijaAuto > 0) insConta.push({ tipo: 'warn', icono: '⚠️', texto: `Posible doble conteo de nómina en ${mesNombre(periodoVista)}: ${COP(gastoNominaMes)} en gastos "Nómina y sueldos" + nómina fija automática ${COP(nominaFijaAuto)}. Los sueldos recurrentes ya se cuentan desde Colaboradores; usa esa categoría de gasto solo para extras.`, accion: () => showPage('contabilidad') });
 
   pintarDashInsights('dash-insights-bodega', insBodega);
   pintarDashInsights('dash-insights-ventas', insVentas);
