@@ -513,7 +513,7 @@
           <input type="text" id="costos-buscar" placeholder="Buscar referencia…" style="flex:1;min-width:160px;padding:10px 14px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:14px;font-family:inherit" oninput="renderCostos()">
           <span id="costos-resumen" style="font-size:11px;color:var(--gris-medio)"></span>
         </div>
-        <div style="padding:0 16px 12px;font-size:11px;color:var(--gris-medio)">Costo total = Materia prima + Producción + Comercial + Comisión 16% (sobre precio sin IVA). Utilidad = Precio sin IVA − Costo total. El IVA no es costo (se cobra y se declara). Toca una referencia para editar sus insumos.</div>
+        <div style="padding:0 16px 12px;font-size:11px;color:var(--gris-medio)">Costo total = Materia prima + Producción + Comercial + Comisión 16% (sobre precio sin IVA). Utilidad = Precio sin IVA − Costo total. El IVA no es costo (se cobra y se declara). Toca una referencia para editar sus insumos.<br><strong>Factor prod.:</strong> ajusta el costo de producción según el tiempo de cada prenda (×1 = promedio, ×2 = tarda el doble). Solo afecta producción, no el comercial. Clic en el "×" para editarlo. El comercial es plano para todas.</div>
       </div>
       <div id="costos-list" class="section-card" style="border-radius:0 0 var(--radius) var(--radius)">
         <div class="loader"><div class="spinner"></div></div>
@@ -2856,9 +2856,11 @@ function margenReferencia(ref) {
   const mp = (_insumos[ref]||[]).reduce((s,i)=>s+(i.valor||0),0);
   const sinIva = baseSinIva(c.precio_venta);
   const comision = Math.round(sinIva * COMISION_RATE);   // comisión Feria sobre la base SIN IVA
-  const costoTotal = mp + (c.costo_produccion||0) + (c.costo_comercial||0) + comision;  // el IVA NO es costo (se cobra y se declara)
+  const factorProd = (c.factor_produccion!=null) ? c.factor_produccion : 1;
+  const cProd = Math.round((c.costo_produccion||0) * factorProd);   // producción ajustada por el factor de la prenda
+  const costoTotal = mp + cProd + (c.costo_comercial||0) + comision;  // el IVA NO es costo (se cobra y se declara); el comercial NO lleva factor
   const margen = sinIva - costoTotal;   // utilidad operativa (igual que el detalle)
-  return { precio:c.precio_venta, sinIva, mp, comision, costoTotal, margen, margenPct: sinIva ? margen/sinIva : 0 };
+  return { precio:c.precio_venta, sinIva, mp, comision, factorProd, cProd, cCom:(c.costo_comercial||0), costoTotal, margen, margenPct: sinIva ? margen/sinIva : 0 };
 }
 
 // ─── COSTOS: PARÁMETROS DEL MES + RENTABILIDAD (cadena base sin IVA) ───
@@ -2941,11 +2943,12 @@ function analisisRef(ref) {
   const margenBruto = precioSinIva - mp;
   const comision = Math.round(precioSinIva * COMISION_RATE);
   const margenPostCom = margenBruto - comision;
-  const cProd = costoProdPrenda(c);
+  const factorProd = (c.factor_produccion!=null) ? c.factor_produccion : 1;
+  const cProd = Math.round(costoProdPrenda(c) * factorProd);   // producción ajustada por factor de la prenda
   const cCom = costoComPrenda(c);
   const utilidad = margenPostCom - cProd - cCom;
   const pct = x => precioSinIva>0 ? +(x/precioSinIva*100).toFixed(1) : 0;
-  return { precioConIva:c.precio_venta, precioSinIva, mp, margenBruto, comision, margenPostCom, cProd, cCom, utilidad,
+  return { precioConIva:c.precio_venta, precioSinIva, mp, margenBruto, comision, margenPostCom, factorProd, cProd, cCom, utilidad,
     mpPct:pct(mp), margenBrutoPct:pct(margenBruto), comisionPct:pct(comision), margenPostComPct:pct(margenPostCom), cProdPct:pct(cProd), cComPct:pct(cCom), utilidadPct:pct(utilidad) };
 }
 function semaforoUtil(pct) {
@@ -3008,9 +3011,29 @@ function renderCostos() {
         <span>MP <strong style="color:var(--carbon)">${COP(m.mp)}</strong></span>
         <span>Comisión 16% <strong style="color:var(--carbon)">${COP(m.comision)}</strong></span>
         <span>Costo total <strong style="color:var(--carbon)">${COP(m.costoTotal)}</strong></span>
+        <span title="Factor de producción — clic para editar">Factor <span onclick="event.stopPropagation();editarFactor(event,'${p.referencia.replace(/'/g,"\\'")}')" style="cursor:pointer;font-weight:700;color:${factorColorDe(m.factorProd)}">×${m.factorProd}</span> <span style="color:var(--gris-medio)">prod. ${COP(m.cProd)}</span></span>
       </div>` : '<div style="margin-top:6px;font-size:11px;color:var(--gris-medio)">Toca para definir precio y costos.</div>'}
     </div>`;
   }).join('') || '<div class="empty"><p>Sin referencias.</p></div>';
+}
+function factorColorDe(f){ f=+f||1; return f>2?'var(--rojo)':f>1.2?'#f97316':f<0.8?'var(--verde)':'var(--gris-medio)'; }
+function editarFactor(ev, ref){
+  const span = ev.currentTarget;
+  const cur = (_costos[ref] && _costos[ref].factor_produccion!=null) ? _costos[ref].factor_produccion : 1;
+  const inp = document.createElement('input');
+  inp.type='number'; inp.step='0.05'; inp.min='0.1'; inp.max='5.0'; inp.value=cur;
+  inp.style.cssText='width:60px;padding:2px 4px;border:1.5px solid var(--brand);border-radius:6px;font-size:12px;text-align:right';
+  inp.onclick=e=>e.stopPropagation();
+  inp.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); inp.blur(); } if(e.key==='Escape'){ inp.value=cur; inp.blur(); } };
+  inp.onblur=()=>guardarFactor(ref, inp.value);
+  span.replaceWith(inp); inp.focus(); inp.select();
+}
+async function guardarFactor(ref, val){
+  let f = parseFloat(val); if(isNaN(f)||f<=0) f=1; f=Math.min(5, Math.max(0.1, Math.round(f*100)/100));
+  const { error } = await sb.from('referencia_costos').update({ factor_produccion:f }).eq('referencia', ref);
+  if (error){ toast('No se pudo guardar el factor: '+detalleError(error),'err'); console.error(error); renderCostos(); return; }
+  if (_costos[ref]) _costos[ref].factor_produccion = f;
+  toast('✓ Factor actualizado'); renderCostos();
 }
 
 async function abrirModalCostos(ref) {
@@ -3090,7 +3113,8 @@ function recalcCostos() {
   const _ca = document.getElementById('costo-analisis');
   if (_ca && !esVendedora()) {
     const sIva = baseSinIva(precio), mb = sIva - mp, cmSi = Math.round(sIva*COMISION_RATE), mpc = mb - cmSi;
-    const cP = prod || _paramProdPrenda, cC = com || _paramComPrenda, util = mpc - cP - cC;
+    const factorProd = (_costoEdit && _costos[_costoEdit.ref] && _costos[_costoEdit.ref].factor_produccion!=null) ? _costos[_costoEdit.ref].factor_produccion : 1;
+    const cP = Math.round((prod || _paramProdPrenda) * factorProd), cC = com || _paramComPrenda, util = mpc - cP - cC;
     const uPct = sIva>0 ? util/sIva*100 : 0, sem = semaforoUtil(uPct), pp = x => sIva>0 ? (x/sIva*100).toFixed(1) : '0';
     _ca.innerHTML = precio>0 ? `
       <div style="font-size:12px;font-weight:700;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em;margin:2px 0 8px">Análisis de rentabilidad</div>
@@ -3106,7 +3130,7 @@ function recalcCostos() {
         <tr><td><strong>= Margen bruto</strong></td><td style="text-align:right"><strong>${COP(mb)}</strong></td><td style="text-align:right">${pp(mb)}%</td></tr>
         <tr style="color:var(--gris-medio)"><td>− Comisión Feria 16%</td><td style="text-align:right">(${COP(cmSi)})</td><td style="text-align:right">${pp(cmSi)}%</td></tr>
         <tr><td><strong>= Margen post-comisión</strong></td><td style="text-align:right"><strong>${COP(mpc)}</strong></td><td style="text-align:right">${pp(mpc)}%</td></tr>
-        <tr style="color:var(--gris-medio)"><td>− Costo producción</td><td style="text-align:right">(${COP(cP)})</td><td style="text-align:right">${pp(cP)}%</td></tr>
+        <tr style="color:var(--gris-medio)"><td>− Costo producción${factorProd!==1?` <span style="font-size:10px;color:var(--brand-dark)">×${factorProd}</span>`:''}</td><td style="text-align:right">(${COP(cP)})</td><td style="text-align:right">${pp(cP)}%</td></tr>
         <tr style="color:var(--gris-medio)"><td>− Costo comercial</td><td style="text-align:right">(${COP(cC)})</td><td style="text-align:right">${pp(cC)}%</td></tr>
         <tr style="border-top:2px solid var(--borde)"><td><strong>= UTILIDAD OPERATIVA</strong></td><td style="text-align:right"><strong style="color:${util>=0?'var(--verde)':'var(--rojo)'}">${COP(util)}</strong></td><td style="text-align:right;font-weight:700">${pp(util)}%</td></tr>
       </tbody></table></div>
