@@ -1313,7 +1313,7 @@
       </div>
 
       <div class="section-card">
-        <div class="section-header"><div class="section-title">Resultado por período</div><span style="font-size:11px;color:var(--gris-medio)">base − comisión − gastos − nómina</span></div>
+        <div class="section-header"><div class="section-title">Resultado real por período</div><span style="font-size:11px;color:var(--gris-medio)">real: base − comisión − gastos − nómina del mes</span></div>
         <div class="tabla-wrap"><table>
           <thead><tr><th>Período</th><th style="text-align:right">Ingresos</th><th style="text-align:right">Comisión</th><th style="text-align:right">Gastos</th><th style="text-align:right">Nómina</th><th style="text-align:right">Util. neta</th><th style="text-align:right">Margen</th></tr></thead>
           <tbody id="cont-rep-tbody"><tr><td colspan="7"><div class="loader"><div class="spinner"></div></div></td></tr></tbody>
@@ -5544,7 +5544,7 @@ async function cargarVentasPorAlmacen() {
 
   document.getElementById('vpa-kpis').innerHTML = `
     <div class="metric-card accent"><div class="m-label">Ventas · ${_vpaCtx.ambito}</div><div class="m-val">${COP(totVal)}</div><div class="m-sub">${NUM(_vpaCtx.totUds)} uds · ${_vpaCtx.periodoLbl}</div></div>
-    <div class="metric-card"><div class="m-label">Utilidad estimada</div><div class="m-val">${COP(_vpaCtx.totUtil)}</div><div class="m-sub">margen × uds${_vpaCtx.sinCostos?` · ${_vpaCtx.sinCostos} ref. sin costos`:''}</div></div>
+    <div class="metric-card"><div class="m-label">Utilidad estimada (estándar)</div><div class="m-val">${COP(_vpaCtx.totUtil)}</div><div class="m-sub">margen operativo × uds · costo fijo estándar/prenda${_vpaCtx.sinCostos?` · ${_vpaCtx.sinCostos} ref. sin costos`:''}</div></div>
     <div class="metric-card"><div class="m-label">Vendido con descuento</div><div class="m-val">${COP(_vpaCtx.totValD)}</div><div class="m-sub">${NUM(_vpaCtx.totUdsD)} uds${totVal?` · ${Math.round(_vpaCtx.totValD/totVal*100)}%`:''}</div></div>
     <div class="metric-card"><div class="m-label">% sobre ventas totales</div><div class="m-val">${Math.round(totVal/totalCia*100)}%</div><div class="m-sub">de la compañía</div></div>`;
 
