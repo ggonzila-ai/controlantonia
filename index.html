@@ -3303,24 +3303,29 @@ function entradaRecalc(){
   const btn=g('ent-btn'); if(btn) btn.disabled = tEntra<=0;
 }
 async function guardarEntrada(){
-  const ref=_entradaRef; if(!ref) return;
-  const p = bodegaData.find(x=>x.referencia===ref); if(!p) return;
+  const ref = _entradaRef || (document.getElementById('ent-ref') && document.getElementById('ent-ref').value) || '';
+  if(!ref){ toast('Selecciona una referencia','err'); return; }
   const entradas={}; let total=0;
   document.querySelectorAll('#modal-entrada .ent-input').forEach(inp=>{ const e=Math.max(0,parseInt(inp.value)||0); if(e>0){ entradas[inp.dataset.talla]=e; total+=e; } });
   if(total<=0){ toast('Ingresa al menos 1 unidad','err'); return; }
   const fecha=document.getElementById('ent-fecha').value||hoy();
   const obs=document.getElementById('ent-obs').value.trim()||null;
   const btn=document.getElementById('ent-btn'); btn.disabled=true; const prev=btn.textContent; btn.textContent='Guardando…';
-  const nuevoSPT = { ...(p.stock_por_talla||{}) };
-  Object.entries(entradas).forEach(([t,c])=>{ nuevoSPT[t]=(nuevoSPT[t]||0)+c; });
+  const fin=()=>{ btn.disabled=false; btn.textContent=prev; };
+  // Leer el stock actual FRESCO desde la base (evita datos viejos en memoria) y actualizar por id.
+  const { data: cur, error: e0 } = await sb.from('bodega').select('id, stock_por_talla').eq('referencia', ref).maybeSingle();
+  if(e0){ fin(); toast('No se pudo leer la referencia: '+detalleError(e0),'err'); console.error('guardarEntrada select', e0, ref); return; }
+  if(!cur){ fin(); toast('No se encontró "'+ref+'" en bodega. Recarga la página e intenta de nuevo.','err'); console.error('guardarEntrada: referencia no encontrada', ref); return; }
+  const nuevoSPT = { ...(cur.stock_por_talla||{}) };
+  Object.entries(entradas).forEach(([t,c])=>{ nuevoSPT[t]=(+nuevoSPT[t]||0)+c; });
   const nuevoTotal = Object.values(nuevoSPT).reduce((s,v)=>s+(+v||0),0);
-  const { error: e1 } = await sb.from('bodega').update({ stock:nuevoTotal, stock_por_talla:nuevoSPT }).eq('referencia',ref);
-  if(e1){ btn.disabled=false; btn.textContent=prev;
+  const { error: e1 } = await sb.from('bodega').update({ stock:nuevoTotal, stock_por_talla:nuevoSPT }).eq('id', cur.id);
+  if(e1){ fin();
     const msg = /stock_por_talla|column/i.test(e1.message||'') ? 'Falta crear la columna stock_por_talla en Supabase (corre el SQL que te pasé).' : detalleError(e1);
     toast('No se pudo actualizar el stock: '+msg,'err'); console.error(e1); return; }
   const { error: e2 } = await sb.from('entradas_bodega').insert({ referencia:ref, fecha, detalle_tallas:entradas, total_unidades:total, observaciones:obs });
   if(e2) console.warn('entradas_bodega no disponible:', e2.message);
-  btn.disabled=false; btn.textContent=prev;
+  fin();
   toast(`✓ Entrada registrada: +${NUM(total)} uds`);
   cerrarModal('modal-entrada');
   await cargarBodega();
