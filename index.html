@@ -1468,31 +1468,37 @@
       <label>Nombre de la referencia</label>
       <input type="text" id="p-ref" placeholder="Ej: JOGGER">
     </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Categoría</label>
-        <select id="p-cat"></select>
-      </div>
-      <div class="form-group">
-        <label>Costo x unidad (COP)</label>
-        <input type="number" id="p-costo" placeholder="22000">
-      </div>
+    <div class="form-group">
+      <label>Categoría</label>
+      <select id="p-cat"></select>
     </div>
     <div class="form-group">
       <label>Tallas (separadas por coma)</label>
       <input type="text" id="p-tallas" placeholder="S, M, L, XL, 2XL">
     </div>
-    <div class="form-group">
-      <label>Stock en bodega (unidades)</label>
-      <input type="number" id="p-stock" placeholder="0" min="0">
-      <div style="font-size:10px;color:var(--gris-medio);margin-top:2px">Ajuste directo del inventario de bodega. No crea corte ni movimiento.</div>
-    </div>
+    <div style="font-size:10px;color:var(--gris-medio);margin:-4px 0 8px">El stock por talla se registra con "+ Entrada" en cada referencia. El costo va en Costos / Rentabilidad.</div>
     <div style="display:flex;gap:10px;margin-top:4px">
       <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-producto')">Cancelar</button>
       <button class="btn btn-primary" style="flex:2" onclick="guardarProducto()">Guardar</button>
     </div>
     <div id="p-del-wrap" style="display:none;margin-top:10px">
       <button class="btn btn-danger btn-full" onclick="eliminarProducto()">Eliminar producto</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL REGISTRAR ENTRADA A BODEGA -->
+<div class="modal-overlay" id="modal-entrada">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="ent-title">Registrar entrada</div>
+    <div id="ent-badge" style="margin:-8px 0 10px"></div>
+    <div class="form-group"><label>📅 Fecha de entrada</label><input type="date" id="ent-fecha"></div>
+    <div id="ent-tabla-wrap"></div>
+    <div class="form-group" style="margin-top:8px"><label>Observaciones (opcional)</label><input type="text" id="ent-obs" placeholder="Ej: Producción semana 24, tela nueva…"></div>
+    <div style="display:flex;gap:10px;margin-top:6px">
+      <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-entrada')">Cancelar</button>
+      <button class="btn btn-primary" style="flex:2" id="ent-btn" onclick="guardarEntrada()" disabled title="Ingresa al menos 1 unidad para registrar">Registrar entrada →</button>
     </div>
   </div>
 </div>
@@ -2737,8 +2743,10 @@ async function cargarBodega() {
 }
 
 function chipTallas(ref) {
-  const t = tallasDe(ref);
-  const tallasDef = parseTallas((bodegaData.find(p => p.referencia === ref) || {}).tallas);
+  const prod = bodegaData.find(p => p.referencia === ref) || {};
+  const spt = prod.stock_por_talla;
+  const t = (spt && Object.keys(spt).length) ? spt : tallasDe(ref);
+  const tallasDef = parseTallas(prod.tallas);
   const claves = ordenarTallas([...new Set([...tallasDef, ...Object.keys(t)])]);
   if (!claves.length) return '<span style="font-size:12px;color:var(--gris-medio)">Sin tallas definidas</span>';
   return claves.map(k => {
@@ -2755,7 +2763,7 @@ async function renderBodega(items) {
     const est = p.stock === 0 ? ['badge-err','Sin stock'] : p.stock <= min ? ['badge-warn','⚠️ Bajo'] : ['badge-ok','✓ OK'];
     const rowStyle = p.stock <= min ? 'background:var(--rosa-suave)' : '';
     return `<tr style="${rowStyle}">
-      <td><strong>${p.referencia}</strong></td>
+      <td><strong>${p.referencia}</strong>${alertaTalla(p)}</td>
       <td><span class="badge badge-rosa">${p.categoria}</span></td>
       <td style="max-width:240px">${chipTallas(p.referencia)}</td>
       <td style="text-align:right;font-weight:700">${NUM(p.stock)}</td>
@@ -2818,7 +2826,10 @@ function renderCatalogo() {
           <div style="font-weight:700;font-size:14px">${p.referencia}</div>
           <div style="font-size:11px;color:var(--gris-medio);margin-top:2px"><span class="badge badge-rosa">${p.categoria}</span></div>
         </div>
-        <button onclick="abrirModalProducto('${p.id}')" style="flex-shrink:0;background:none;border:1px solid var(--borde);border-radius:var(--radius-sm);color:var(--gris-medio);font-size:12px;padding:5px 10px;cursor:pointer">Editar</button>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button onclick="abrirEntradaBodega('${p.referencia.replace(/'/g,"\\'")}')" style="background:var(--verde);color:#fff;border:none;border-radius:var(--radius-sm);font-size:12px;font-weight:700;padding:5px 10px;cursor:pointer">+ Entrada</button>
+          <button onclick="abrirModalProducto('${p.id}')" style="background:none;border:1px solid var(--borde);border-radius:var(--radius-sm);color:var(--gris-medio);font-size:12px;padding:5px 10px;cursor:pointer">Editar</button>
+        </div>
       </div>
       <div style="margin-top:8px;font-size:11px;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Tallas</div>
       <div style="margin-top:3px">${tallasDef.length ? tallasDef.map(t => `<span class="badge badge-gray" style="margin:2px 3px 2px 0">${t}</span>`).join('') : '<span style="font-size:12px;color:var(--gris-medio)">— sin definir —</span>'}</div>
@@ -3237,8 +3248,6 @@ function abrirModalProducto(id) {
   document.getElementById('p-ref').value = p?.referencia || '';
   document.getElementById('p-cat').innerHTML = CATEGORIAS.map(c => `<option ${p?.categoria===c?'selected':''}>${c}</option>`).join('');
   document.getElementById('p-tallas').value = p?.tallas || '';
-  document.getElementById('p-costo').value = p?.costo || '';
-  document.getElementById('p-stock').value = (p && p.stock!=null) ? p.stock : '';
   document.getElementById('p-del-wrap').style.display = p ? 'block' : 'none';
   document.getElementById('modal-producto').classList.add('open');
 }
@@ -3246,20 +3255,18 @@ async function guardarProducto() {
   const referencia = (document.getElementById('p-ref').value || '').trim();
   const categoria = document.getElementById('p-cat').value;
   const tallas = (document.getElementById('p-tallas').value || '').trim();
-  const costo = parseInt(document.getElementById('p-costo').value) || 0;
-  const stock = Math.max(0, parseInt(document.getElementById('p-stock').value) || 0);
   if (!referencia) { toast('Escribe el nombre de la referencia', 'err'); return; }
   let error;
   if (_prodEditId) {
     const prev = bodegaData.find(x => x.id === _prodEditId);
-    ({ error } = await sb.from('bodega').update({ referencia, categoria, tallas, costo, stock }).eq('id', _prodEditId));
+    ({ error } = await sb.from('bodega').update({ referencia, categoria, tallas }).eq('id', _prodEditId));
     // si cambió el nombre, reasignar códigos y tallas
     if (!error && prev && prev.referencia !== referencia) {
       await sb.from('codigos_sku').update({ referencia }).eq('referencia', prev.referencia);
       await sb.from('bodega_tallas').update({ referencia }).eq('referencia', prev.referencia);
     }
   } else {
-    ({ error } = await sb.from('bodega').insert({ referencia, categoria, tallas, costo, stock }));
+    ({ error } = await sb.from('bodega').insert({ referencia, categoria, tallas, stock: 0 }));
   }
   if (error) { toast('Error al guardar producto', 'err'); return; }
   cerrarModal('modal-producto');
@@ -3277,6 +3284,83 @@ async function eliminarProducto() {
   cerrarModal('modal-producto');
   toast(`✓ ${p.referencia} eliminado`);
   await cargarBodega(); renderCatalogo();
+}
+
+// ─── ENTRADA A BODEGA (stock por talla) ───
+let _entradaRef = null;
+function alertaTalla(p){
+  const spt = p.stock_por_talla || {}; const keys = Object.keys(spt).filter(k=>spt[k]!=null);
+  if(!keys.length) return '';
+  if(!keys.some(k=>spt[k]>0)) return '';
+  const cero = ordenarTallas(keys.filter(k=>!spt[k]));
+  return cero.length ? `<span class="badge badge-err" style="font-size:9px;margin-left:6px">⚠ Sin talla ${cero.join(', ')}</span>` : '';
+}
+function abrirEntradaBodega(ref){
+  const p = bodegaData.find(x=>x.referencia===ref); if(!p) return;
+  _entradaRef = ref;
+  document.getElementById('ent-title').textContent = 'Registrar entrada — ' + ref;
+  document.getElementById('ent-badge').innerHTML = `<span class="badge badge-rosa">${p.categoria||'—'}</span>`;
+  document.getElementById('ent-fecha').value = hoy();
+  document.getElementById('ent-obs').value = '';
+  const tallas = parseTallas(p.tallas);
+  const wrap = document.getElementById('ent-tabla-wrap');
+  if(!tallas.length){
+    wrap.innerHTML = '<div class="alert alert-warn" style="margin:0">Define las tallas del producto primero (botón Editar).</div>';
+    document.getElementById('ent-btn').disabled = true;
+    document.getElementById('modal-entrada').classList.add('open'); return;
+  }
+  const spt = p.stock_por_talla || {};
+  const filas = tallas.map(t=>{
+    const actual = spt[t] || 0;
+    return `<tr>
+      <td style="font-weight:600">${t}</td>
+      <td style="text-align:right;color:var(--gris-medio)">${NUM(actual)}</td>
+      <td style="text-align:right"><input type="number" inputmode="numeric" min="0" placeholder="0" data-talla="${t}" data-actual="${actual}" oninput="entradaRecalc()" class="ent-input" style="width:74px;height:44px;padding:6px;border:1.5px solid var(--borde);border-radius:8px;text-align:right;font-size:15px"></td>
+      <td style="text-align:right;font-weight:700" class="ent-nuevo" data-t="${t}">${NUM(actual)}</td>
+    </tr>`;
+  }).join('');
+  wrap.innerHTML = `<div class="tabla-wrap"><table style="font-size:13px"><thead><tr><th>Talla</th><th style="text-align:right">Stock actual</th><th style="text-align:right">Ingresan</th><th style="text-align:right">Nuevo total</th></tr></thead>
+    <tbody>${filas}</tbody>
+    <tfoot><tr style="border-top:2px solid var(--borde);font-weight:700"><td>TOTAL</td><td style="text-align:right" id="ent-tot-actual">0</td><td style="text-align:right;color:var(--verde)" id="ent-tot-entra">+0</td><td style="text-align:right" id="ent-tot-nuevo">0</td></tr></tfoot></table></div>`;
+  entradaRecalc();
+  document.getElementById('modal-entrada').classList.add('open');
+}
+function entradaRecalc(){
+  let tActual=0,tEntra=0,tNuevo=0;
+  document.querySelectorAll('#modal-entrada .ent-input').forEach(inp=>{
+    const actual=+inp.dataset.actual||0, entra=Math.max(0,parseInt(inp.value)||0), nuevo=actual+entra;
+    const cell=document.querySelector(`#modal-entrada .ent-nuevo[data-t="${inp.dataset.talla}"]`);
+    if(cell){ cell.textContent=NUM(nuevo); cell.style.color = entra>0?'var(--verde)':'var(--carbon)'; }
+    tActual+=actual; tEntra+=entra; tNuevo+=nuevo;
+  });
+  const g=id=>document.getElementById(id);
+  if(g('ent-tot-actual')) g('ent-tot-actual').textContent=NUM(tActual);
+  if(g('ent-tot-entra')) g('ent-tot-entra').textContent='+'+NUM(tEntra);
+  if(g('ent-tot-nuevo')) g('ent-tot-nuevo').textContent=NUM(tNuevo);
+  const btn=g('ent-btn'); if(btn) btn.disabled = tEntra<=0;
+}
+async function guardarEntrada(){
+  const ref=_entradaRef; if(!ref) return;
+  const p = bodegaData.find(x=>x.referencia===ref); if(!p) return;
+  const entradas={}; let total=0;
+  document.querySelectorAll('#modal-entrada .ent-input').forEach(inp=>{ const e=Math.max(0,parseInt(inp.value)||0); if(e>0){ entradas[inp.dataset.talla]=e; total+=e; } });
+  if(total<=0){ toast('Ingresa al menos 1 unidad','err'); return; }
+  const fecha=document.getElementById('ent-fecha').value||hoy();
+  const obs=document.getElementById('ent-obs').value.trim()||null;
+  const btn=document.getElementById('ent-btn'); btn.disabled=true; const prev=btn.textContent; btn.textContent='Guardando…';
+  const nuevoSPT = { ...(p.stock_por_talla||{}) };
+  Object.entries(entradas).forEach(([t,c])=>{ nuevoSPT[t]=(nuevoSPT[t]||0)+c; });
+  const nuevoTotal = Object.values(nuevoSPT).reduce((s,v)=>s+(+v||0),0);
+  const { error: e1 } = await sb.from('bodega').update({ stock:nuevoTotal, stock_por_talla:nuevoSPT }).eq('referencia',ref);
+  if(e1){ btn.disabled=false; btn.textContent=prev;
+    const msg = /stock_por_talla|column/i.test(e1.message||'') ? 'Falta crear la columna stock_por_talla en Supabase (corre el SQL que te pasé).' : detalleError(e1);
+    toast('No se pudo actualizar el stock: '+msg,'err'); console.error(e1); return; }
+  const { error: e2 } = await sb.from('entradas_bodega').insert({ referencia:ref, fecha, detalle_tallas:entradas, total_unidades:total, observaciones:obs });
+  if(e2) console.warn('entradas_bodega no disponible:', e2.message);
+  btn.disabled=false; btn.textContent=prev;
+  toast(`✓ Entrada registrada: +${NUM(total)} uds`);
+  cerrarModal('modal-entrada');
+  await cargarBodega();
 }
 
 // ─── ENTRADA DE PRODUCCIÓN (por talla) ────────
