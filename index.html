@@ -7372,6 +7372,77 @@ async function vfHistorial(){
   document.getElementById('modal-vf').classList.add('open');
 }
 
+// ─── UTILIDAD 2026 real (para el panel de equilibrio) ───
+let _be2026 = null;
+async function cargarVentasReales2026(){
+  const porMes = {};
+  // 1) reportes de Feria (activos)
+  try {
+    const { data } = await sb.from('ventas_feria_detalle')
+      .select('fecha,cantidad,valor_sin_iva,reportes_ventas_feria!inner(estado)')
+      .eq('reportes_ventas_feria.estado','activo').gte('fecha','2026-01-01').lte('fecha','2026-12-31').limit(20000);
+    (data||[]).forEach(r=>{ const m=String(r.fecha).slice(0,7); const o=porMes[m]=porMes[m]||{u:0,v:0,ult:r.fecha}; o.u+=r.cantidad||0; o.v+=r.valor_sin_iva||0; if(r.fecha>o.ult)o.ult=r.fecha; });
+  } catch(e){}
+  // 2) tabla ventas (histórico) para meses no cubiertos por Feria
+  try {
+    const v = await selectAll('ventas','cantidad,precio_unitario,fecha,periodo', q=>q.gte('periodo','2026-01').lte('periodo','2026-12'));
+    const tmp={};
+    (v||[]).forEach(x=>{ const m=x.periodo||String(x.fecha||'').slice(0,7); if(!m) return; const o=tmp[m]=tmp[m]||{u:0,vcon:0,ult:x.fecha||m+'-28'}; o.u+=x.cantidad||0; o.vcon+=(x.cantidad||0)*(x.precio_unitario||0); if((x.fecha||'')>o.ult)o.ult=x.fecha; });
+    Object.entries(tmp).forEach(([m,o])=>{ if(!porMes[m]) porMes[m]={u:o.u, v:baseSinIva(o.vcon), ult:o.ult}; });
+  } catch(e){}
+  _be2026=porMes; return porMes;
+}
+function renderUtilidad2026(fijos, mcPct, mcUnit, beUnid){
+  const cont=document.getElementById('be-real'); if(!cont) return;
+  const data=_be2026||{}; const meses=Object.keys(data).sort();
+  if(!meses.length){
+    cont.innerHTML=`<div class="section-card" style="margin-bottom:14px"><div style="font-size:13px;font-weight:700;margin-bottom:4px">UTILIDAD 2026 — Resultados reales</div><div style="font-size:12px;color:var(--gris-medio)">📊 Sin ventas registradas aún. Importa el reporte de Feria del Brasier (Ventas → 📊 Reportes Feria) para ver los resultados reales.</div></div>`; return;
+  }
+  const esCompleto=(m,d)=>{ const dh=parseInt(String(d.ult).slice(8,10))||0; const [y,mo]=m.split('-').map(Number); const dm=new Date(y,mo,0).getDate(); return dh>=dm-2; };
+  let acc=0, nComp=0;
+  const filas=meses.map(m=>{
+    const d=data[m]; const mcGen=Math.round(d.v*mcPct); const res=mcGen-fijos; const comp=esCompleto(m,d);
+    if(comp){ acc+=res; nComp++; }
+    const col=res>=0?'var(--verde)':'var(--rojo)';
+    return `<tr style="${comp?'':'background:var(--brand-light,#e6f7fb)'}">
+      <td><strong>${mesNombre(m)}</strong>${comp?'':` <span class="badge badge-info" style="font-size:9px">⚡ parcial</span><div style="font-size:10px;color:var(--gris-medio)">hasta ${_fechaLargaVF(d.ult)}</div>`}</td>
+      <td style="text-align:right">${NUM(d.u)}</td>
+      <td style="text-align:right">${COP(d.v)}</td>
+      <td style="text-align:right">${COP(mcGen)}</td>
+      <td style="text-align:right;color:var(--gris-medio)">${COP(fijos)}</td>
+      <td style="text-align:right;font-weight:700;color:${col}">${res>=0?'🟢 +':'🔴 '}${COP(res)}</td></tr>`;
+  }).join('');
+  const ult=meses[meses.length-1], du=data[ult];
+  // progreso del mes en curso (si el último mes es el actual y está parcial)
+  let prog='';
+  if(ult===periodoActual() && !esCompleto(ult,du)){
+    const dh=parseInt(String(du.ult).slice(8,10))||1; const [y,mo]=ult.split('-').map(Number); const dm=new Date(y,mo,0).getDate();
+    const ritmo=du.u/dh, proy=Math.round(ritmo*dm), faltan=Math.max(0,beUnid-du.u), rest=Math.max(1,dm-dh), udsDia=Math.ceil(faltan/rest);
+    const mcGen=Math.round(du.v*mcPct), pctU=beUnid?Math.round(du.u/beUnid*100):0, pctM=fijos?Math.round(mcGen/fijos*100):0;
+    const bc=p=>p>=100?'var(--verde)':p>=60?'var(--amarillo)':'var(--rojo)';
+    prog=`<div style="background:var(--gris-claro);border-radius:8px;padding:10px;margin-bottom:10px">
+      <div style="font-size:12px;font-weight:700;margin-bottom:6px">📊 ${mesNombre(ult)} en curso — datos hasta ${_fechaLargaVF(du.ult)}</div>
+      <div style="font-size:11px;margin-bottom:2px">Unidades: <strong>${NUM(du.u)}/${NUM(beUnid)}</strong> BE — ${pctU}%</div>
+      <div style="height:10px;background:#fff;border-radius:5px;overflow:hidden;margin-bottom:6px"><div style="height:100%;width:${Math.min(100,pctU)}%;background:${bc(pctU)}"></div></div>
+      <div style="font-size:11px;margin-bottom:2px">MC: <strong>${COP(mcGen)}</strong>/${COP(fijos)} — ${pctM}%</div>
+      <div style="height:10px;background:#fff;border-radius:5px;overflow:hidden"><div style="height:100%;width:${Math.min(100,pctM)}%;background:${bc(pctM)}"></div></div>
+      <div style="font-size:11px;color:var(--gris-medio);margin-top:6px">⚡ Ritmo ${ritmo.toFixed(1)} uds/día → proyección fin de mes ~${NUM(proy)} uds${faltan>0?` · 📌 BE necesita ~${NUM(udsDia)} uds/día los ${rest} días restantes`:' · ✓ BE cubierto'}</div>
+    </div>`;
+  }
+  cont.innerHTML=`<div class="section-card" style="margin-bottom:14px">
+    <div style="font-size:13px;font-weight:700">UTILIDAD 2026 — Resultados reales</div>
+    <div style="font-size:11px;color:var(--gris-medio);margin-bottom:8px">Basado en ventas registradas en el sistema</div>
+    ${prog}
+    <div class="tabla-wrap"><table style="font-size:12px"><thead><tr><th>Mes</th><th style="text-align:right">Unidades</th><th style="text-align:right">Ventas s/IVA</th><th style="text-align:right">MC generado</th><th style="text-align:right">Costos fijos</th><th style="text-align:right">Resultado</th></tr></thead><tbody>${filas}</tbody></table></div>
+    <div style="font-size:12px;font-weight:700;margin-top:8px">Acumulado YTD (meses completos): <span style="color:${acc>=0?'var(--verde)':'var(--rojo)'}">${acc>=0?'+':''}${COP(acc)}</span></div>
+    <div class="metrics" style="margin-top:10px">
+      <div class="metric-card"><div class="m-label">YTD acumulado</div><div class="m-val" style="font-size:16px;color:${acc>=0?'var(--verde)':'var(--rojo)'}">${acc>=0?'+':''}${COP(acc)}</div><div class="m-sub">${nComp} mes(es) completo(s)</div></div>
+      <div class="metric-card"><div class="m-label">Meses con datos</div><div class="m-val" style="font-size:16px">${meses.length}</div><div class="m-sub">${mesNombre(meses[0])}–${mesNombre(ult)}</div></div>
+      <div class="metric-card"><div class="m-label">Mes más reciente</div><div class="m-val" style="font-size:14px">${mesNombre(ult)}</div><div class="m-sub">${esCompleto(ult,du)?'completo':'⚡ parcial ('+_fechaLargaVF(du.ult)+')'}</div></div>
+    </div>
+  </div>`;
+}
+
 // ─── PUNTO DE EQUILIBRIO (panel interactivo) ───
 const BE_DEFAULTS = { costo_produccion_total:6890000, costo_comercial_total:4483000, otros_costos_fijos:5000000, capacidad_mensual:1000, ventas_promedio_normal:700, ventas_diciembre:2000 };
 const BE_KEY = 'parametros_be';
@@ -7395,6 +7466,7 @@ function beMC(){
 async function renderPuntoEquilibrio() {
   const cont = document.getElementById('rep-equilibrio'); if (!cont) return;
   await loadCostosData();
+  await cargarVentasReales2026();
   const mc = beMC(); const p = beParams();
   const fmt = n => NUM(n);
   const mcTabla = mc.hayDatos ? mc.list.map(r=>{
@@ -7445,6 +7517,9 @@ async function renderPuntoEquilibrio() {
     <div style="position:relative;height:260px"><canvas id="be-chart"></canvas></div>
     <div id="be-chart-note" style="font-size:11px;color:var(--gris-medio);margin-top:6px"></div>
   </div>
+
+  <!-- UTILIDAD 2026 real -->
+  <div id="be-real"></div>
 
   <!-- S5: anual -->
   <div class="section-card" style="margin-bottom:14px">
@@ -7530,6 +7605,8 @@ function beRecompute(){
     <div class="metric-card"><div class="m-label">Necesitas en dic.</div><div class="m-val" style="font-size:15px">${NUM(Math.max(0,dicNec))} prendas</div><div class="m-sub">para año en $0</div></div>`;
   // guardar params
   beGuardar({ ...beParams(), costo_produccion_total:prod, costo_comercial_total:com, otros_costos_fijos:otros, ventas_promedio_normal:normal, ventas_diciembre:dic });
+  // UTILIDAD 2026 real (usa _be2026 en memoria + fijos actuales)
+  renderUtilidad2026(fijos, mcPct, mcUnit, beUnid);
   // S4 gráfica
   beChart(fijos, mcUnit, beUnid);
 }
