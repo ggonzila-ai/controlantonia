@@ -6,6 +6,7 @@
 <title>Antonia — Gestión de Inventario</title>
 <script src="https://unpkg.com/@supabase/supabase-js@2.39.3/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Parisienne&family=Inter:wght@400;500;600;700&display=swap');
   :root {
@@ -7265,41 +7266,185 @@ async function guardarCierreDesdeDoc(docId){
   else toast('✓ Cierre contable registrado');
 }
 
+// ─── PUNTO DE EQUILIBRIO (panel interactivo) ───
+const BE_DEFAULTS = { costo_produccion_total:6890000, costo_comercial_total:4483000, otros_costos_fijos:5000000, capacidad_mensual:1000, ventas_promedio_normal:700, ventas_diciembre:2000 };
+const BE_KEY = 'parametros_be';
+let _beChart = null;
+function beParams(){ try { return { ...BE_DEFAULTS, ...(JSON.parse(localStorage.getItem(BE_KEY))||{}) }; } catch(e){ return { ...BE_DEFAULTS }; } }
+function beGuardar(p){ try { localStorage.setItem(BE_KEY, JSON.stringify(p)); } catch(e){} }
+function beMC(){
+  const list = Object.keys(_costos||{}).map(ref=>{
+    const c=_costos[ref]; if(!c||!c.precio_venta) return null;
+    const mp=(_insumos[ref]||[]).reduce((s,i)=>s+(i.valor||0),0); if(mp<=0) return null;
+    const pSin=baseSinIva(c.precio_venta), com=Math.round(pSin*COMISION_RATE), mc=pSin-mp-com;
+    return { ref, precio:c.precio_venta, pSin, mp, com, mc, mcPct: pSin?mc/pSin:0 };
+  }).filter(Boolean).sort((a,b)=>b.mcPct-a.mcPct);
+  const hayDatos = list.length>0;
+  const mcProm = hayDatos ? list.reduce((s,r)=>s+r.mcPct,0)/list.length : 0.56;
+  const precioProm = hayDatos ? Math.round(list.reduce((s,r)=>s+r.pSin,0)/list.length) : 0;
+  const mcUnitProm = hayDatos ? Math.round(list.reduce((s,r)=>s+r.mc,0)/list.length) : Math.round(precioProm*0.56);
+  return { list, mcProm, precioProm, mcUnitProm, hayDatos };
+}
+
 async function renderPuntoEquilibrio() {
   const cont = document.getElementById('rep-equilibrio'); if (!cont) return;
-  await Promise.all([loadCostosData(), loadGastosFijos(), loadColaboradores()]);
-  const periodo = periodoActual();
-  const nominaFija = (_colaboradores||[]).filter(c => c.activo!==false && !esSocia(c)).reduce((s,c)=>s+(c.salario||0),0);
-  const gFijos = gastoFijoDe(periodo);
-  const fijosMes = gFijos + nominaFija;
-  const ventas = await selectAll('ventas', 'referencia, cantidad, precio_unitario, periodo', q => q.gte('periodo','2026-01').lte('periodo','2026-12'));
-  let undMes = 0; const porRef = {};
-  (ventas||[]).forEach(v => { if (v.periodo === periodo) undMes += v.cantidad; porRef[v.referencia] = (porRef[v.referencia]||0) + v.cantidad; });
-  let sumMargen = 0, sumPrecio = 0, undConCosto = 0;
-  Object.entries(porRef).forEach(([ref, u]) => { const m = margenReferencia(ref); if (m) { sumMargen += m.margen*u; sumPrecio += m.precio*u; undConCosto += u; } });
-  const margenProm = undConCosto>0 ? Math.round(sumMargen/undConCosto) : 0;
-  const precioProm = undConCosto>0 ? Math.round(sumPrecio/undConCosto) : 0;
-  const eqUnid = margenProm>0 ? Math.ceil(fijosMes/margenProm) : 0;
-  const eqCOP = eqUnid * precioProm;
-  const pct = eqUnid>0 ? Math.round(undMes/eqUnid*100) : 0;
-  const col = pct>=100 ? 'var(--verde)' : pct>=70 ? 'var(--amarillo)' : 'var(--rosa-oscuro)';
-  const estado = !margenProm ? 'Define costos en Bodega → Costos para calcular el equilibrio'
-    : pct>=100 ? '✅ Cubriste los costos fijos del mes' : `Vas en ${pct}% del equilibrio`;
+  await loadCostosData();
+  const mc = beMC(); const p = beParams();
+  const fmt = n => NUM(n);
+  const mcTabla = mc.hayDatos ? mc.list.map(r=>{
+    const colp = r.mcPct>=0.6?'var(--verde)':r.mcPct>=0.5?'var(--amarillo)':'var(--rojo)';
+    const prendasBE = r.mc>0 ? Math.ceil((p.costo_produccion_total+p.costo_comercial_total+p.otros_costos_fijos)/r.mc) : 0;
+    return `<tr>
+      <td><strong>${r.ref}</strong></td><td style="text-align:right">${COP(r.pSin)}</td>
+      <td style="text-align:right;color:var(--gris-medio)">${COP(r.mp)}</td>
+      <td style="text-align:right;color:var(--gris-medio)">${COP(r.com)}</td>
+      <td style="text-align:right;font-weight:700">${COP(r.mc)}</td>
+      <td style="text-align:right;font-weight:700;color:${colp}">${(r.mcPct*100).toFixed(1)}%</td>
+      <td style="text-align:right">${NUM(prendasBE)}</td></tr>`;
+  }).join('') : '';
+
   cont.innerHTML = `
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px">
-      <div class="metric-card"><div class="m-label">Costos fijos del mes</div><div class="m-val">${COP(fijosMes)}</div><div class="m-sub">nómina + gastos fijos</div></div>
-      <div class="metric-card"><div class="m-label">Margen contrib./prenda</div><div class="m-val">${COP(margenProm)}</div><div class="m-sub">promedio ponderado por ventas</div></div>
-      <div class="metric-card accent"><div class="m-label">Equilibrio</div><div class="m-val">${NUM(eqUnid)} prendas</div><div class="m-sub">≈ ${COP(eqCOP)} en ventas</div></div>
+  <!-- S1: costos fijos -->
+  <div class="section-card" style="margin-bottom:12px">
+    <div style="font-size:13px;font-weight:700;margin-bottom:10px">⚙️ Costos fijos del mes <span style="font-size:10px;color:var(--gris-medio);font-weight:400">(editables — todo recalcula en vivo)</span></div>
+    <div class="form-row">
+      <div class="form-group"><label>Costos de producción</label><input type="text" inputmode="numeric" id="be-prod" value="${fmt(p.costo_produccion_total)}" oninput="beRecompute()" onblur="this.value=NUM(pesos(this.value))"></div>
+      <div class="form-group"><label>Costos comerciales</label><input type="text" inputmode="numeric" id="be-com" value="${fmt(p.costo_comercial_total)}" oninput="beRecompute()" onblur="this.value=NUM(pesos(this.value))"></div>
     </div>
-    <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px;flex-wrap:wrap;gap:6px"><span>Vendidas en ${mesNombre(periodo)}: <strong>${NUM(undMes)}</strong> de ${NUM(eqUnid)}</span><span style="font-weight:600;color:${col}">${estado}</span></div>
-    <div style="height:13px;background:var(--gris-claro);border-radius:7px;overflow:hidden"><div style="height:100%;width:${Math.min(100,pct)}%;background:${col};border-radius:7px;transition:width .3s"></div></div>
-    <div style="background:var(--gris-claro);border-radius:8px;padding:10px 12px;margin-top:10px;font-size:11.5px;color:var(--gris-medio);line-height:1.8">
-      <strong style="color:var(--carbon)">Cómo se calcula:</strong><br>
-      1) Costos fijos = nómina fija <strong>${COP(nominaFija)}</strong> + gastos fijos <strong>${COP(gFijos)}</strong> = <strong>${COP(fijosMes)}</strong><br>
-      2) Margen de contribución/prenda = precio − (materia prima + producción + comercial + comisión 16% + IVA), promedio <strong>ponderado por las ventas</strong> = <strong>${COP(margenProm)}</strong><br>
-      3) Equilibrio = ${COP(fijosMes)} ÷ ${COP(margenProm)} = <strong>${NUM(eqUnid)} prendas</strong> (≈ ${COP(eqCOP)} en ventas, usando precio promedio ${COP(precioProm)})
+    <div class="form-group"><label>Otros costos fijos (salario gerencial, contador…)</label><input type="text" inputmode="numeric" id="be-otros" value="${fmt(p.otros_costos_fijos)}" oninput="beRecompute()" onblur="this.value=NUM(pesos(this.value))"></div>
+    <div style="display:flex;justify-content:space-between;border-top:1px solid var(--borde);padding-top:8px;font-weight:700"><span>TOTAL COSTOS FIJOS</span><span id="be-fijos-tot" style="color:var(--brand-dark)"></span></div>
+  </div>
+
+  ${!mc.hayDatos ? '<div class="alert alert-warn" style="margin-bottom:12px">Primero registra los costos de insumos por referencia (Bodega → Costos) para ver el break-even exacto. Mientras, se usa MC% = 56% como estimado.</div>' : ''}
+
+  <!-- S2: los tres break-even -->
+  <div style="font-size:12px;font-weight:700;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em;margin:4px 0 8px">Punto de equilibrio (el mismo número, 3 formas)</div>
+  <div class="metrics" id="be-cards" style="margin-bottom:14px"></div>
+
+  <!-- S3: simulador -->
+  <div class="section-card" style="margin-bottom:14px">
+    <div style="font-size:13px;font-weight:700;margin-bottom:8px">🎚️ ¿Cuántas prendas vendes este mes?</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <input type="range" id="be-slider" min="0" max="2000" step="10" value="${p.ventas_promedio_normal}" oninput="beSyncUnd('slider')" style="flex:1">
+      <input type="number" id="be-und" min="0" max="5000" value="${p.ventas_promedio_normal}" oninput="beSyncUnd('num')" style="width:90px;padding:6px 8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);text-align:right;font-weight:700">
     </div>
-    <div style="font-size:11px;color:var(--gris-medio);margin-top:8px">⚖️ Casi todo el año se opera cerca del equilibrio; la <strong>utilidad real se concentra en diciembre</strong> (~2.000 prendas). En prendas es una referencia (la batola de tiras es barata y de volumen) — la base firme es el valor en ventas.</div>`;
+    <div id="be-barra-wrap" style="margin:10px 0"></div>
+    <div class="metrics" id="be-sim-cards"></div>
+  </div>
+
+  <!-- S4: apalancamiento -->
+  <div class="section-card" style="margin-bottom:14px">
+    <div style="font-size:13px;font-weight:700">📈 Cómo crece la utilidad con el volumen</div>
+    <div style="font-size:11px;color:var(--gris-medio);margin-bottom:8px">Los costos fijos no cambian. Cada prenda por encima del break-even genera <span id="be-mcunit-note"></span> de utilidad pura.</div>
+    <div style="position:relative;height:260px"><canvas id="be-chart"></canvas></div>
+    <div id="be-chart-note" style="font-size:11px;color:var(--gris-medio);margin-top:6px"></div>
+  </div>
+
+  <!-- S5: anual -->
+  <div class="section-card" style="margin-bottom:14px">
+    <div style="font-size:13px;font-weight:700;margin-bottom:8px">📅 El año completo — ¿cuándo se genera la utilidad?</div>
+    <div class="form-row">
+      <div class="form-group"><label>Unidades meses normales (ene–nov)</label><input type="number" id="be-anual-normal" value="${p.ventas_promedio_normal}" oninput="beRecompute()" style="text-align:right"></div>
+      <div class="form-group"><label>Unidades diciembre</label><input type="number" id="be-anual-dic" value="${p.ventas_diciembre}" oninput="beRecompute()" style="text-align:right"></div>
+    </div>
+    <div class="tabla-wrap"><table style="font-size:12px"><thead><tr><th>Mes</th><th style="text-align:right">Uds</th><th style="text-align:right">MC generado</th><th style="text-align:right">Costos fijos</th><th style="text-align:right">Resultado</th></tr></thead><tbody id="be-anual-tbody"></tbody></table></div>
+    <div class="metrics" id="be-anual-cards" style="margin-top:10px"></div>
+  </div>
+
+  <!-- S6: MC por referencia -->
+  ${mc.hayDatos ? `<div class="section-card" style="margin-bottom:14px">
+    <div style="font-size:13px;font-weight:700">🧮 ¿Cuánto aporta cada referencia al break-even?</div>
+    <div style="font-size:11px;color:var(--gris-medio);margin-bottom:8px">El MC es lo que "sobra" de cada prenda para pagar los costos fijos, después de sus materiales y la comisión de Feria.</div>
+    <div class="tabla-wrap"><table style="font-size:12px"><thead><tr><th>Referencia</th><th style="text-align:right">Precio s/IVA</th><th style="text-align:right">−MP+ins</th><th style="text-align:right">−Comisión</th><th style="text-align:right">MC</th><th style="text-align:right">MC%</th><th style="text-align:right">Prendas p/BE</th></tr></thead>
+    <tbody>${mcTabla}</tbody>
+    <tfoot><tr style="border-top:2px solid var(--borde);font-weight:700"><td colspan="5">MC% promedio (referencias con costos)</td><td style="text-align:right">${(mc.mcProm*100).toFixed(1)}%</td><td></td></tr></tfoot></table></div>
+  </div>` : ''}
+
+  <!-- S7: contexto estacional -->
+  <div style="background:var(--brand-light,#e6f7fb);border:1px solid var(--brand-border,var(--borde));border-radius:12px;padding:12px 14px;font-size:12px;color:var(--carbon);line-height:1.6">
+    <strong>ℹ️ Sobre la estacionalidad de este negocio</strong><br>
+    De enero a noviembre son meses de equilibrio normal — estar por debajo o cerca del break-even en esos meses es operación estándar para un negocio estacional. <strong>Diciembre concentra la mayor parte de la utilidad anual.</strong> Evalúa la salud del negocio en perspectiva anual, no mes a mes.
+  </div>`;
+  beRecompute();
+}
+
+function beSyncUnd(src){
+  const sl=document.getElementById('be-slider'), nu=document.getElementById('be-und'); if(!sl||!nu) return;
+  if(src==='slider') nu.value = sl.value;
+  else { let v=Math.max(0,parseInt(nu.value)||0); sl.value = Math.min(2000, v); }
+  beRecompute();
+}
+
+function beRecompute(){
+  const $=id=>document.getElementById(id); if(!$('be-prod')) return;
+  const prod=pesos($('be-prod').value), com=pesos($('be-com').value), otros=pesos($('be-otros').value);
+  const fijos=prod+com+otros;
+  const mc=beMC(); const mcPct=mc.mcProm, precioProm=mc.precioProm, mcUnit=mc.mcUnitProm || Math.round((precioProm||35000)*0.56);
+  $('be-fijos-tot').textContent = COP(fijos);
+  // S2 break-even
+  const beSin = mcPct>0 ? Math.round(fijos/mcPct) : 0;
+  const beConIva = Math.round(beSin*1.19), beNeto = Math.round(beSin*0.84);
+  const beUnid = mcUnit>0 ? Math.ceil(fijos/mcUnit) : 0;
+  $('be-cards').innerHTML = `
+    <div class="metric-card"><div class="m-label">🏷️ Con IVA</div><div class="m-val" style="font-size:16px">${COP(beConIva)}</div><div class="m-sub">lo que paga el cliente en total</div></div>
+    <div class="metric-card"><div class="m-label">📄 Sin IVA</div><div class="m-val" style="font-size:16px">${COP(beSin)}</div><div class="m-sub">lo que aparece en el cierre de Solo Kukos</div></div>
+    <div class="metric-card"><div class="m-label">💳 Neto en cuenta</div><div class="m-val" style="font-size:16px">${COP(beNeto)}</div><div class="m-sub">lo que Feria te consigna (×84%)</div></div>
+    <div class="metric-card accent"><div class="m-label">📦 En unidades</div><div class="m-val" style="font-size:16px">~${NUM(beUnid)} prendas/mes</div><div class="m-sub">mínimo para cubrir los fijos</div></div>`;
+  // S3 simulador
+  const und = parseInt($('be-und').value)||0;
+  const mcGen = und*mcUnit, resultado = mcGen - fijos;
+  const pctBE = beUnid>0 ? Math.round(und/beUnid*100) : 0;
+  let barCol = 'var(--rojo)', icono='';
+  if(pctBE>=150){ barCol='#15803d'; icono=' ★'; } else if(pctBE>=100){ barCol='var(--verde)'; icono=' ✓'; }
+  else if(pctBE>=90){ barCol='var(--amarillo)'; } else if(pctBE>=61){ barCol='#f97316'; }
+  const resTxt = resultado>0?`✓ Utilidad del mes`:resultado<0?`✗ Pérdida del mes: ${COP(-resultado)} por recuperar`:`= Punto exacto de equilibrio`;
+  $('be-barra-wrap').innerHTML = `
+    <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>Meta: ${NUM(beUnid)} prendas</span><span style="font-weight:700;color:${barCol}">${NUM(und)}/${NUM(beUnid)} — ${pctBE}%${icono}</span></div>
+    <div style="height:14px;background:var(--gris-claro);border-radius:7px;overflow:hidden"><div style="height:100%;width:${Math.min(100,pctBE)}%;background:${barCol};border-radius:7px;transition:width .25s"></div></div>`;
+  $('be-sim-cards').innerHTML = `
+    <div class="metric-card"><div class="m-label">MC generado</div><div class="m-val" style="font-size:15px">${COP(mcGen)}</div><div class="m-sub">${NUM(und)} × ${COP(mcUnit)}</div></div>
+    <div class="metric-card"><div class="m-label">Costos fijos</div><div class="m-val" style="font-size:15px">${COP(fijos)}</div><div class="m-sub">siempre igual</div></div>
+    <div class="metric-card" style="border:2px solid ${resultado>=0?'var(--verde)':'var(--rojo)'}"><div class="m-label">Resultado</div><div class="m-val" style="font-size:15px;color:${resultado>=0?'var(--verde)':'var(--rojo)'}">${resultado>=0?'+':''}${COP(resultado)}</div><div class="m-sub">${resTxt}</div></div>`;
+  const mcNote=$('be-mcunit-note'); if(mcNote) mcNote.textContent = COP(mcUnit);
+  // S5 anual
+  const normal=parseInt($('be-anual-normal').value)||0, dic=parseInt($('be-anual-dic').value)||0;
+  const MES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  let totUd=0,totMC=0,totRes=0,rent=0;
+  const filas = MES.map((mes,i)=>{
+    const u = i===11?dic:normal; const g=u*mcUnit; const r=g-fijos;
+    totUd+=u; totMC+=g; totRes+=r; if(r>0) rent++;
+    const cl = r>0?'var(--verde)':r<-(fijos*0.1)?'var(--rojo)':'var(--amarillo)';
+    return `<tr><td>${mes}</td><td style="text-align:right">${NUM(u)}</td><td style="text-align:right">${COP(g)}</td><td style="text-align:right;color:var(--gris-medio)">${COP(fijos)}</td><td style="text-align:right;font-weight:600;color:${cl}">${r>=0?'+':''}${COP(r)}</td></tr>`;
+  }).join('');
+  $('be-anual-tbody').innerHTML = filas + `<tr style="background:var(--gris-claro);font-weight:700"><td>TOTAL AÑO</td><td style="text-align:right">${NUM(totUd)}</td><td style="text-align:right">${COP(totMC)}</td><td style="text-align:right">${COP(fijos*12)}</td><td style="text-align:right;color:${totRes>=0?'var(--verde)':'var(--rojo)'}">${totRes>=0?'+':''}${COP(totRes)}</td></tr>`;
+  const dicNec = mcUnit>0 ? Math.ceil((fijos*12 - mcUnit*normal*11)/mcUnit) : 0;
+  $('be-anual-cards').innerHTML = `
+    <div class="metric-card" style="border-left:4px solid ${totRes>=0?'var(--verde)':'var(--rojo)'}"><div class="m-label">Resultado anual</div><div class="m-val" style="font-size:16px;color:${totRes>=0?'var(--verde)':'var(--rojo)'}">${totRes>=0?'+':''}${COP(totRes)}</div><div class="m-sub">con estos parámetros</div></div>
+    <div class="metric-card"><div class="m-label">Meses rentables</div><div class="m-val" style="font-size:16px">${rent} de 12</div></div>
+    <div class="metric-card"><div class="m-label">Necesitas en dic.</div><div class="m-val" style="font-size:15px">${NUM(Math.max(0,dicNec))} prendas</div><div class="m-sub">para año en $0</div></div>`;
+  // guardar params
+  beGuardar({ ...beParams(), costo_produccion_total:prod, costo_comercial_total:com, otros_costos_fijos:otros, ventas_promedio_normal:normal, ventas_diciembre:dic });
+  // S4 gráfica
+  beChart(fijos, mcUnit, beUnid);
+}
+
+function beChart(fijos, mcUnit, beUnid){
+  const cv=document.getElementById('be-chart'); if(!cv||typeof Chart==='undefined') return;
+  const xs=[]; for(let u=0;u<=2000;u+=100) xs.push(u);
+  const cap=beParams().capacidad_mensual;
+  const dsFijos=xs.map(()=>fijos), dsMC=xs.map(u=>u*mcUnit), dsUtil=xs.map(u=>u*mcUnit-fijos);
+  if(_beChart){ _beChart.data.labels=xs; _beChart.data.datasets[0].data=dsFijos; _beChart.data.datasets[1].data=dsMC; _beChart.data.datasets[2].data=dsUtil; _beChart.update(); }
+  else {
+    _beChart=new Chart(cv,{ type:'line', data:{ labels:xs, datasets:[
+      { label:'Costos fijos', data:dsFijos, borderColor:'#dc2626', borderDash:[6,4], pointRadius:0, borderWidth:2 },
+      { label:'MC acumulado', data:dsMC, borderColor:'#2563eb', pointRadius:0, borderWidth:2 },
+      { label:'Utilidad', data:dsUtil, borderColor:'#16a34a', backgroundColor:'rgba(22,163,74,.12)', fill:true, pointRadius:0, borderWidth:2 } ]},
+      options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+        plugins:{ legend:{labels:{boxWidth:12,font:{size:11}}}, tooltip:{callbacks:{title:it=>`A ${NUM(it[0].label)} prendas`, label:c=>`${c.dataset.label}: ${COP(c.parsed.y)}`}} },
+        scales:{ x:{title:{display:true,text:'prendas/mes',font:{size:10}},ticks:{font:{size:9}}}, y:{ticks:{font:{size:9},callback:v=>'$'+(v/1e6).toFixed(0)+'M'}} } } });
+  }
+  const note=document.getElementById('be-chart-note');
+  if(note) note.innerHTML = `Break-even ≈ <strong>${NUM(beUnid)}</strong> prendas (donde la línea azul cruza la roja) · Capacidad de producción: <strong>${NUM(cap)}</strong> prendas/mes`;
 }
 
 function renderGastosPorProveedor(gastos) {
