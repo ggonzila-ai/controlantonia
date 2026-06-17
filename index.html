@@ -604,8 +604,13 @@
       <div class="tab" id="tab-ventas-abc" onclick="showTab('tab-ventas-abc')">Curva ABC</div>
       <div class="tab" id="tab-ventas-cargar" onclick="showTab('tab-ventas-cargar')">Cargar informe</div>
       <div class="tab" id="tab-ventas-manual" onclick="showTab('tab-ventas-manual')">Manual</div>
+      <div class="tab" id="tab-ventas-feria" onclick="showTab('tab-ventas-feria')">📊 Reportes Feria</div>
     </div>
     <div class="section-card" style="border-radius:0 0 var(--radius) var(--radius)">
+      <div id="tab-content-ventas-feria" style="display:none">
+        <input type="file" accept=".xlsx,.xls" id="vf-file" style="display:none" onchange="vfImport(this.files&&this.files[0]); this.value='';">
+        <div id="vf-panel"><div class="loader"><div class="spinner"></div></div></div>
+      </div>
       <div id="tab-content-ventas-cargar" style="display:none">
         <div class="form-section">
           <div class="alert alert-info">
@@ -1895,6 +1900,19 @@
   </div>
 </div>
 
+<!-- MODAL CONFIRMAR IMPORTACIÓN FERIA -->
+<div class="modal-overlay" id="modal-vf">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Confirmar importación</div>
+    <div id="vf-confirm-body" style="font-size:13px"></div>
+    <div style="display:flex;gap:10px;margin-top:12px">
+      <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-vf')">Cancelar</button>
+      <button class="btn btn-primary" style="flex:2" id="vf-confirm-btn" onclick="vfGuardar()">Confirmar e importar →</button>
+    </div>
+  </div>
+</div>
+
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
@@ -2182,6 +2200,7 @@ function showTab(tabId) {
   if (tabId === 'tab-ventas-descuentos') cargarDescuentos();
   if (tabId === 'tab-ventas-historico') cargarHistoricoVentas();
   if (tabId === 'tab-ventas-abc') cargarABC();
+  if (tabId === 'tab-ventas-feria') cargarVentasFeria();
   if (tabId === 'tab-if-res') cargarResultadosConteo();
   if (tabId === 'tab-alm-conc') { llenarSelectAlmacenes(); renderConciliacion(); }
   if (tabId === 'tab-bod-catalogo') cargarCatalogo();
@@ -7156,6 +7175,201 @@ async function guardarCierreDesdeDoc(docId){
   else ({error:err}=await sb.from('consignaciones_cierre').insert(row));
   if(err){ toast('Documento guardado, pero no se pudo registrar el cierre: '+detalleError(err),'err'); console.error(err); }
   else toast('✓ Cierre contable registrado');
+}
+
+// ─── REPORTES DE VENTAS FERIA DEL BRASIER ───
+const VF_ALMACENES = { 'FERIA DEL BRASIER MALCA 2':'Malca 2','FERIA DEL BRASIER OUTLET INTIMO CRA 1':'Outlet Íntimo Cra 1','FERIA DEL BRASIER UNICO 5':'Único 5','FERIA DEL BRASIER VALLE DEL LILI':'Valle del Lili','FERIA DEL BRASIER CRA 8':'Cra 8','FERIA DEL BRASIER UNICENTRO CALI':'Unicentro','FERIA DEL BRASIER COSMOCENTRO 3':'Cosmocentro','FERIA DEL BRASIER CALLE 13':'Calle 13' };
+function vfParseRef(codigo){
+  let s=String(codigo||'').toUpperCase().replace(/^ANT/,'').replace(/2600$/,'');
+  const m=s.match(/(U|3XL|2XL|XL|L|M|S)$/);
+  if(m) return { base:s.slice(0,-m[1].length), talla:m[1] };
+  return { base:s, talla:null };
+}
+let _vfReporte=null, _vfDetalle=[], _vfChart=null, _vfPending=null;
+const _fechaLargaVF = d => { const [y,m,dd]=String(d).split('-').map(Number); return `${dd} ${MESES[(m||1)-1].toLowerCase()} ${y}`; };
+
+async function cargarVentasFeria(){
+  if(esVendedora()) return;
+  const panel=document.getElementById('vf-panel'); if(!panel) return;
+  panel.innerHTML='<div class="loader"><div class="spinner"></div></div>';
+  const mes=periodoActual();
+  const { data: reps, error } = await sb.from('reportes_ventas_feria').select('*').eq('mes',mes).eq('estado','activo').order('created_at',{ascending:false}).limit(1);
+  if(error){ panel.innerHTML='<div class="alert alert-warn" style="margin:14px">Faltan las tablas de reportes en Supabase. Corre el SQL que te pasé y recarga.</div>'; return; }
+  _vfReporte=(reps&&reps[0])||null;
+  if(_vfReporte){ const { data: det } = await sb.from('ventas_feria_detalle').select('*').eq('reporte_id',_vfReporte.id).limit(8000); _vfDetalle=det||[]; }
+  else _vfDetalle=[];
+  await loadCostosData();
+  vfRender();
+}
+
+function vfRender(){
+  const panel=document.getElementById('vf-panel'); const mes=periodoActual();
+  const r=_vfReporte;
+  // zona import
+  let html=`<div class="section-card" style="margin:0 0 14px">
+    <div style="font-size:13px;font-weight:700;margin-bottom:8px">📊 Reportes de ventas — Feria del Brasier</div>`;
+  if(r){
+    html+=`<div style="font-size:12px;color:var(--gris-medio);margin-bottom:8px">Reporte activo ${mesNombre(mes)}:</div>
+      <div style="font-size:13px">${r.tipo==='definitivo'?'✅ <strong>Definitivo</strong>':'✓ Parcial'} · ${_fechaLargaVF(r.periodo_desde)}–${_fechaLargaVF(r.periodo_hasta)} · <strong>${NUM(r.total_unidades)}</strong> uds · <strong>${COP(r.total_ventas_sin_iva)}</strong> sin IVA</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button class="btn btn-sm btn-primary" onclick="document.getElementById('vf-file').click()">+ Cargar nuevo reporte</button>
+        ${r.tipo!=='definitivo'?`<button class="btn btn-sm btn-secondary" onclick="vfMarcarDefinitivo()">Marcar como definitivo</button>`:''}
+        <button class="btn btn-sm btn-secondary" onclick="vfHistorial()">Ver historial</button>
+      </div>`;
+  } else {
+    html+=`<div style="font-size:13px;color:var(--gris-medio);margin-bottom:10px">Sin reporte para ${mesNombre(mes)}.</div>
+      <button class="btn btn-sm btn-primary" onclick="document.getElementById('vf-file').click()">+ Cargar reporte Excel de Feria</button>
+      <button class="btn btn-sm btn-secondary" style="margin-left:8px" onclick="vfHistorial()">Ver historial</button>`;
+  }
+  html+=`</div>`;
+
+  if(!r || !_vfDetalle.length){ panel.innerHTML=html; return; }
+
+  const det=_vfDetalle;
+  const totalUds=det.reduce((s,d)=>s+(d.cantidad||0),0);
+  const totalSin=det.reduce((s,d)=>s+(d.valor_sin_iva||0),0);
+  const neto=Math.round(totalSin*0.84);
+  const ticket=totalUds?Math.round(totalSin/totalUds):0;
+  // MC
+  const mc=beMC(); const mcProm=mc.mcProm, mcUnit=mc.mcUnitProm||Math.round((mc.precioProm||35000)*0.56);
+  const mcByRef={}; mc.list.forEach(x=>{ mcByRef[x.ref.toUpperCase()]=x.mcPct; });
+  const mcGen=Math.round(totalSin*mcProm);
+  // BE
+  const bp=beParams(); const fijos=(bp.costo_produccion_total||0)+(bp.costo_comercial_total||0)+(bp.otros_costos_fijos||0);
+  const beUnid=mcUnit>0?Math.ceil(fijos/mcUnit):0;
+  const pctUds=beUnid?Math.round(totalUds/beUnid*100):0, pctMC=fijos?Math.round(mcGen/fijos*100):0;
+  // ritmo / proyección
+  const [yy,mm]=mes.split('-').map(Number); const diasMes=new Date(yy,mm,0).getDate();
+  const dDesde=new Date(r.periodo_desde+'T00:00:00'), dHasta=new Date(r.periodo_hasta+'T00:00:00');
+  const diasTrans=Math.max(1,Math.round((dHasta-dDesde)/864e5)+1);
+  const ritmo=totalUds/diasTrans; const proy=Math.round(ritmo*diasMes);
+  const faltan=Math.max(0,beUnid-totalUds), diasRest=Math.max(1,diasMes-diasTrans), udsDia=Math.ceil(faltan/diasRest);
+  const barCol=p=>p>=100?'var(--verde)':p>=60?'var(--amarillo)':'var(--rojo)';
+
+  // métricas
+  html+=`<div class="metrics" style="margin-bottom:12px">
+    <div class="metric-card"><div class="m-label">📦 Unidades</div><div class="m-val">${NUM(totalUds)}</div><div class="m-sub">${_fechaLargaVF(r.periodo_desde)}–${_fechaLargaVF(r.periodo_hasta)}</div></div>
+    <div class="metric-card"><div class="m-label">💰 Ventas s/IVA</div><div class="m-val" style="font-size:17px">${COP(totalSin)}</div><div class="m-sub">base de cálculo</div></div>
+    <div class="metric-card"><div class="m-label">💳 Neto en cuenta</div><div class="m-val" style="font-size:17px">${COP(neto)}</div><div class="m-sub">×84% (−comisión)</div></div>
+    <div class="metric-card"><div class="m-label">📈 Ticket prom.</div><div class="m-val" style="font-size:17px">${COP(ticket)}</div><div class="m-sub">sin IVA/prenda</div></div>
+  </div>`;
+
+  // break-even progreso
+  html+=`<div class="section-card" style="margin-bottom:12px">
+    <div style="font-size:13px;font-weight:700;margin-bottom:2px">Avance al break-even de ${mesNombre(mes)}</div>
+    <div style="font-size:11px;color:var(--gris-medio);margin-bottom:8px">Meta: ${NUM(beUnid)} prendas · ${COP(fijos)} en costos fijos</div>
+    <div style="font-size:12px;margin-bottom:3px">Unidades: <strong>${NUM(totalUds)}/${NUM(beUnid)}</strong> — ${pctUds}%</div>
+    <div style="height:12px;background:var(--gris-claro);border-radius:6px;overflow:hidden;margin-bottom:8px"><div style="height:100%;width:${Math.min(100,pctUds)}%;background:${barCol(pctUds)};border-radius:6px"></div></div>
+    <div style="font-size:12px;margin-bottom:3px">MC generado: <strong>${COP(mcGen)}</strong> / ${COP(fijos)} — ${pctMC}%</div>
+    <div style="height:12px;background:var(--gris-claro);border-radius:6px;overflow:hidden"><div style="height:100%;width:${Math.min(100,pctMC)}%;background:${barCol(pctMC)};border-radius:6px"></div></div>
+    <div style="background:var(--gris-claro);border-radius:8px;padding:10px;margin-top:10px;font-size:12px;line-height:1.7">
+      ⚡ Ritmo actual: <strong>${ritmo.toFixed(1)} uds/día</strong> (días 1–${diasTrans})<br>
+      📅 Proyección al día ${diasMes}: <strong>~${NUM(proy)} uds</strong> — ${proy>=beUnid?'<span style="color:var(--verde)">alcanza el break-even ✓</span>':'<span style="color:var(--rojo)">por debajo del break-even</span>'}<br>
+      ${faltan>0?`📌 Para el BE necesitas ~<strong>${NUM(udsDia)} uds/día</strong> en los ${diasRest} días restantes`:'✓ Break-even ya cubierto'}
+    </div></div>`;
+
+  // por almacén
+  const alm={}; det.forEach(d=>{ const k=d.almacen||'—'; (alm[k]=alm[k]||{u:0,v:0}); alm[k].u+=d.cantidad||0; alm[k].v+=d.valor_sin_iva||0; });
+  const almArr=Object.entries(alm).sort((a,b)=>b[1].v-a[1].v);
+  html+=`<div class="section-card" style="margin-bottom:12px"><div style="font-size:13px;font-weight:700;margin-bottom:8px">Ventas por almacén</div>
+    <div class="tabla-wrap"><table style="font-size:12px"><thead><tr><th>Almacén</th><th style="text-align:right">Uds</th><th style="text-align:right">Ventas s/IVA</th><th style="text-align:right">%</th></tr></thead><tbody>
+    ${almArr.map(([k,v])=>{const pc=totalSin?(v.v/totalSin*100):0;return `<tr><td><strong>${k}</strong><div style="height:5px;background:var(--brand);border-radius:3px;width:${pc}%;margin-top:3px;max-width:100%"></div></td><td style="text-align:right">${NUM(v.u)}</td><td style="text-align:right">${COP(v.v)}</td><td style="text-align:right">${pc.toFixed(1)}%</td></tr>`;}).join('')}
+    <tr style="background:var(--gris-claro);font-weight:700"><td>TOTAL</td><td style="text-align:right">${NUM(totalUds)}</td><td style="text-align:right">${COP(totalSin)}</td><td style="text-align:right">100%</td></tr>
+    </tbody></table></div></div>`;
+
+  // top referencias
+  const refs={}; det.forEach(d=>{ const k=d.desc_item||'—'; (refs[k]=refs[k]||{u:0,v:0}); refs[k].u+=d.cantidad||0; refs[k].v+=d.valor_sin_iva||0; });
+  const refArr=Object.entries(refs).sort((a,b)=>b[1].v-a[1].v).slice(0,10);
+  html+=`<div class="section-card" style="margin-bottom:12px"><div style="font-size:13px;font-weight:700;margin-bottom:8px">Top 10 referencias</div>
+    <div class="tabla-wrap"><table style="font-size:12px"><thead><tr><th>Referencia</th><th style="text-align:right">Uds</th><th style="text-align:right">Ventas s/IVA</th><th style="text-align:right">MC est.</th></tr></thead><tbody>
+    ${refArr.map(([k,v])=>{const pct=mcByRef[k.toUpperCase()]!=null?mcByRef[k.toUpperCase()]:mcProm; return `<tr><td><strong>${k}</strong></td><td style="text-align:right">${NUM(v.u)}</td><td style="text-align:right">${COP(v.v)}</td><td style="text-align:right">${COP(Math.round(v.v*pct))} <span style="color:var(--gris-medio)">${(pct*100).toFixed(0)}%</span></td></tr>`;}).join('')}
+    </tbody></table></div></div>`;
+
+  // gráfica diaria
+  html+=`<div class="section-card" style="margin-bottom:12px"><div style="font-size:13px;font-weight:700;margin-bottom:8px">Ventas diarias sin IVA — ${mesNombre(mes)}</div><div style="position:relative;height:200px"><canvas id="vf-chart"></canvas></div></div>`;
+
+  // vendedoras
+  const vend={}; det.forEach(d=>{ if(!d.vendedor) return; const k=d.vendedor; (vend[k]=vend[k]||{u:0,alm:d.almacen}); vend[k].u+=d.cantidad||0; });
+  const vendArr=Object.entries(vend).sort((a,b)=>b[1].u-a[1].u).slice(0,15);
+  if(vendArr.length) html+=`<div class="section-card" style="margin-bottom:12px"><div style="font-size:13px;font-weight:700;margin-bottom:4px">Vendedoras del período</div><div style="font-size:10px;color:var(--gris-medio);margin-bottom:8px">vendedoras de Feria (no de la nómina de Antonia)</div>
+    <div class="tabla-wrap"><table style="font-size:12px"><thead><tr><th>Vendedora</th><th>Almacén</th><th style="text-align:right">Uds</th></tr></thead><tbody>
+    ${vendArr.map(([k,v])=>`<tr><td>${k}</td><td style="color:var(--gris-medio)">${v.alm||'—'}</td><td style="text-align:right;font-weight:600">${NUM(v.u)}</td></tr>`).join('')}
+    </tbody></table></div></div>`;
+
+  panel.innerHTML=html;
+  // gráfica diaria (después de pintar el canvas)
+  const porDia={}; det.forEach(d=>{ porDia[d.fecha]=(porDia[d.fecha]||0)+(d.valor_sin_iva||0); });
+  const dias=Object.keys(porDia).sort();
+  const cv=document.getElementById('vf-chart');
+  if(cv && typeof Chart!=='undefined'){
+    if(_vfChart){ _vfChart.destroy(); _vfChart=null; }
+    _vfChart=new Chart(cv,{ type:'bar', data:{ labels:dias.map(d=>d.slice(8)), datasets:[{ label:'Ventas s/IVA', data:dias.map(d=>porDia[d]), backgroundColor:'#02abd5' }] },
+      options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>COP(c.parsed.y)}}}, scales:{ y:{ticks:{font:{size:9},callback:v=>'$'+(v/1e6).toFixed(1)+'M'}}, x:{ticks:{font:{size:9}}} } } });
+  }
+}
+
+async function vfImport(file){
+  if(!file) return;
+  if(typeof XLSX==='undefined'){ toast('No se cargó el lector de Excel; recarga la página','err'); return; }
+  toast('Leyendo Excel…');
+  try{
+    const buf=await file.arrayBuffer();
+    const wb=XLSX.read(buf,{type:'array',cellDates:true});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false});
+    const header=(rows[0]||[]).map(h=>String(h||''));
+    if(!header.some(h=>/cantidad/i.test(h))||!header.some(h=>/valor subtotal/i.test(h))){ toast('Este archivo no tiene el formato del reporte de Feria.','err'); return; }
+    const data=rows.slice(1).filter(r=>r[1]);
+    if(!data.length){ toast('El archivo no tiene filas de ventas.','err'); return; }
+    const fechas=data.map(r=>new Date(r[1])).filter(d=>!isNaN(d));
+    const desde=new Date(Math.min(...fechas)), hasta=new Date(Math.max(...fechas));
+    const mes=`${desde.getFullYear()}-${String(desde.getMonth()+1).padStart(2,'0')}`;
+    const totalUds=data.reduce((s,r)=>s+(parseInt(r[7])||0),0);
+    const totalSin=data.reduce((s,r)=>s+(parseFloat(String(r[8]).replace(/[^\d.-]/g,''))||0),0);
+    _vfPending={ data, desde, hasta, mes, totalUds, totalSin, archivo:file.name };
+    const { data: existe } = await sb.from('reportes_ventas_feria').select('id').eq('mes',mes).eq('estado','activo').limit(1);
+    const dstr=d=>`${d.getDate()} ${MESES[d.getMonth()].toLowerCase()} ${d.getFullYear()}`;
+    document.getElementById('vf-confirm-body').innerHTML=`
+      <div style="line-height:1.9">Archivo: <strong>${file.name}</strong><br>
+      Período: <strong>${dstr(desde)} → ${dstr(hasta)}</strong><br>
+      Mes: <strong>${mesNombre(mes)}</strong></div>
+      <div style="border-top:1px solid var(--borde);margin:8px 0;padding-top:8px;line-height:1.9">
+      Transacciones: <strong>${NUM(data.length)}</strong><br>
+      Unidades: <strong>${NUM(totalUds)}</strong><br>
+      Ventas sin IVA: <strong>${COP(totalSin)}</strong></div>
+      ${existe&&existe.length?`<div class="alert alert-warn" style="margin:6px 0 0">⚠️ Ya existe un reporte activo de ${mesNombre(mes)}. Al confirmar, el anterior quedará como "Superado".</div>`:''}`;
+    document.getElementById('vf-confirm-btn').style.display='';
+    document.getElementById('modal-vf').classList.add('open');
+  }catch(e){ console.error(e); toast('Error al leer el archivo: '+e.message,'err'); }
+}
+
+async function vfGuardar(){
+  const P=_vfPending; if(!P) return;
+  const btn=document.getElementById('vf-confirm-btn'); btn.disabled=true; const prev=btn.textContent; btn.textContent='Importando…';
+  await sb.from('reportes_ventas_feria').update({estado:'superado'}).eq('mes',P.mes).eq('estado','activo');
+  const { data: rep, error } = await sb.from('reportes_ventas_feria').insert({ mes:P.mes, periodo_desde:P.desde.toISOString().slice(0,10), periodo_hasta:P.hasta.toISOString().slice(0,10), tipo:'parcial', total_unidades:P.totalUds, total_ventas_sin_iva:Math.round(P.totalSin), nombre_archivo:P.archivo }).select().single();
+  if(error){ btn.disabled=false; btn.textContent=prev; toast('No se pudo crear el reporte: '+detalleError(error),'err'); console.error(error); return; }
+  const num=s=>parseFloat(String(s).replace(/[^\d.-]/g,''))||0;
+  const detalle=P.data.map(r=>{ const pr=vfParseRef(r[4]||''); const af=r[3]||''; return { reporte_id:rep.id, fecha:new Date(r[1]).toISOString().slice(0,10), almacen_feria:af, almacen:VF_ALMACENES[String(af).toUpperCase().trim()]||af, referencia_codigo:r[4]||null, referencia_base:pr.base||null, talla:pr.talla, desc_item:r[6]||null, cantidad:parseInt(r[7])||0, valor_sin_iva:num(r[8]), valor_con_iva:num(r[11]), valor_descuentos:num(r[9]), vendedor:r[12]||null, es_oferta:String(r[14]||'').includes('6002') }; });
+  for(let i=0;i<detalle.length;i+=100){ const { error:e2 }=await sb.from('ventas_feria_detalle').insert(detalle.slice(i,i+100)); if(e2){ btn.disabled=false; btn.textContent=prev; toast('Error guardando detalle: '+detalleError(e2),'err'); console.error(e2); return; } }
+  btn.disabled=false; btn.textContent=prev;
+  cerrarModal('modal-vf'); toast(`✓ ${NUM(P.totalUds)} unidades importadas`);
+  _vfPending=null; cargarVentasFeria();
+}
+
+async function vfMarcarDefinitivo(){
+  if(!_vfReporte) return;
+  if(!confirm(`¿Este es el reporte FINAL de ${mesNombre(_vfReporte.mes)}? Podrás cargar otro, pero quedará marcado como definitivo.`)) return;
+  await sb.from('reportes_ventas_feria').update({tipo:'definitivo'}).eq('id',_vfReporte.id);
+  toast('✓ Marcado como definitivo'); cargarVentasFeria();
+}
+
+async function vfHistorial(){
+  const { data } = await sb.from('reportes_ventas_feria').select('*').order('created_at',{ascending:false}).limit(60);
+  const rows=(data||[]).map(r=>`<tr><td>${mesNombre(r.mes)}</td><td style="font-size:11px">${_fechaLargaVF(r.periodo_desde)}–${_fechaLargaVF(r.periodo_hasta)}</td><td>${r.tipo==='definitivo'?'Definitivo':'Parcial'}</td><td style="text-align:right">${NUM(r.total_unidades)}</td><td style="text-align:right">${COP(r.total_ventas_sin_iva)}</td><td>${r.estado==='activo'?'🟢 Activo':'⚪ Superado'}</td></tr>`).join('');
+  document.getElementById('vf-confirm-body').innerHTML=`<div style="font-weight:700;margin-bottom:8px">Historial de reportes</div><div class="tabla-wrap"><table style="font-size:12px"><thead><tr><th>Mes</th><th>Período</th><th>Tipo</th><th style="text-align:right">Uds</th><th style="text-align:right">Ventas s/IVA</th><th>Estado</th></tr></thead><tbody>${rows||'<tr><td colspan="6" style="text-align:center;padding:14px;color:var(--gris-medio)">Sin reportes.</td></tr>'}</tbody></table></div>`;
+  document.getElementById('vf-confirm-btn').style.display='none';
+  document.getElementById('modal-vf').classList.add('open');
 }
 
 // ─── PUNTO DE EQUILIBRIO (panel interactivo) ───
