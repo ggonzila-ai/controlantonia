@@ -747,6 +747,7 @@
           </div>
         </div>
         <div class="metrics" id="rank-kpis" style="margin:14px 16px"></div>
+        <div id="rank-feria-nota" style="margin:0 16px 14px;display:none"></div>
         <div class="section-card" id="rank-insights-card" style="margin:0 16px 14px;display:none">
           <div class="section-header"><div class="section-title">💡 Insights del período</div><span id="rank-insights-sub" style="font-size:11px;color:var(--gris-medio)"></span></div>
           <div id="rank-insights" style="padding:6px 0"></div>
@@ -792,6 +793,7 @@
           </div>
         </div>
         <div class="metrics" id="vpa-kpis" style="margin:14px 16px"></div>
+        <div id="vpa-feria-nota" style="margin:0 16px 14px;display:none"></div>
         <div style="padding:0 16px 8px;font-size:11px;color:var(--gris-medio)">Toca el encabezado de cualquier columna numérica para ordenar (▲▼). El <strong>precio lista</strong> es el precio normal sin promoción; <strong>precio prom.</strong> es lo realmente cobrado. <strong>Margen</strong>, <strong>rentab.</strong> y <strong>utilidad</strong> usan el módulo Bodega → Costos.</div>
         <div class="tabla-wrap" id="vpa-tabla"><div class="loader"><div class="spinner"></div></div></div>
       </div>
@@ -4970,28 +4972,99 @@ async function cargarVentasVendedora() {
 
 // ─── VENTAS: RANKINGS / CONSOLIDADO ───────────
 function setRankBy(b){ rankBy=b; cargarVentasRank(); }
+// ─── FUENTE UNIFICADA DE VENTAS (manuales + Feria del Brasier) ───
+// Convierte el nombre corto del reporte Feria ("Malca 2") al nombre completo
+// que usa el resto de la app ("Feria del Brasier Malca 2") para que ordenen,
+// filtren y se muestren igual que las ventas manuales.
+function feriaAlmacenLargo(corto) {
+  if (!corto) return '—';
+  const fix = corto === 'Unicentro' ? 'Unicentro Cali' : corto;
+  return 'Feria del Brasier ' + fix;
+}
+// Nota visible cuando el período usa un reporte de Feria (parcial o definitivo).
+function notaFeriaHTML(feria) {
+  if (!feria) return '';
+  const fmt = s => s ? new Date(s + 'T00:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) : '';
+  const rango = (feria.periodo_desde && feria.periodo_hasta) ? `${fmt(feria.periodo_desde)}–${fmt(feria.periodo_hasta)}` : '';
+  if (feria.tipo === 'definitivo')
+    return `<div class="alert alert-info" style="margin:0">✓ Incluye el reporte <strong>definitivo</strong> de Feria del Brasier${rango ? ` (${rango})` : ''}.</div>`;
+  return `<div class="alert alert-warn" style="margin:0">⚡ <strong>Datos parciales</strong> — reporte de Feria del Brasier${rango ? ` del ${rango}` : ''}. Se actualizará cuando cargues el reporte completo del mes.</div>`;
+}
+// Devuelve filas con la MISMA forma de la tabla `ventas` para el período dado,
+// usando el reporte de Feria activo del mes si existe (la fuente de verdad), y
+// las ventas manuales para los meses sin reporte Feria — sin doble conteo.
+// periodo = "2026-06" (un mes) o "" (todos los meses).
+// Retorna { rows, feria } donde `feria` es el reporte del mes (solo si periodo es un mes único).
+async function ventasShapedDelPeriodo(periodo) {
+  let reps = [];
+  try {
+    const { data } = await sb.from('reportes_ventas_feria')
+      .select('id, tipo, mes, periodo_desde, periodo_hasta, estado')
+      .eq('estado', 'activo');
+    reps = data || [];
+  } catch (e) { reps = []; }
+  if (periodo) reps = reps.filter(r => r.mes === periodo);
+  const mesesFeria = new Set(reps.map(r => r.mes));
+
+  let feriaRows = [];
+  if (reps.length) {
+    const ids = reps.map(r => r.id);
+    const det = await selectAll('ventas_feria_detalle',
+      'reporte_id, almacen, referencia_base, desc_item, cantidad, valor_sin_iva, valor_con_iva, valor_descuentos',
+      q => q.in('reporte_id', ids));
+    feriaRows = (det || []).map(d => {
+      const uds = d.cantidad || 0;
+      return {
+        almacen_nombre: feriaAlmacenLargo(d.almacen),
+        referencia: d.desc_item || d.referencia_base || '—',
+        categoria: null,
+        cantidad: uds,
+        precio_unitario: uds ? (d.valor_con_iva || 0) / uds : 0, // con IVA por unidad → ventaTotal = valor_con_iva
+        descuento: d.valor_descuentos || 0,
+        _sinIva: d.valor_sin_iva || 0
+      };
+    });
+  }
+
+  const ventas = await selectAll('ventas',
+    'almacen_nombre, referencia, categoria, cantidad, precio_unitario, descuento, periodo',
+    q => periodo ? q.eq('periodo', periodo) : q);
+  const ventasRows = (ventas || [])
+    .filter(v => !mesesFeria.has(v.periodo))                 // excluir meses ya cubiertos por Feria
+    .map(v => ({ ...v, _sinIva: baseSinIva(ventaTotal(v)) }));
+
+  const feria = (periodo && reps.length) ? reps[0] : null;
+  return { rows: [...feriaRows, ...ventasRows], feria };
+}
+
 async function cargarVentasRank() {
   await llenarSelectAlmacenes();
   const pin = document.getElementById('rank-periodo');
   if (!pin.options.length) {
     const { data } = await sb.from('ventas').select('periodo').order('periodo',{ascending:false}).limit(1);
-    const def = (data&&data[0]&&data[0].periodo) || periodoActual();
+    let def = (data&&data[0]&&data[0].periodo) || periodoActual();
+    try {
+      const { data: fr } = await sb.from('reportes_ventas_feria').select('mes').eq('estado','activo').order('mes',{ascending:false}).limit(1);
+      if (fr && fr[0] && fr[0].mes > def) def = fr[0].mes;   // priorizar el último reporte Feria
+    } catch(e) {}
     pin.innerHTML = periodoOpciones(def, false);
   }
   document.getElementById('rank-by-valor').className = 'btn btn-sm ' + (rankBy==='valor'?'btn-primary':'btn-secondary');
   document.getElementById('rank-by-uds').className = 'btn btn-sm ' + (rankBy==='uds'?'btn-primary':'btn-secondary');
   const periodo = pin.value;
   const almFiltro = document.querySelector('#rank-almacen option:checked') ? document.querySelector('#rank-almacen option:checked').dataset.nombre || '' : '';
-  const ventas = await selectAll('ventas', 'almacen_nombre, referencia, categoria, cantidad, precio_unitario', q => q.eq('periodo', periodo));
-  const all = ventas || [];
+  const { rows: all, feria } = await ventasShapedDelPeriodo(periodo);
   const almMap = {};
   all.forEach(v => { const k=v.almacen_nombre; (almMap[k]=almMap[k]||{uds:0,total:0}); almMap[k].uds+=v.cantidad; almMap[k].total+=ventaTotal(v); });
   const almRows = Object.entries(almMap).sort((a,b)=>cmpAlm(a[0], b[0]));
   const granTotal = almRows.reduce((s,e)=>s+e[1].total,0), granUds = almRows.reduce((s,e)=>s+e[1].uds,0);
+  const granBase = all.reduce((s,v)=>s+(v._sinIva||0),0) || baseSinIva(granTotal);
   const maxT = Math.max(...almRows.map(e=>e[1].total),1);
+  const notaF = document.getElementById('rank-feria-nota');
+  if (notaF) { const h = notaFeriaHTML(feria); notaF.innerHTML = h; notaF.style.display = h ? 'block' : 'none'; }
   document.getElementById('rank-kpis').innerHTML = `
     <div class="metric-card accent"><div class="m-label">Ventas ${mesNombre(periodo)}</div><div class="m-val">${COP(granTotal)}</div><div class="m-sub">${NUM(granUds)} uds · IVA incl.</div></div>
-    <div class="metric-card"><div class="m-label">Base sin IVA</div><div class="m-val">${COP(baseSinIva(granTotal))}</div><div class="m-sub">IVA ${COP(ivaDe(granTotal))}</div></div>`;
+    <div class="metric-card"><div class="m-label">Base sin IVA</div><div class="m-val">${COP(granBase)}</div><div class="m-sub">IVA ${COP(granTotal-granBase)}</div></div>`;
   document.getElementById('rank-consolidado').innerHTML = almRows.map(e=>{
     const v=e[1], pct=Math.round(v.total/maxT*100), share=granTotal?Math.round(v.total/granTotal*100):0;
     return `<div style="display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--borde)">
@@ -5463,14 +5536,11 @@ async function cargarVentasPorAlmacen() {
   }
   document.getElementById('vpa-tabla').innerHTML = '<div class="loader"><div class="spinner"></div></div>';
 
-  const ventas = await selectAll('ventas', 'almacen_nombre, referencia, categoria, cantidad, precio_unitario, descuento', q => {
-    if (almNombre) q = q.eq('almacen_nombre', almNombre);
-    if (periodo) q = q.eq('periodo', periodo);
-    if (cat) q = q.eq('categoria', cat);
-    return q;
-  });
-  const ventasTotalCia = await selectAll('ventas', 'cantidad, precio_unitario', q => periodo ? q.eq('periodo', periodo) : q);
-  const totalCia = (ventasTotalCia||[]).reduce((s,v)=>s+ventaTotal(v),0) || 1;
+  const { rows: allPeriodo, feria } = await ventasShapedDelPeriodo(periodo);
+  const totalCia = allPeriodo.reduce((s,v)=>s+ventaTotal(v),0) || 1;
+  const ventas = allPeriodo.filter(v => (!almNombre || v.almacen_nombre === almNombre) && (!cat || v.categoria === cat));
+  const notaF = document.getElementById('vpa-feria-nota');
+  if (notaF) { const h = notaFeriaHTML(feria); notaF.innerHTML = h; notaF.style.display = h ? 'block' : 'none'; }
 
   const stats = statsPorReferencia(ventas);
   const totVal = Object.values(stats).reduce((s,r)=>s+r.total,0) || 1;
