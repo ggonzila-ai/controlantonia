@@ -5663,15 +5663,24 @@ function colorBarra(dow){ return dow===6 ? '#EF9F27' : dow===0 ? '#7F77DD' : '#3
 async function cargarVentasDiarias(mes, almacen){
   const porDia={};
   if(!/^\d{4}-\d{2}$/.test(mes||'')) return porDia;
-  const desde=`${mes}-01`, hasta=`${mes}-31`;
-  let q = sb.from('ventas_feria_detalle')
-    .select('fecha, almacen, cantidad, valor_sin_iva, reportes_ventas_feria!inner(estado, mes)')
-    .eq('reportes_ventas_feria.estado','activo').eq('reportes_ventas_feria.mes', mes)
-    .gte('fecha', desde).lte('fecha', hasta).limit(20000);
-  if (almacen && almacen!=='Todos') q = q.eq('almacen', almacen);
-  const { data, error } = await q;
-  if (error || !data) return porDia;
-  data.forEach(r=>{ const d=r.fecha; if(!porDia[d]) porDia[d]={uds:0,valor:0}; porDia[d].uds+=(r.cantidad||0); porDia[d].valor+=(r.valor_sin_iva||0); });
+  const add=(d,uds,val)=>{ if(!d) return; if(!porDia[d]) porDia[d]={uds:0,valor:0}; porDia[d].uds+=uds; porDia[d].valor+=val; };
+  // Si el mes tiene reporte Feria activo, usa el detalle Feria (fuente de verdad)…
+  let hayFeria=false;
+  try { const { data } = await sb.from('reportes_ventas_feria').select('id').eq('estado','activo').eq('mes',mes).limit(1); hayFeria=!!(data&&data.length); } catch(e){ hayFeria=false; }
+  if (hayFeria) {
+    let q = sb.from('ventas_feria_detalle')
+      .select('fecha, almacen, cantidad, valor_sin_iva, reportes_ventas_feria!inner(estado, mes)')
+      .eq('reportes_ventas_feria.estado','activo').eq('reportes_ventas_feria.mes', mes).limit(20000);
+    if (almacen && almacen!=='Todos') q = q.eq('almacen', almacen);
+    const { data } = await q;
+    (data||[]).forEach(r=> add(r.fecha, r.cantidad||0, r.valor_sin_iva||0));
+    return porDia;
+  }
+  // …si no, cae a las ventas manuales (tabla ventas) agrupadas por fecha (valor = base sin IVA).
+  const almFull = (almacen && almacen!=='Todos') ? feriaAlmacenLargo(almacen) : null;
+  const vd = await selectAll('ventas','fecha, almacen_nombre, cantidad, precio_unitario',
+    q=>{ let qq=q.eq('periodo',mes); if(almFull) qq=qq.eq('almacen_nombre',almFull); return qq; });
+  (vd||[]).forEach(r=> add(r.fecha, r.cantidad||0, baseSinIva((r.cantidad||0)*(r.precio_unitario||0))));
   return porDia;
 }
 
@@ -5688,7 +5697,10 @@ async function refreshGraficaDiaria(){
   if (!document.getElementById('vd-wrap')) return;
   let mes = document.getElementById('vpa-periodo')?.value || '';
   if (!/^\d{4}-\d{2}$/.test(mes)) {
-    try { const { data } = await sb.from('reportes_ventas_feria').select('mes').eq('estado','activo').order('mes',{ascending:false}).limit(1); mes=(data&&data[0]&&data[0].mes)||''; } catch(e){ mes=''; }
+    let f='', v='';
+    try { const { data } = await sb.from('reportes_ventas_feria').select('mes').eq('estado','activo').order('mes',{ascending:false}).limit(1); f=(data&&data[0]&&data[0].mes)||''; } catch(e){}
+    try { const { data } = await sb.from('ventas').select('periodo').order('periodo',{ascending:false}).limit(1); v=(data&&data[0]&&data[0].periodo)||''; } catch(e){}
+    mes = (f>v?f:v) || '';
   }
   const alm = document.getElementById('vd-almacen')?.value || 'Todos';
   const lbl = document.getElementById('vd-mes'); if (lbl) lbl.textContent = mes ? '· '+mesNombre(mes) : '';
@@ -5701,7 +5713,7 @@ async function renderGraficaVentasDiarias(mes, almacen){
   const wrap=document.getElementById('vd-wrap'), insEl=document.getElementById('vd-insights'), patEl=document.getElementById('vd-patron');
   if(!fechas.length){
     if(_vdChart){ _vdChart.destroy(); _vdChart=null; }
-    if(wrap) wrap.innerHTML='<div style="text-align:center;color:var(--gris-medio);font-size:13px;padding:48px 0">Sin datos de Feria para este período.</div>';
+    if(wrap) wrap.innerHTML='<div style="text-align:center;color:var(--gris-medio);font-size:13px;padding:48px 0">Sin ventas registradas para este período.</div>';
     if(insEl) insEl.innerHTML=''; if(patEl) patEl.innerHTML='';
     return;
   }
