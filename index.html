@@ -2183,6 +2183,14 @@ function tallasDe(ref) {
   tallasData.filter(t => t.referencia === ref).forEach(t => { o[t.talla] = t.stock; });
   return o;
 }
+// Stock por talla EFECTIVO: prioriza bodega.stock_por_talla (lo que escribe "+ Entrada"
+// y muestra Existencias); cae a la tabla legado bodega_tallas si está vacío.
+function stockPorTallaDe(ref) {
+  const p = bodegaData.find(x => x.referencia === ref);
+  const spt = p && p.stock_por_talla;
+  if (spt && Object.keys(spt).length) { const o = {}; Object.keys(spt).forEach(k => { o[k] = +spt[k] || 0; }); return o; }
+  return tallasDe(ref);
+}
 // códigos asignados a una referencia
 function codigosDe(ref) { return codigosSku.filter(c => c.referencia === ref); }
 
@@ -3841,7 +3849,7 @@ function addDespachoItem() {
 function updDRow(idx) {
   const ref = document.getElementById('dr-ref-' + idx).value;
   const p = bodegaData.find(x => x.referencia === ref);
-  const stock = tallasDe(ref);
+  const stock = stockPorTallaDe(ref);
   const tallas = ordenarTallas([...new Set([...parseTallas(p?.tallas), ...Object.keys(stock)])]);
   const tsel = document.getElementById('dr-talla-' + idx);
   tsel.innerHTML = '<option value="">Talla…</option>' + tallas.map(t => `<option value="${t}" data-stock="${stock[t]||0}">${t} (${NUM(stock[t]||0)})</option>`).join('');
@@ -3880,7 +3888,7 @@ async function confirmarDespacho() {
     const cant = parseInt(document.getElementById('dr-cant-' + idx)?.value) || 0;
     if (!ref || cant < 1) continue;
     if (!talla) { toast(`Falta la talla en ${ref}`, 'err'); return; }
-    const disp = tallasDe(ref)[talla] || 0;
+    const disp = stockPorTallaDe(ref)[talla] || 0;
     if (disp < cant) { toast(`Stock insuficiente: ${ref} talla ${talla} (${disp} disp.)`, 'err'); return; }
     const p = bodegaData.find(x => x.referencia === ref);
     items.push({ referencia: ref, categoria: p?.categoria || '', talla, cantidad: cant });
@@ -3892,8 +3900,16 @@ async function confirmarDespacho() {
   if (error) { toast('Error al guardar despacho', 'err'); return; }
 
   await sb.from('despacho_items').insert(items.map(i => ({ ...i, despacho_id: desp.id })));
-  for (const i of items) {
-    await sb.rpc('mov_bodega_talla', { p_ref: i.referencia, p_talla: i.talla, p_delta: -i.cantidad });
+  // Descontar del stock_por_talla (misma fuente que las entradas y Existencias), agregando por referencia
+  const porRef = {};
+  items.forEach(i => { (porRef[i.referencia] = porRef[i.referencia] || {})[i.talla] = (porRef[i.referencia][i.talla] || 0) + i.cantidad; });
+  for (const ref of Object.keys(porRef)) {
+    const { data: cur } = await sb.from('bodega').select('id, stock_por_talla').eq('referencia', ref).maybeSingle();
+    if (!cur) continue;
+    const spt = (cur.stock_por_talla && Object.keys(cur.stock_por_talla).length) ? { ...cur.stock_por_talla } : stockPorTallaDe(ref);
+    Object.entries(porRef[ref]).forEach(([t, c]) => { spt[t] = Math.max(0, (+spt[t] || 0) - c); });
+    const tot = Object.values(spt).reduce((s, v) => s + (+v || 0), 0);
+    await sb.from('bodega').update({ stock: tot, stock_por_talla: spt }).eq('id', cur.id);
   }
 
   toast(`✓ ${remision} — ${NUM(totalUnd)} uds despachadas`);
