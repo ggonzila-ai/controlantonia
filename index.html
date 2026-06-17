@@ -601,7 +601,7 @@
       <div class="tab" id="tab-ventas-poralmacen" onclick="showTab('tab-ventas-poralmacen')">Ventas por Almacén</div>
       <div class="tab" id="tab-ventas-descuentos" onclick="showTab('tab-ventas-descuentos')">Descuentos</div>
       <div class="tab" id="tab-ventas-historico" onclick="showTab('tab-ventas-historico')">Comparativo histórico</div>
-      <div class="tab" id="tab-ventas-abc" onclick="showTab('tab-ventas-abc')">Curva ABC</div>
+      <div class="tab" id="tab-ventas-abc" onclick="showTab('tab-ventas-abc')">Curva ABC Producción</div>
       <div class="tab" id="tab-ventas-cargar" onclick="showTab('tab-ventas-cargar')">Cargar informe</div>
       <div class="tab" id="tab-ventas-manual" onclick="showTab('tab-ventas-manual')">Manual</div>
       <div class="tab" id="tab-ventas-feria" onclick="showTab('tab-ventas-feria')">📊 Reportes Feria</div>
@@ -751,19 +751,15 @@
             <label>Período</label>
             <select id="abc-periodo" onchange="cargarABC()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"></select>
           </div>
-          <div class="form-group" style="margin:0;min-width:140px">
-            <label>Almacén</label>
-            <select id="abc-almacen" onchange="cargarABC()"><option value="">Todos</option></select>
-          </div>
-          <div class="form-group" style="margin:0;min-width:130px">
+          <div class="form-group" style="margin:0;min-width:160px">
             <label>Clasificar por</label>
             <select id="abc-metrica" onchange="cargarABC()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)">
-              <option value="total">Ventas ($)</option>
-              <option value="utilidad">Utilidad</option>
+              <option value="unidades">Unidades producidas</option>
+              <option value="costo">Costo de producción ($)</option>
             </select>
           </div>
         </div>
-        <div style="padding:8px 16px;font-size:11px;color:var(--gris-medio)">Clase <strong>A</strong> ≈ 80% del total (pocas referencias clave) · <strong>B</strong> ≈ siguiente 15% · <strong>C</strong> ≈ último 5%. Úsala para priorizar producción, inventario y reposición. La utilidad usa Bodega → Costos.</div>
+        <div style="padding:8px 16px;font-size:11px;color:var(--gris-medio)">Curva ABC de <strong>producción</strong> (cortes): clase <strong>A</strong> ≈ 80% del total (pocas referencias clave) · <strong>B</strong> ≈ siguiente 15% · <strong>C</strong> ≈ último 5%. Úsala para priorizar capacidad de taller, compra de tela y reposición. El costo usa la tela invertida en cada corte.</div>
         <div class="metrics" id="abc-kpis" style="margin:6px 16px 14px"></div>
         <div class="section-card" id="abc-insights-card" style="margin:0 16px 14px;display:none">
           <div class="section-header"><div class="section-title">💡 Insights ABC</div></div>
@@ -5062,32 +5058,43 @@ function renderRankingRentabilidad() {
   </table>${sinCostos?`<div style="padding:8px 16px;font-size:11px;color:var(--gris-medio)">${sinCostos} referencia(s) sin costos definidos (margen/utilidad en —). Defínelos en Bodega → Costos.</div>`:''}`;
 }
 
-// ─── CURVA ABC ────────────────────────────────
+// ─── CURVA ABC (PRODUCCIÓN) ──────────────────────
+// Clasifica las referencias por lo que se PRODUCE (cortes), no por lo que se vende.
 let _abcRows = [];
+// Fecha de producción del corte: fin si terminado, si no la de inicio / creación.
+function _corteFecha(c) { return c.fecha_fin || c.fecha || (c.created_at ? String(c.created_at).slice(0, 10) : null); }
+function _cortePeriodo(c) { const f = _corteFecha(c); return f ? String(f).slice(0, 7) : null; }
 async function cargarABC() {
-  await llenarSelectAlmacenes();
   const pin = document.getElementById('abc-periodo');
-  if (!pin.options.length) {
-    const { data } = await sb.from('ventas').select('periodo').order('periodo', { ascending: false }).limit(1);
-    const def = (data && data[0] && data[0].periodo) || periodoActual();
-    pin.innerHTML = periodoOpciones(def, true);
-  }
-  const asel = document.getElementById('abc-almacen');
-  if (asel.options.length <= 1) asel.innerHTML = '<option value="">Todos los almacenes</option>' + almacenes.map(a => `<option value="${a.nombre}">${limpiarAlm(a.nombre)}</option>`).join('');
-  const periodo = pin.value;
-  const metrica = document.getElementById('abc-metrica').value;
-  const almFiltro = asel.value;
+  const metrica = document.getElementById('abc-metrica').value || 'unidades';
   document.getElementById('abc-tabla').innerHTML = '<div class="loader"><div class="spinner"></div></div>';
-  const ventas = await selectAll('ventas', 'almacen_nombre, referencia, categoria, cantidad, precio_unitario, periodo', q => periodo ? q.eq('periodo', periodo) : q);
-  await loadCostosData();
-  const all = (ventas || []).filter(v => !almFiltro || v.almacen_nombre === almFiltro);
+  const { data } = await sb.from('cortes').select('*').order('created_at', { ascending: false });
+  const cortes = data || [];
+  if (!pin.options.length) {
+    const periods = [...new Set(cortes.map(_cortePeriodo).filter(Boolean))].sort().reverse();
+    pin.innerHTML = '<option value="">Todos</option>' + periods.map(p => `<option value="${p}">${mesNombre(p)}</option>`).join('');
+  }
+  const periodo = pin.value;
+  const fcortes = cortes.filter(c => !periodo || _cortePeriodo(c) === periodo);
+  // Acumular unidades producidas y costo (tela invertida) por referencia.
   const refMap = {};
-  all.forEach(v => { const k = v.referencia; (refMap[k] = refMap[k] || { ref: k, cat: v.categoria, uds: 0, total: 0 }); refMap[k].uds += v.cantidad; refMap[k].total += ventaTotal(v); });
-  let rows = Object.values(refMap).map(r => {
-    const m = margenReferencia(r.ref);
-    return { ...r, utilidad: m ? Math.round(m.margen * r.uds) : null, margenPct: m ? Math.round(m.margenPct * 100) : null };
+  fcortes.forEach(c => {
+    const items = Array.isArray(c.items) ? c.items : [];
+    const term = c.estado === 'terminado';
+    const sumEst = items.reduce((a, it) => a + (it.prendas_estimadas || 0), 0) || 1;
+    items.forEach(it => {
+      const ref = it.referencia; if (!ref) return;
+      const uds = term ? (it.prendas_buenas || 0) : (it.prendas_estimadas || 0);
+      const costo = term
+        ? (it.prendas_buenas || 0) * (it.costo_por_prenda || 0)
+        : (c.costo_total || 0) * ((it.prendas_estimadas || 0) / sumEst);
+      refMap[ref] = refMap[ref] || { ref, uds: 0, costo: 0 };
+      refMap[ref].uds += uds;
+      refMap[ref].costo += Math.round(costo);
+    });
   });
-  const sortKey = metrica === 'utilidad' ? 'utilidad' : 'total';
+  let rows = Object.values(refMap);
+  const sortKey = metrica === 'costo' ? 'costo' : 'uds';
   rows.sort((a, b) => (b[sortKey] || 0) - (a[sortKey] || 0));
   const granTotal = rows.reduce((s, r) => s + (r[sortKey] || 0), 0);
   let cum = 0;
@@ -5099,37 +5106,40 @@ async function cargarABC() {
     const col = c === 'A' ? 'var(--verde)' : c === 'B' ? 'var(--amarillo)' : 'var(--gris-medio)';
     const pctRefs = rows.length ? Math.round(clases[c].n / rows.length * 100) : 0;
     const pctVal = granTotal ? Math.round(clases[c].v / granTotal * 100) : 0;
-    return `<div class="metric-card"><div class="m-label" style="color:${col}">Clase ${c}</div><div class="m-val">${clases[c].n}</div><div class="m-sub">${pctRefs}% refs · ${pctVal}% ${metrica === 'utilidad' ? 'util.' : 'ventas'}</div></div>`;
+    return `<div class="metric-card"><div class="m-label" style="color:${col}">Clase ${c}</div><div class="m-val">${clases[c].n}</div><div class="m-sub">${pctRefs}% refs · ${pctVal}% ${metrica === 'costo' ? 'costo' : 'uds'}</div></div>`;
   }).join('');
   document.getElementById('abc-tabla').innerHTML = rows.length ? `<table>
-    <thead><tr><th>#</th><th>Referencia</th><th>ABC</th><th style="text-align:right">Part.</th><th style="text-align:right">Acum.</th><th style="text-align:right">Ventas</th><th style="text-align:right">Uds.</th><th style="text-align:right">Utilidad</th></tr></thead>
+    <thead><tr><th>#</th><th>Referencia</th><th>ABC</th><th style="text-align:right">Part.</th><th style="text-align:right">Acum.</th><th style="text-align:right">Unidades</th><th style="text-align:right">Costo prod.</th></tr></thead>
     <tbody>${rows.map((r, i) => {
       const cls = r.abc === 'A' ? 'badge-ok' : r.abc === 'B' ? 'badge-warn' : 'badge-gray';
+      const udsCol = sortKey === 'uds' ? 'font-weight:700' : '';
+      const costoCol = sortKey === 'costo' ? 'font-weight:700' : 'color:var(--gris-medio)';
       return `<tr>
         <td style="color:var(--gris-medio);font-weight:700">${i + 1}</td>
-        <td><strong>${r.ref}</strong> <span class="badge badge-rosa" style="font-size:9px">${r.cat || '—'}</span></td>
+        <td><strong>${r.ref}</strong></td>
         <td><span class="badge ${cls}">${r.abc}</span></td>
         <td style="text-align:right">${(r.part * 100).toFixed(1)}%</td>
         <td style="text-align:right;color:var(--gris-medio)">${Math.round(r.cum * 100)}%</td>
-        <td style="text-align:right;font-weight:700">${COP(r.total)}</td>
-        <td style="text-align:right">${NUM(r.uds)}</td>
-        <td style="text-align:right">${r.utilidad != null ? COP(r.utilidad) : '<span style="color:var(--gris-medio)">—</span>'}</td>
+        <td style="text-align:right;${udsCol}">${NUM(r.uds)}</td>
+        <td style="text-align:right;${costoCol}">${COP(r.costo)}</td>
       </tr>`;
-    }).join('')}</tbody></table>` : '<div style="padding:20px;text-align:center;color:var(--gris-medio);font-size:13px">Sin ventas en este período.</div>';
-  renderABCInsights(rows);
+    }).join('')}</tbody></table>` : '<div style="padding:20px;text-align:center;color:var(--gris-medio);font-size:13px">Sin cortes de producción en este período.</div>';
+  renderABCInsights(rows, metrica);
 }
 
-function renderABCInsights(rows) {
+function renderABCInsights(rows, metrica) {
   const card = document.getElementById('abc-insights-card');
   const cont = document.getElementById('abc-insights');
   if (!rows.length) { card.style.display = 'none'; return; }
+  const esCosto = metrica === 'costo';
+  const unidad = esCosto ? 'del costo de producción' : 'de las unidades producidas';
   const ins = [];
   const A = rows.filter(r => r.abc === 'A');
-  if (A.length) ins.push(['⭐ Estratégicas (A)', `${A.length} referencias concentran ~80% de las ventas: ${A.slice(0, 5).map(r => r.ref).join(', ')}${A.length > 5 ? '…' : ''}. Prioriza su producción, inventario y reposición — no pueden faltar.`]);
-  const pot = rows.filter(r => r.abc === 'B' && r.margenPct != null && r.margenPct >= 35).sort((a, b) => b.margenPct - a.margenPct).slice(0, 4);
-  if (pot.length) ins.push(['🚀 Con potencial (B)', `Buen margen y podrían subir a A si vendes más: ${pot.map(r => r.ref + ' (' + r.margenPct + '%)').join(', ')}.`]);
+  if (A.length) ins.push(['⭐ Núcleo de producción (A)', `${A.length} referencias concentran ~80% ${unidad}: ${A.slice(0, 5).map(r => r.ref).join(', ')}${A.length > 5 ? '…' : ''}. Asegura tela e hilos y capacidad de taller para estas — son las que más mueven la producción.`]);
+  const B = rows.filter(r => r.abc === 'B');
+  if (B.length) ins.push(['🔁 Producción media (B)', `${B.length} referencias aportan ~15% ${unidad}: ${B.slice(0, 5).map(r => r.ref).join(', ')}${B.length > 5 ? '…' : ''}. Producción regular pero secundaria.`]);
   const C = rows.filter(r => r.abc === 'C');
-  if (C.length) ins.push(['🔻 Bajo impacto (C)', `${C.length} referencias aportan ~5% de las ventas. Evalúa reducir inventario/producción o replantear las de bajo margen.`]);
+  if (C.length) ins.push(['🔻 Producción baja (C)', `${C.length} referencias aportan ~5% ${unidad}. Producciones puntuales o de bajo volumen — revisa si justifican el montaje de corte.`]);
   cont.innerHTML = ins.map(([t, d]) => `<div style="padding:9px 16px;border-bottom:1px solid var(--border-light);font-size:13px"><strong>${t}</strong><div style="color:var(--gris-medio);margin-top:2px">${d}</div></div>`).join('');
   card.style.display = '';
 }
