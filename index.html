@@ -5020,14 +5020,19 @@ async function ventasShapedDelPeriodo(periodo, opts) {
   let feriaRows = [];
   if (reps.length) {
     const ids = reps.map(r => r.id);
+    // Resolver el código Feria (ANT####) a la referencia REAL vía codigos_sku
+    // (fuente de verdad de qué producto representa cada código). Cae a desc_item si no hay mapeo.
+    if (!codigosSku.length) { try { await cargarCodigos(); } catch (e) {} }
+    const codeMap = {}; codigosSku.forEach(c => { if (c.codigo) codeMap[String(c.codigo).toUpperCase().trim()] = c.referencia; });
     const det = await selectAll('ventas_feria_detalle',
       'reporte_id, almacen, referencia_base, desc_item, cantidad, valor_sin_iva, valor_con_iva, valor_descuentos',
       q => q.in('reporte_id', ids));
     feriaRows = (det || []).map(d => {
       const uds = d.cantidad || 0;
+      const real = codeMap['ANT' + String(d.referencia_base || '').toUpperCase().trim()];
       return {
         almacen_nombre: feriaAlmacenLargo(d.almacen),
-        referencia: d.desc_item || d.referencia_base || '—',
+        referencia: real || d.desc_item || d.referencia_base || '—',
         categoria: null,
         cantidad: uds,
         precio_unitario: uds ? (d.valor_con_iva || 0) / uds : 0, // con IVA por unidad → ventaTotal = valor_con_iva
