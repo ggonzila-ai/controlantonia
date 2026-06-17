@@ -794,6 +794,8 @@
         </div>
         <div class="metrics" id="vpa-kpis" style="margin:14px 16px"></div>
         <div id="vpa-feria-nota" style="margin:0 16px 14px;display:none"></div>
+        <div style="padding:0 16px 6px;font-size:12px;font-weight:600;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Ventas por almacén <span style="font-weight:400;text-transform:none">(toca un almacén para ver su detalle)</span></div>
+        <div id="vpa-almacenes" style="margin:0 0 14px"></div>
         <div style="padding:0 16px 8px;font-size:11px;color:var(--gris-medio)">Toca el encabezado de cualquier columna numérica para ordenar (▲▼). El <strong>precio lista</strong> es el precio normal sin promoción; <strong>precio prom.</strong> es lo realmente cobrado. <strong>Margen</strong>, <strong>rentab.</strong> y <strong>utilidad</strong> usan el módulo Bodega → Costos.</div>
         <div class="tabla-wrap" id="vpa-tabla"><div class="loader"><div class="spinner"></div></div></div>
       </div>
@@ -808,6 +810,7 @@
           <span style="font-size:11px;color:var(--gris-medio);max-width:260px">El descuento es el valor (sin IVA) que se dejó de cobrar en cada venta promocional.</span>
         </div>
         <div class="metrics" id="desc-kpis" style="margin:14px 16px"></div>
+        <div id="desc-feria-nota" style="margin:0 16px 14px;display:none"></div>
         <div style="padding:0 16px 8px;font-size:12px;font-weight:600;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Participación de ventas con descuento</div>
         <div id="desc-participacion" style="padding:0 16px 8px"></div>
         <div style="padding:14px 16px 8px;font-size:12px;font-weight:600;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Dependencia de promociones por almacén</div>
@@ -4995,7 +4998,8 @@ function notaFeriaHTML(feria) {
 // las ventas manuales para los meses sin reporte Feria — sin doble conteo.
 // periodo = "2026-06" (un mes) o "" (todos los meses).
 // Retorna { rows, feria } donde `feria` es el reporte del mes (solo si periodo es un mes único).
-async function ventasShapedDelPeriodo(periodo) {
+async function ventasShapedDelPeriodo(periodo, opts) {
+  const soloDefinitivo = !!(opts && opts.soloDefinitivo);   // comparativo histórico: excluir parciales
   let reps = [];
   try {
     const { data } = await sb.from('reportes_ventas_feria')
@@ -5004,7 +5008,9 @@ async function ventasShapedDelPeriodo(periodo) {
     reps = data || [];
   } catch (e) { reps = []; }
   if (periodo) reps = reps.filter(r => r.mes === periodo);
+  if (soloDefinitivo) reps = reps.filter(r => r.tipo === 'definitivo');
   const mesesFeria = new Set(reps.map(r => r.mes));
+  const mesPorReporte = {}; reps.forEach(r => { mesPorReporte[r.id] = r.mes; });
 
   let feriaRows = [];
   if (reps.length) {
@@ -5021,6 +5027,7 @@ async function ventasShapedDelPeriodo(periodo) {
         cantidad: uds,
         precio_unitario: uds ? (d.valor_con_iva || 0) / uds : 0, // con IVA por unidad → ventaTotal = valor_con_iva
         descuento: d.valor_descuentos || 0,
+        periodo: mesPorReporte[d.reporte_id] || periodo || null,
         _sinIva: d.valor_sin_iva || 0
       };
     });
@@ -5274,9 +5281,9 @@ async function cargarDescuentos() {
   const pin = document.getElementById('desc-periodo');
   if (!pin.options.length) pin.innerHTML = periodoOpciones('', true); // arranca en "Todos los meses"
   const periodo = pin.value;
-  const ventas = await selectAll('ventas', 'almacen_nombre, cantidad, precio_unitario, descuento',
-    q => periodo ? q.eq('periodo', periodo) : q);
-  const all = ventas || [];
+  const { rows: all, feria } = await ventasShapedDelPeriodo(periodo);
+  const notaF = document.getElementById('desc-feria-nota');
+  if (notaF) { const h = notaFeriaHTML(feria); notaF.innerHTML = h; notaF.style.display = h ? 'block' : 'none'; }
 
   // Acumular por almacén + consolidado
   const alm = {};
@@ -5486,6 +5493,7 @@ async function cargarPortalVentas() {
     </div>`;
 }
 
+function vpaPick(nombre) { const s = document.getElementById('vpa-almacen'); if (s) { s.value = nombre; cargarVentasPorAlmacen(); } }
 async function cargarVentasPorAlmacen() {
   if (esVendedora()) return cargarPortalVentas();
   await llenarSelectAlmacenes();
@@ -5541,6 +5549,37 @@ async function cargarVentasPorAlmacen() {
   const ventas = allPeriodo.filter(v => (!almNombre || v.almacen_nombre === almNombre) && (!cat || v.categoria === cat));
   const notaF = document.getElementById('vpa-feria-nota');
   if (notaF) { const h = notaFeriaHTML(feria); notaF.innerHTML = h; notaF.style.display = h ? 'block' : 'none'; }
+
+  // Asegurar que TODOS los almacenes con ventas estén en el selector (incluye los no registrados)
+  if (!(_usuarioActual?.rol === 'vendedora')) {
+    const enSelect = new Set(Array.from(selAlm.options).map(o => o.value));
+    const faltan = [...new Set(allPeriodo.map(v => v.almacen_nombre))].filter(n => n && !enSelect.has(n));
+    if (faltan.length) { const prev = selAlm.value; faltan.sort(cmpAlm).forEach(n => { const o = document.createElement('option'); o.value = n; o.textContent = limpiarAlm(n); selAlm.appendChild(o); }); selAlm.value = prev; }
+  }
+
+  // Resumen "almacén por almacén" del período (todas las tiendas), clic para ver su detalle
+  const almRes = {};
+  allPeriodo.forEach(v => { const k = v.almacen_nombre || '—'; const a = (almRes[k] = almRes[k] || { uds: 0, total: 0 }); a.uds += v.cantidad || 0; a.total += ventaTotal(v); });
+  const almResRows = Object.entries(almRes).sort((a, b) => b[1].total - a[1].total);
+  const maxAlm = Math.max(...almResRows.map(e => e[1].total), 1);
+  const contAlm = document.getElementById('vpa-almacenes');
+  if (contAlm) {
+    const filas = almResRows.map(([nom, v]) => {
+      const sel = nom === almNombre, pct = totalCia ? Math.round(v.total / totalCia * 100) : 0, barra = Math.round(v.total / maxAlm * 100);
+      return `<div onclick='vpaPick(${JSON.stringify(nom)})' style="display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--borde);cursor:pointer;${sel ? 'background:var(--rosa-suave)' : ''}">
+        <div style="width:130px;font-size:12px;font-weight:${sel ? '800' : '600'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${limpiarAlm(nom)}</div>
+        <div style="flex:1;height:7px;background:var(--gris-claro);border-radius:4px;overflow:hidden"><div style="height:100%;width:${barra}%;background:var(--rosa-oscuro);border-radius:4px"></div></div>
+        <div style="font-size:11px;color:var(--gris-medio);width:30px;text-align:center">${pct}%</div>
+        <div style="text-align:right;min-width:92px"><div style="font-size:12px;font-weight:700">${COP(v.total)}</div><div style="font-size:10px;color:var(--gris-medio)">${NUM(v.uds)} uds</div></div>
+      </div>`;
+    }).join('');
+    const totalRow = almResRows.length ? `<div onclick="vpaPick('')" style="display:flex;align-items:center;gap:10px;padding:9px 16px;background:var(--gris-claro);font-weight:700;cursor:pointer;${almNombre ? '' : 'outline:2px solid var(--rosa-oscuro);outline-offset:-2px'}">
+      <div style="width:130px;font-size:12px">TOTAL (todos)</div><div style="flex:1"></div>
+      <div style="width:30px;text-align:center;font-size:11px">100%</div>
+      <div style="text-align:right;min-width:92px"><div style="font-size:12px">${COP(totalCia)}</div></div>
+    </div>` : '';
+    contAlm.innerHTML = almResRows.length ? (filas + totalRow) : '<div style="padding:14px 16px;text-align:center;color:var(--gris-medio);font-size:13px">Sin ventas en este período.</div>';
+  }
 
   const stats = statsPorReferencia(ventas);
   const totVal = Object.values(stats).reduce((s,r)=>s+r.total,0) || 1;
@@ -5663,7 +5702,9 @@ async function loadHist25() {
 
 async function cargarHistoricoVentas() {
   await Promise.all([ llenarSelectAlmacenes(), loadHist25() ]);
-  const data = await selectAll('ventas', 'periodo, almacen_nombre, cantidad, precio_unitario', q => q.gte('periodo','2026-01').lte('periodo','2026-12'));
+  // Comparativo: solo datos COMPLETOS (ventas manuales + reportes Feria definitivos), sin parciales.
+  const { rows: dataAll } = await ventasShapedDelPeriodo('', { soloDefinitivo: true });
+  const data = dataAll.filter(v => v.periodo && v.periodo >= '2026-01' && v.periodo <= '2026-12');
   _real2026 = {}; _real2026Alm = {};
   data.forEach(v => {
     const m = +v.periodo.split('-')[1];
