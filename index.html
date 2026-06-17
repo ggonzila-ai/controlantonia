@@ -798,6 +798,37 @@
         <div id="vpa-almacenes" style="margin:0 0 14px"></div>
         <div style="padding:0 16px 8px;font-size:11px;color:var(--gris-medio)">Toca el encabezado de cualquier columna numérica para ordenar (▲▼). El <strong>precio lista</strong> es el precio normal sin promoción; <strong>precio prom.</strong> es lo realmente cobrado. <strong>Margen</strong>, <strong>rentab.</strong> y <strong>utilidad</strong> usan el módulo Bodega → Costos.</div>
         <div class="tabla-wrap" id="vpa-tabla"><div class="loader"><div class="spinner"></div></div></div>
+
+        <!-- VENTAS DÍA A DÍA (reportes Feria) -->
+        <div id="vd-seccion" style="border-top:1px solid var(--borde);margin-top:16px;padding-top:14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:0 16px 8px">
+            <div style="font-size:12px;font-weight:700;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Ventas día a día <span id="vd-mes" style="font-weight:400;text-transform:none"></span></div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <button class="btn btn-sm btn-primary" id="vd-by-uds" onclick="setMetricaDiaria('uds')">Unidades</button>
+              <button class="btn btn-sm btn-secondary" id="vd-by-val" onclick="setMetricaDiaria('valor')">Valor s/IVA</button>
+              <select id="vd-almacen" onchange="refreshGraficaDiaria()" style="padding:6px 8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:12px;font-family:inherit;background:var(--blanco)">
+                <option value="Todos">Todos los almacenes</option>
+                <option value="Malca 2">Malca 2</option>
+                <option value="Outlet Íntimo Cra 1">Outlet Íntimo Cra 1</option>
+                <option value="Único 5">Único 5</option>
+                <option value="Valle del Lili">Valle del Lili</option>
+                <option value="Cra 8">Cra 8</option>
+                <option value="Unicentro">Unicentro</option>
+                <option value="Cosmocentro">Cosmocentro</option>
+                <option value="Calle 13">Calle 13</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:14px;padding:0 16px 8px;flex-wrap:wrap">
+            <span style="font-size:11px;color:var(--gris-medio);display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:2px;background:#378ADD;display:inline-block"></span>Lun–Vie</span>
+            <span style="font-size:11px;color:var(--gris-medio);display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:2px;background:#EF9F27;display:inline-block"></span>Sábado</span>
+            <span style="font-size:11px;color:var(--gris-medio);display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:2px;background:#7F77DD;display:inline-block"></span>Domingo</span>
+          </div>
+          <div id="vd-wrap" style="position:relative;height:240px;padding:0 12px"><canvas id="vd-canvas"></canvas></div>
+          <div class="metrics" id="vd-insights" style="margin:12px 16px"></div>
+          <div style="padding:0 16px 4px;font-size:11px;font-weight:700;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Promedio por día de semana</div>
+          <div id="vd-patron" style="display:flex;gap:4px;padding:0 16px 14px"></div>
+        </div>
       </div>
 
       <!-- DESCUENTOS -->
@@ -5620,6 +5651,118 @@ async function cargarVentasPorAlmacen() {
     <div class="metric-card"><div class="m-label">% sobre ventas totales</div><div class="m-val">${Math.round(totVal/totalCia*100)}%</div><div class="m-sub">de la compañía</div></div>`;
 
   renderVpaTabla();
+  refreshGraficaDiaria();
+}
+
+// ─── VENTAS DÍA A DÍA (gráfica Feria, dentro de Ventas por Almacén) ───
+const DIAS_ES = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+function diaDeSemana(f){ const [y,m,d]=String(f).split('-').map(Number); return new Date(y,m-1,d).getDay(); }
+function etiquetaDia(f){ const [y,m,d]=String(f).split('-').map(Number); return `${DIAS_ES[new Date(y,m-1,d).getDay()]} ${d}`; }
+function colorBarra(dow){ return dow===6 ? '#EF9F27' : dow===0 ? '#7F77DD' : '#378ADD'; }
+
+async function cargarVentasDiarias(mes, almacen){
+  const porDia={};
+  if(!/^\d{4}-\d{2}$/.test(mes||'')) return porDia;
+  const desde=`${mes}-01`, hasta=`${mes}-31`;
+  let q = sb.from('ventas_feria_detalle')
+    .select('fecha, almacen, cantidad, valor_sin_iva, reportes_ventas_feria!inner(estado, mes)')
+    .eq('reportes_ventas_feria.estado','activo').eq('reportes_ventas_feria.mes', mes)
+    .gte('fecha', desde).lte('fecha', hasta).limit(20000);
+  if (almacen && almacen!=='Todos') q = q.eq('almacen', almacen);
+  const { data, error } = await q;
+  if (error || !data) return porDia;
+  data.forEach(r=>{ const d=r.fecha; if(!porDia[d]) porDia[d]={uds:0,valor:0}; porDia[d].uds+=(r.cantidad||0); porDia[d].valor+=(r.valor_sin_iva||0); });
+  return porDia;
+}
+
+let _vdChart=null;
+function setMetricaDiaria(m){
+  window._metricaVentasDiarias=m;
+  const u=document.getElementById('vd-by-uds'), v=document.getElementById('vd-by-val');
+  if(u) u.className='btn btn-sm '+(m==='uds'?'btn-primary':'btn-secondary');
+  if(v) v.className='btn btn-sm '+(m==='valor'?'btn-primary':'btn-secondary');
+  refreshGraficaDiaria();
+}
+async function refreshGraficaDiaria(){
+  if (typeof esVendedora==='function' && esVendedora()) return;
+  if (!document.getElementById('vd-wrap')) return;
+  let mes = document.getElementById('vpa-periodo')?.value || '';
+  if (!/^\d{4}-\d{2}$/.test(mes)) {
+    try { const { data } = await sb.from('reportes_ventas_feria').select('mes').eq('estado','activo').order('mes',{ascending:false}).limit(1); mes=(data&&data[0]&&data[0].mes)||''; } catch(e){ mes=''; }
+  }
+  const alm = document.getElementById('vd-almacen')?.value || 'Todos';
+  const lbl = document.getElementById('vd-mes'); if (lbl) lbl.textContent = mes ? '· '+mesNombre(mes) : '';
+  await renderGraficaVentasDiarias(mes, alm);
+}
+async function renderGraficaVentasDiarias(mes, almacen){
+  const porDia = await cargarVentasDiarias(mes, almacen);
+  const metrica = window._metricaVentasDiarias || 'uds';
+  const fechas = Object.keys(porDia).sort();
+  const wrap=document.getElementById('vd-wrap'), insEl=document.getElementById('vd-insights'), patEl=document.getElementById('vd-patron');
+  if(!fechas.length){
+    if(_vdChart){ _vdChart.destroy(); _vdChart=null; }
+    if(wrap) wrap.innerHTML='<div style="text-align:center;color:var(--gris-medio);font-size:13px;padding:48px 0">Sin datos de Feria para este período.</div>';
+    if(insEl) insEl.innerHTML=''; if(patEl) patEl.innerHTML='';
+    return;
+  }
+  if(!document.getElementById('vd-canvas') && wrap) wrap.innerHTML='<canvas id="vd-canvas"></canvas>';
+  const labels=fechas.map(etiquetaDia);
+  const valores=fechas.map(f=> metrica==='uds'?porDia[f].uds:Math.round(porDia[f].valor));
+  const colores=fechas.map(f=>colorBarra(diaDeSemana(f)));
+  if(_vdChart) _vdChart.destroy();
+  _vdChart = new Chart(document.getElementById('vd-canvas').getContext('2d'), {
+    type:'bar',
+    data:{ labels, datasets:[{ data:valores, backgroundColor:colores, borderRadius:3, borderSkipped:false }] },
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{
+        title:items=>labels[items[0].dataIndex],
+        label:item=>{ const f=fechas[item.dataIndex]; return metrica==='uds'
+          ? [`${NUM(porDia[f].uds)} unidades`, `${COP(Math.round(porDia[f].valor))} sin IVA`]
+          : [`${COP(Math.round(porDia[f].valor))} sin IVA`, `${NUM(porDia[f].uds)} unidades`]; }
+      }}},
+      scales:{
+        x:{ grid:{display:false}, ticks:{ maxRotation:60, minRotation:45, autoSkip:false, font:{size:10} } },
+        y:{ beginAtZero:true, grid:{color:'rgba(61,107,120,0.10)'}, ticks:{ font:{size:10},
+          callback:v=> metrica==='uds' ? v : (v>=1000000?'$'+(v/1000000).toFixed(1)+'M':v>=1000?'$'+Math.round(v/1000)+'K':'$'+v) } }
+      }
+    }
+  });
+  renderInsightsDiarios(porDia, fechas, metrica);
+  renderPatronSemana(porDia, fechas, metrica);
+}
+function renderInsightsDiarios(porDia, fechas, metrica){
+  const el=document.getElementById('vd-insights'); if(!el) return;
+  const val=f=> metrica==='uds'?porDia[f].uds:porDia[f].valor;
+  const vals=fechas.map(val), maxIdx=vals.indexOf(Math.max(...vals));
+  const total=vals.reduce((s,v)=>s+v,0), conVenta=vals.filter(v=>v>0);
+  const avg=conVenta.length?Math.round(total/conVenta.length):0;
+  const sabados=fechas.filter(f=>diaDeSemana(f)===6);
+  const sabTotal=sabados.reduce((s,f)=>s+val(f),0), sabPct=total>0?Math.round(sabTotal/total*100):0;
+  const fmt=v=> metrica==='uds'?`${NUM(v)} uds`:COP(v);
+  el.innerHTML=`
+    <div class="metric-card"><div class="m-label">Día pico</div><div class="m-val" style="font-size:16px">${etiquetaDia(fechas[maxIdx])}</div><div class="m-sub">${fmt(vals[maxIdx]||0)}</div></div>
+    <div class="metric-card"><div class="m-label">Promedio diario</div><div class="m-val" style="font-size:16px">${fmt(avg)}</div><div class="m-sub">días con venta</div></div>
+    <div class="metric-card"><div class="m-label">Sábados vs total</div><div class="m-val" style="font-size:16px;color:#EF9F27">${sabPct}%</div><div class="m-sub">${fmt(sabTotal)} · ${sabados.length} sáb</div></div>`;
+}
+function renderPatronSemana(porDia, fechas, metrica){
+  const el=document.getElementById('vd-patron'); if(!el) return;
+  const DIAS=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+  const COLS=['#378ADD','#378ADD','#378ADD','#378ADD','#378ADD','#EF9F27','#7F77DD'];
+  const byDow={0:[],1:[],2:[],3:[],4:[],5:[],6:[]};
+  fechas.forEach(f=>{ const raw=diaDeSemana(f); const mapped=raw===0?6:raw-1; byDow[mapped].push(metrica==='uds'?porDia[f].uds:porDia[f].valor); });
+  const avgs=DIAS.map((_,i)=>{ const a=byDow[i]; return a.length?Math.round(a.reduce((s,v)=>s+v,0)/a.length):0; });
+  const maxAvg=Math.max(...avgs,1);
+  el.innerHTML=DIAS.map((dia,i)=>{
+    const pct=Math.round(avgs[i]/maxAvg*100), isMax=avgs[i]===maxAvg&&avgs[i]>0;
+    const lblVal = metrica==='uds' ? NUM(avgs[i]) : (avgs[i]>=1000?'$'+Math.round(avgs[i]/1000)+'K':'$'+avgs[i]);
+    return `<div style="text-align:center;flex:1">
+      <div style="font-size:10px;font-weight:600;color:${COLS[i]}">${dia}</div>
+      <div style="height:40px;display:flex;align-items:flex-end;justify-content:center;margin:3px 0">
+        <div style="width:18px;background:${COLS[i]};border-radius:2px;height:${Math.max(3,Math.round(pct*0.4))}px;${isMax?'outline:1.5px solid '+COLS[i]+';outline-offset:1px':''}"></div>
+      </div>
+      <div style="font-size:9.5px;color:var(--carbon)">${lblVal}</div>
+    </div>`;
+  }).join('');
 }
 
 function renderVpaTabla() {
