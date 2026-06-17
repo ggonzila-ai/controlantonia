@@ -1388,76 +1388,6 @@
 </nav>
 
 <!-- MODAL NUEVA ENTRADA -->
-<div class="modal-overlay" id="modal-entrada">
-  <div class="modal">
-    <div class="modal-handle"></div>
-    <div class="modal-title">Nueva entrada a bodega / producción</div>
-    <div class="form-group">
-      <label>Referencia</label>
-      <select id="e-ref" onchange="onEntradaRefChange()"><option value="">Seleccionar…</option></select>
-    </div>
-    <div style="background:#eef9fc;border:1px solid var(--borde);border-radius:12px;padding:13px;margin-bottom:14px">
-      <div style="font-size:13px;font-weight:700;color:var(--brand);margin-bottom:10px">🧵 Costo de la tela</div>
-      <div class="form-row" style="margin-bottom:10px">
-        <div class="form-group">
-          <label>Nombre de la tela</label>
-          <input type="text" id="e-tela" placeholder="Ej: Licra negra">
-        </div>
-        <div class="form-group">
-          <label>Consumo (metros x prenda)</label>
-          <input type="number" id="e-consumo" step="0.01" placeholder="1.5" oninput="recalcCostoTela()">
-        </div>
-      </div>
-      <label style="display:block">¿Cómo se compra la tela?</label>
-      <div style="display:flex;gap:8px;margin:6px 0 12px">
-        <button type="button" id="e-tipo-metro" onclick="setTipoTela('metro')" style="flex:1;padding:11px;border-radius:10px;border:2px solid var(--brand);background:var(--brand);color:#fff;font-weight:700;font-size:14px;cursor:pointer">Por metro</button>
-        <button type="button" id="e-tipo-kilo" onclick="setTipoTela('kilo')" style="flex:1;padding:11px;border-radius:10px;border:2px solid var(--borde);background:#fff;color:var(--gris-medio);font-weight:700;font-size:14px;cursor:pointer">Por kilo</button>
-      </div>
-      <div id="e-bloque-metro">
-        <div class="form-group" style="margin-bottom:0">
-          <label>Precio del metro (COP)</label>
-          <input type="number" id="e-precio-metro" placeholder="12000" oninput="recalcCostoTela()">
-        </div>
-      </div>
-      <div id="e-bloque-kilo" style="display:none">
-        <div class="form-row" style="margin-bottom:10px">
-          <div class="form-group">
-            <label>Precio del kilo (COP)</label>
-            <input type="number" id="e-precio-kilo" placeholder="40000" oninput="recalcCostoTela()">
-          </div>
-          <div class="form-group">
-            <label>Rendimiento (metros x kilo)</label>
-            <input type="number" id="e-rendimiento" step="0.01" placeholder="3.5" oninput="recalcCostoTela()">
-          </div>
-        </div>
-        <div onclick="toggleCorteReal()" style="font-size:12px;font-weight:700;color:var(--brand);cursor:pointer;margin-bottom:8px">📐 Calcular rendimiento real del corte</div>
-        <div id="e-corte-real" style="display:none;background:#fff;border:1px dashed var(--brand);border-radius:10px;padding:10px">
-          <div class="form-row" style="margin-bottom:8px">
-            <div class="form-group">
-              <label>Kilos del corte</label>
-              <input type="number" id="e-corte-kilos" step="0.01" placeholder="10" oninput="calcRendReal()">
-            </div>
-            <div class="form-group">
-              <label>Prendas cortadas</label>
-              <input type="number" id="e-corte-prendas" placeholder="35" oninput="calcRendReal()">
-            </div>
-          </div>
-          <div id="e-rend-real-hint" style="font-size:12px;color:var(--gris-medio);font-weight:600">Ingresa kilos y prendas para calcular el rendimiento real.</div>
-        </div>
-      </div>
-    </div>
-    <div class="form-group" style="margin-bottom:14px">
-      <label>Costo por unidad (COP)</label>
-      <input type="number" id="e-costo" placeholder="22000">
-      <div id="e-costo-hint" style="font-size:12px;color:var(--brand);margin-top:5px;font-weight:600"></div>
-    </div>
-    <div id="e-tallas-wrap" style="margin-bottom:14px"></div>
-    <div style="display:flex;gap:10px;margin-top:4px">
-      <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-entrada')">Cancelar</button>
-      <button class="btn btn-primary" style="flex:2" onclick="guardarEntrada()">Registrar entrada</button>
-    </div>
-  </div>
-</div>
 
 <!-- MODAL PRODUCTO -->
 <div class="modal-overlay" id="modal-producto">
@@ -1491,8 +1421,9 @@
 <div class="modal-overlay" id="modal-entrada">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title" id="ent-title">Registrar entrada</div>
-    <div id="ent-badge" style="margin:-8px 0 10px"></div>
+    <div class="modal-title" id="ent-title">Entrada a bodega</div>
+    <div class="form-group"><label>Referencia</label><select id="ent-ref" onchange="entradaRefChange()"></select></div>
+    <div id="ent-badge" style="margin:-4px 0 10px"></div>
     <div class="form-group"><label>📅 Fecha de entrada</label><input type="date" id="ent-fecha"></div>
     <div id="ent-tabla-wrap"></div>
     <div class="form-group" style="margin-top:8px"><label>Observaciones (opcional)</label><input type="text" id="ent-obs" placeholder="Ej: Producción semana 24, tela nueva…"></div>
@@ -3296,18 +3227,26 @@ function alertaTalla(p){
   return cero.length ? `<span class="badge badge-err" style="font-size:9px;margin-left:6px">⚠ Sin talla ${cero.join(', ')}</span>` : '';
 }
 function abrirEntradaBodega(ref){
-  const p = bodegaData.find(x=>x.referencia===ref); if(!p) return;
-  _entradaRef = ref;
-  document.getElementById('ent-title').textContent = 'Registrar entrada — ' + ref;
-  document.getElementById('ent-badge').innerHTML = `<span class="badge badge-rosa">${p.categoria||'—'}</span>`;
+  const sel = document.getElementById('ent-ref');
+  const opts = [...bodegaData].sort((a,b)=>a.referencia.localeCompare(b.referencia));
+  sel.innerHTML = opts.map(p=>`<option value="${p.referencia.replace(/"/g,'&quot;')}" ${p.referencia===ref?'selected':''}>${p.referencia}</option>`).join('');
+  if(ref) sel.value = ref;
   document.getElementById('ent-fecha').value = hoy();
   document.getElementById('ent-obs').value = '';
-  const tallas = parseTallas(p.tallas);
+  entradaRefChange();
+  document.getElementById('modal-entrada').classList.add('open');
+}
+function entradaRefChange(){
+  const ref = document.getElementById('ent-ref').value;
+  const p = bodegaData.find(x=>x.referencia===ref);
+  _entradaRef = ref;
+  document.getElementById('ent-badge').innerHTML = p ? `<span class="badge badge-rosa">${p.categoria||'—'}</span>` : '';
   const wrap = document.getElementById('ent-tabla-wrap');
+  if(!p){ wrap.innerHTML=''; document.getElementById('ent-btn').disabled=true; return; }
+  const tallas = parseTallas(p.tallas);
   if(!tallas.length){
     wrap.innerHTML = '<div class="alert alert-warn" style="margin:0">Define las tallas del producto primero (botón Editar).</div>';
-    document.getElementById('ent-btn').disabled = true;
-    document.getElementById('modal-entrada').classList.add('open'); return;
+    document.getElementById('ent-btn').disabled = true; return;
   }
   const spt = p.stock_por_talla || {};
   const filas = tallas.map(t=>{
@@ -3323,7 +3262,6 @@ function abrirEntradaBodega(ref){
     <tbody>${filas}</tbody>
     <tfoot><tr style="border-top:2px solid var(--borde);font-weight:700"><td>TOTAL</td><td style="text-align:right" id="ent-tot-actual">0</td><td style="text-align:right;color:var(--verde)" id="ent-tot-entra">+0</td><td style="text-align:right" id="ent-tot-nuevo">0</td></tr></tfoot></table></div>`;
   entradaRecalc();
-  document.getElementById('modal-entrada').classList.add('open');
 }
 function entradaRecalc(){
   let tActual=0,tEntra=0,tNuevo=0;
@@ -3363,137 +3301,7 @@ async function guardarEntrada(){
   await cargarBodega();
 }
 
-// ─── ENTRADA DE PRODUCCIÓN (por talla) ────────
-let _telaTipo = 'metro';
-function setTipoTela(tipo) {
-  _telaTipo = tipo;
-  const bm = document.getElementById('e-bloque-metro'), bk = document.getElementById('e-bloque-kilo');
-  const btnM = document.getElementById('e-tipo-metro'), btnK = document.getElementById('e-tipo-kilo');
-  const on = b => { b.style.background = 'var(--brand)'; b.style.color = '#fff'; b.style.borderColor = 'var(--brand)'; };
-  const off = b => { b.style.background = '#fff'; b.style.color = 'var(--gris-medio)'; b.style.borderColor = 'var(--borde)'; };
-  if (tipo === 'kilo') { bm.style.display = 'none'; bk.style.display = 'block'; on(btnK); off(btnM); }
-  else { bm.style.display = 'block'; bk.style.display = 'none'; on(btnM); off(btnK); }
-  recalcCostoTela();
-}
-function toggleCorteReal() {
-  const d = document.getElementById('e-corte-real');
-  d.style.display = d.style.display === 'none' ? 'block' : 'none';
-}
-function calcRendReal() {
-  const kilos = parseFloat(document.getElementById('e-corte-kilos').value) || 0;
-  const prendas = parseInt(document.getElementById('e-corte-prendas').value) || 0;
-  const cons = parseFloat(document.getElementById('e-consumo').value) || 0;
-  const hint = document.getElementById('e-rend-real-hint');
-  if (kilos > 0 && prendas > 0 && cons > 0) {
-    const rend = Math.round(((prendas * cons) / kilos) * 100) / 100;
-    document.getElementById('e-rendimiento').value = rend;
-    hint.textContent = `Rendimiento real = ${prendas} prendas × ${cons} m ÷ ${kilos} kg = ${rend} m/kg`;
-    recalcCostoTela();
-  } else if (kilos > 0 && prendas > 0) {
-    hint.textContent = 'Ingresa también el consumo por prenda arriba.';
-  } else {
-    hint.textContent = 'Ingresa kilos y prendas para calcular el rendimiento real.';
-  }
-}
-function recalcCostoTela() {
-  const cons = parseFloat(document.getElementById('e-consumo').value) || 0;
-  const hint = document.getElementById('e-costo-hint');
-  let pm = 0, detalle = '';
-  if (_telaTipo === 'kilo') {
-    const pk = parseFloat(document.getElementById('e-precio-kilo').value) || 0;
-    const rend = parseFloat(document.getElementById('e-rendimiento').value) || 0;
-    if (pk > 0 && rend > 0) { pm = pk / rend; detalle = `${COP(pk)}/kg ÷ ${rend} m/kg = ${COP(pm)}/m`; }
-  } else {
-    pm = parseFloat(document.getElementById('e-precio-metro').value) || 0;
-    if (pm > 0) detalle = `${COP(pm)}/m`;
-  }
-  if (pm > 0 && cons > 0) {
-    const costo = Math.round(pm * cons);
-    document.getElementById('e-costo').value = costo;
-    hint.textContent = `${detalle} × ${cons} m = ${COP(costo)} por unidad`;
-  } else {
-    hint.textContent = '';
-  }
-}
-function abrirModalEntrada() {
-  const sel = document.getElementById('e-ref');
-  sel.innerHTML = '<option value="">Seleccionar…</option>' + bodegaData.map(p => `<option value="${p.referencia}">${p.referencia}</option>`).join('');
-  ['e-costo','e-tela','e-precio-metro','e-consumo','e-precio-kilo','e-rendimiento','e-corte-kilos','e-corte-prendas'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('e-costo-hint').textContent = '';
-  document.getElementById('e-corte-real').style.display = 'none';
-  document.getElementById('e-rend-real-hint').textContent = 'Ingresa kilos y prendas para calcular el rendimiento real.';
-  setTipoTela('metro');
-  document.getElementById('e-tallas-wrap').innerHTML = '<div style="font-size:12px;color:var(--gris-medio);padding:8px 0">Selecciona una referencia para ver sus tallas.</div>';
-  document.getElementById('modal-entrada').classList.add('open');
-}
 function cerrarModal(id) { document.getElementById(id).classList.remove('open'); }
-function onEntradaRefChange() {
-  const sel = document.getElementById('e-ref');
-  const ref = sel.value;
-  const p = bodegaData.find(x => x.referencia === ref);
-  // Pre-llenar datos de tela guardados de la referencia y recalcular costo
-  document.getElementById('e-tela').value = p?.tela_nombre || '';
-  document.getElementById('e-consumo').value = p?.tela_consumo || '';
-  document.getElementById('e-precio-metro').value = p?.tela_precio_metro || '';
-  document.getElementById('e-precio-kilo').value = p?.tela_precio_kilo || '';
-  document.getElementById('e-rendimiento').value = p?.tela_rendimiento || '';
-  setTipoTela(p?.tela_tipo_precio === 'kilo' ? 'kilo' : 'metro');
-  const calcMetro = p?.tela_tipo_precio !== 'kilo' && p?.tela_precio_metro > 0 && p?.tela_consumo > 0;
-  const calcKilo = p?.tela_tipo_precio === 'kilo' && p?.tela_precio_kilo > 0 && p?.tela_rendimiento > 0 && p?.tela_consumo > 0;
-  if (!calcMetro && !calcKilo) {
-    document.getElementById('e-costo').value = p?.costo > 0 ? p.costo : '';
-    document.getElementById('e-costo-hint').textContent = '';
-  }
-  const tallas = parseTallas(p?.tallas);
-  const wrap = document.getElementById('e-tallas-wrap');
-  if (!ref) { wrap.innerHTML = ''; return; }
-  if (!tallas.length) {
-    wrap.innerHTML = `<div class="alert alert-warn" style="margin:0">Esta referencia no tiene tallas definidas. Edítala en el Catálogo y agrega sus tallas (ej: S, M, L).</div>`;
-    return;
-  }
-  const actual = tallasDe(ref);
-  wrap.innerHTML = `<div style="font-size:12px;font-weight:600;color:var(--gris-medio);margin-bottom:8px">Unidades que entran por talla</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:8px">
-    ${ordenarTallas(tallas).map(t => `<div style="text-align:center">
-      <div style="font-size:11px;color:var(--gris-medio);margin-bottom:3px">${t} <span style="opacity:.6">(${NUM(actual[t]||0)})</span></div>
-      <input type="number" min="0" placeholder="0" class="e-talla-inp" data-talla="${t}" style="width:100%;padding:8px;text-align:center;font-size:15px;font-weight:700;border:1.5px solid var(--borde);border-radius:var(--radius-sm)">
-    </div>`).join('')}
-    </div>`;
-}
-async function guardarEntrada() {
-  const ref = document.getElementById('e-ref').value;
-  const costo = parseInt(document.getElementById('e-costo').value) || 0;
-  const telaNombre = document.getElementById('e-tela').value.trim();
-  const consumo = parseFloat(document.getElementById('e-consumo').value) || 0;
-  if (!ref) { toast('Selecciona una referencia', 'err'); return; }
-  const inputs = [...document.querySelectorAll('.e-talla-inp')];
-  const movs = inputs.map(i => ({ talla: i.dataset.talla, cant: parseInt(i.value) || 0 })).filter(m => m.cant > 0);
-  if (!movs.length) { toast('Ingresa al menos una unidad', 'err'); return; }
-  for (const m of movs) {
-    const { error } = await sb.rpc('mov_bodega_talla', { p_ref: ref, p_talla: m.talla, p_delta: m.cant });
-    if (error) { toast('Error al ingresar ' + m.talla, 'err'); return; }
-  }
-  // Guardar costo y datos de la tela en la referencia
-  const upd = { tela_tipo_precio: _telaTipo };
-  if (costo) upd.costo = costo;
-  if (telaNombre) upd.tela_nombre = telaNombre;
-  if (consumo > 0) upd.tela_consumo = consumo;
-  if (_telaTipo === 'kilo') {
-    const pk = parseFloat(document.getElementById('e-precio-kilo').value) || 0;
-    const rend = parseFloat(document.getElementById('e-rendimiento').value) || 0;
-    if (pk > 0) upd.tela_precio_kilo = pk;
-    if (rend > 0) upd.tela_rendimiento = rend;
-    if (pk > 0 && rend > 0) upd.tela_precio_metro = Math.round((pk / rend) * 100) / 100;
-  } else {
-    const pm = parseFloat(document.getElementById('e-precio-metro').value) || 0;
-    if (pm > 0) upd.tela_precio_metro = pm;
-  }
-  await sb.from('bodega').update(upd).eq('referencia', ref);
-  const total = movs.reduce((a, m) => a + m.cant, 0);
-  cerrarModal('modal-entrada');
-  toast(`✓ ${NUM(total)} uds de ${ref} ingresadas`);
-  cargarBodega();
-}
 
 // ─── CORTES / PRODUCCIÓN ──────────────────────
 let cortesData = [];
