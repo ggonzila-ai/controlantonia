@@ -552,13 +552,18 @@
           </div>
         </div>
         <div style="padding:0 16px 8px;font-size:12px;font-weight:600;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Prendas a despachar</div>
-        <div id="d-items-wrap"></div>
+        <div style="padding:0 16px 10px">
+          <select id="d-add-ref" onchange="agregarReferenciaDespacho(this.value); this.value='';" style="width:100%;padding:11px;border:1.5px solid var(--brand);border-radius:var(--radius-sm);font-size:14px;font-family:inherit;background:var(--blanco);font-weight:600;color:var(--brand-dark)">
+            <option value="">+ Agregar referencia…</option>
+          </select>
+        </div>
+        <div id="despacho-refs" style="padding:0 16px"></div>
         <div style="padding:12px 16px;border-top:1px solid var(--borde)">
-          <button class="btn btn-secondary btn-sm" onclick="addDespachoItem()" style="margin-bottom:10px">
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-            Agregar prenda
-          </button>
-          <button class="btn btn-primary btn-full" onclick="confirmarDespacho()">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <span style="font-size:12px;font-weight:600;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Total a despachar</span>
+            <span style="font-size:13px"><strong id="total-despacho" style="font-size:17px;color:var(--carbon)">0</strong> uds</span>
+          </div>
+          <button class="btn btn-primary btn-full" id="btn-confirmar-despacho" onclick="confirmarDespacho()" disabled>
             <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/></svg>
             Confirmar despacho
           </button>
@@ -2259,8 +2264,8 @@ function showTab(tabId) {
   if (tabId === 'tab-bod-rentab') cargarRentabilidadCostos();
   if (tabId === 'tab-bod-despachos') {
     llenarSelectAlmacenes();
-    const wrap = document.getElementById('d-items-wrap');
-    if (wrap && !wrap.children.length) llenarSelectDespachoRef();
+    const addSel = document.getElementById('d-add-ref');
+    if (addSel && addSel.options.length <= 1) llenarSelectDespachoRef();
     const df = document.getElementById('d-fecha'); if (df && !df.value) df.value = hoy();
     cargarHistDespachos();
   }
@@ -3815,10 +3820,95 @@ async function llenarSelectAlmacenes() {
   });
 }
 
+let despachoActual = {};   // { referencia: { categoria, tallas: { talla: {disponible, cantidad} } } }
 async function llenarSelectDespachoRef() {
   if (bodegaData.length === 0) { const { data } = await sb.from('bodega').select('*').order('referencia'); bodegaData = data || []; }
   await cargarTallas();
-  addDespachoItem();
+  despachoActual = {};
+  const cont = document.getElementById('despacho-refs'); if (cont) cont.innerHTML = '';
+  llenarDropdownDespacho();
+  actualizarTotalGlobal();
+}
+
+// stock por talla (>0) y total de una referencia, desde stock_por_talla
+function despStockRef(ref) {
+  const o = stockPorTallaDe(ref) || {}; const tallas = {}; let total = 0;
+  Object.keys(o).forEach(t => { const v = +o[t] || 0; if (v > 0) { tallas[t] = v; total += v; } });
+  return { tallas, total };
+}
+
+function llenarDropdownDespacho() {
+  const sel = document.getElementById('d-add-ref'); if (!sel) return;
+  const ea = s => String(s).replace(/"/g, '&quot;');
+  const disp = (bodegaData || [])
+    .filter(p => p && p.referencia && !despachoActual[p.referencia] && despStockRef(p.referencia).total > 0)
+    .sort((a, b) => a.referencia.localeCompare(b.referencia));
+  sel.innerHTML = '<option value="">+ Agregar referencia…</option>' +
+    (disp.length ? disp.map(p => `<option value="${ea(p.referencia)}">${p.referencia} (${NUM(despStockRef(p.referencia).total)} uds)</option>`).join('')
+                 : '<option value="" disabled>Todas las referencias con stock ya están agregadas</option>');
+}
+
+function agregarReferenciaDespacho(ref) {
+  if (!ref || despachoActual[ref]) return;
+  const p = bodegaData.find(x => x.referencia === ref); if (!p) return;
+  const { tallas } = despStockRef(ref);
+  if (!Object.keys(tallas).length) { toast('Sin stock por talla para ' + ref, 'err'); return; }
+  const t = {}; Object.entries(tallas).forEach(([talla, dispo]) => { t[talla] = { disponible: dispo, cantidad: 0 }; });
+  despachoActual[ref] = { categoria: p.categoria || '', tallas: t };
+  const cont = document.getElementById('despacho-refs');
+  const div = document.createElement('div'); div.innerHTML = renderTarjetaDespacho(ref);
+  cont.appendChild(div.firstElementChild);
+  llenarDropdownDespacho();
+  actualizarTotalGlobal();
+}
+
+function renderTarjetaDespacho(ref) {
+  const ea = s => String(s).replace(/"/g, '&quot;');
+  const data = despachoActual[ref];
+  const cols = ordenarTallas(Object.keys(data.tallas)).map(t => {
+    const d = data.tallas[t];
+    return `<div style="text-align:center;min-width:50px">
+      <div style="font-size:11px;font-weight:700">${t}</div>
+      <div style="font-size:10px;color:var(--gris-medio);margin-bottom:3px">(${NUM(d.disponible)})</div>
+      <input type="number" min="0" max="${d.disponible}" value="${d.cantidad || ''}" placeholder="0" data-ref="${ea(ref)}" data-talla="${ea(t)}" oninput="actualizarCantidadTalla(this)" style="width:46px;text-align:center;padding:6px 2px;font-size:14px;border:1.5px solid var(--borde);border-radius:8px;font-family:inherit">
+    </div>`;
+  }).join('');
+  return `<div class="tarjeta-desp" data-refcard="${ea(ref)}" style="border:1px solid var(--borde);border-radius:10px;padding:12px;margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px">
+      <span style="font-size:14px;font-weight:700">${ref}</span>
+      <button onclick="quitarReferenciaDespacho(this)" data-ref="${ea(ref)}" style="font-size:12px;color:var(--rojo);background:none;border:none;cursor:pointer;padding:2px 6px;white-space:nowrap">✕ Quitar</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${cols}</div>
+    <div style="margin-top:8px;font-size:12px;color:var(--gris-medio);border-top:1px solid var(--borde);padding-top:6px">Total: <strong class="tot-desp" style="color:var(--carbon)">0</strong> uds</div>
+  </div>`;
+}
+
+function actualizarCantidadTalla(input) {
+  const ref = input.dataset.ref, talla = input.dataset.talla;
+  const d = despachoActual[ref] && despachoActual[ref].tallas[talla]; if (!d) return;
+  let val = parseInt(input.value) || 0; if (val < 0) val = 0;
+  if (val > d.disponible) { val = d.disponible; input.value = val; input.style.borderColor = 'var(--rojo)'; setTimeout(() => { input.style.borderColor = ''; }, 1500); }
+  else input.style.borderColor = '';
+  d.cantidad = val;
+  const card = input.closest('.tarjeta-desp');
+  const totRef = Object.values(despachoActual[ref].tallas).reduce((s, x) => s + x.cantidad, 0);
+  const ts = card && card.querySelector('.tot-desp'); if (ts) ts.textContent = NUM(totRef);
+  actualizarTotalGlobal();
+}
+
+function quitarReferenciaDespacho(btn) {
+  const ref = btn.dataset.ref;
+  delete despachoActual[ref];
+  btn.closest('.tarjeta-desp')?.remove();
+  llenarDropdownDespacho();
+  actualizarTotalGlobal();
+}
+
+function actualizarTotalGlobal() {
+  let total = 0;
+  Object.values(despachoActual).forEach(r => Object.values(r.tallas).forEach(d => { total += d.cantidad; }));
+  const el = document.getElementById('total-despacho'); if (el) el.textContent = NUM(total);
+  const btn = document.getElementById('btn-confirmar-despacho'); if (btn) btn.disabled = total === 0;
 }
 
 async function llenarSelectRefs() {
@@ -3831,53 +3921,6 @@ async function llenarSelectRefs() {
   };
 }
 
-function addDespachoItem() {
-  const idx = despachoItems.length;
-  despachoItems.push({});
-  const wrap = document.getElementById('d-items-wrap');
-  const row = document.createElement('div');
-  row.id = 'drow-' + idx;
-  row.style.cssText = 'display:grid;grid-template-columns:1fr 86px 64px 28px;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--borde)';
-  row.innerHTML = `
-    <select id="dr-ref-${idx}" onchange="updDRow(${idx})" style="padding:10px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:14px;font-family:inherit;background:var(--blanco)">
-      <option value="">Referencia…</option>
-      ${bodegaData.map(p => `<option value="${p.referencia}">${p.referencia}</option>`).join('')}
-    </select>
-    <select id="dr-talla-${idx}" onchange="updDTalla(${idx})" style="padding:10px 6px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:14px;font-family:inherit;background:var(--blanco)">
-      <option value="">Talla…</option>
-    </select>
-    <input type="number" id="dr-cant-${idx}" min="1" value="1" oninput="checkCant(${idx})" style="width:64px;padding:8px;text-align:center;font-size:14px;border:1.5px solid var(--borde);border-radius:var(--radius-sm)">
-    <button onclick="quitarFila(${idx})" style="background:none;border:none;color:var(--rojo);cursor:pointer;font-size:18px;padding:4px">✕</button>
-    <div id="dr-disp-${idx}" style="grid-column:1/-1;font-size:11px;color:var(--gris-medio);margin-top:-2px">—</div>`;
-  wrap.appendChild(row);
-}
-
-function updDRow(idx) {
-  const ref = document.getElementById('dr-ref-' + idx).value;
-  const p = bodegaData.find(x => x.referencia === ref);
-  const stock = stockPorTallaDe(ref);
-  const tallas = ordenarTallas([...new Set([...parseTallas(p?.tallas), ...Object.keys(stock)])]);
-  const tsel = document.getElementById('dr-talla-' + idx);
-  tsel.innerHTML = '<option value="">Talla…</option>' + tallas.map(t => `<option value="${t}" data-stock="${stock[t]||0}">${t} (${NUM(stock[t]||0)})</option>`).join('');
-  document.getElementById('dr-disp-' + idx).textContent = ref ? `Disponible total: ${NUM(p?.stock||0)} uds` : '—';
-}
-function updDTalla(idx) {
-  const opt = document.getElementById('dr-talla-' + idx).selectedOptions[0];
-  const disp = parseInt(opt?.dataset?.stock || 0);
-  document.getElementById('dr-disp-' + idx).textContent = opt?.value ? `Disponible en ${opt.value}: ${NUM(disp)} uds` : '—';
-  checkCant(idx);
-}
-function checkCant(idx) {
-  const opt = document.getElementById('dr-talla-' + idx).selectedOptions[0];
-  const stock = parseInt(opt?.dataset?.stock || 0);
-  const inp = document.getElementById('dr-cant-' + idx);
-  if (opt?.value && parseInt(inp.value) > stock) inp.value = stock;
-}
-function quitarFila(idx) {
-  const el = document.getElementById('drow-' + idx);
-  if (el) el.remove();
-}
-
 async function confirmarDespacho() {
   const almId = document.getElementById('d-almacen').value;
   const almNombre = document.querySelector('#d-almacen option:checked')?.dataset?.nombre || '';
@@ -3885,25 +3928,21 @@ async function confirmarDespacho() {
   const remision = document.getElementById('d-remision').value || ('REM-' + Date.now().toString().slice(-4));
   if (!almId || !fecha) { toast('Selecciona almacén y fecha', 'err'); return; }
 
-  const filas = document.querySelectorAll('[id^="drow-"]');
   const items = [];
-  for (const fila of filas) {
-    const idx = fila.id.replace('drow-', '');
-    const ref = document.getElementById('dr-ref-' + idx)?.value;
-    const talla = document.getElementById('dr-talla-' + idx)?.value;
-    const cant = parseInt(document.getElementById('dr-cant-' + idx)?.value) || 0;
-    if (!ref || cant < 1) continue;
-    if (!talla) { toast(`Falta la talla en ${ref}`, 'err'); return; }
-    const disp = stockPorTallaDe(ref)[talla] || 0;
-    if (disp < cant) { toast(`Stock insuficiente: ${ref} talla ${talla} (${disp} disp.)`, 'err'); return; }
-    const p = bodegaData.find(x => x.referencia === ref);
-    items.push({ referencia: ref, categoria: p?.categoria || '', talla, cantidad: cant });
-  }
+  Object.entries(despachoActual).forEach(([ref, r]) => {
+    Object.entries(r.tallas).forEach(([talla, d]) => { if (d.cantidad > 0) items.push({ referencia: ref, categoria: r.categoria || '', talla, cantidad: d.cantidad }); });
+  });
   if (!items.length) { toast('Agrega al menos una prenda', 'err'); return; }
+  // Revalidar contra el disponible actual (por si cambió)
+  for (const it of items) {
+    const disp = stockPorTallaDe(it.referencia)[it.talla] || 0;
+    if (disp < it.cantidad) { toast(`Stock insuficiente: ${it.referencia} talla ${it.talla} (${disp} disp.)`, 'err'); return; }
+  }
 
   const totalUnd = items.reduce((a, i) => a + i.cantidad, 0);
+  const btnC = document.getElementById('btn-confirmar-despacho'); if (btnC) btnC.disabled = true;
   const { data: desp, error } = await sb.from('despachos').insert({ remision, fecha, almacen_id: almId, almacen_nombre: almNombre, total_unidades: totalUnd }).select().single();
-  if (error) { toast('Error al guardar despacho', 'err'); return; }
+  if (error) { toast('Error al guardar despacho', 'err'); if (btnC) btnC.disabled = false; return; }
 
   await sb.from('despacho_items').insert(items.map(i => ({ ...i, despacho_id: desp.id })));
   // Descontar del stock_por_talla (misma fuente que las entradas y Existencias), agregando por referencia
@@ -3919,11 +3958,9 @@ async function confirmarDespacho() {
   }
 
   toast(`✓ ${remision} — ${NUM(totalUnd)} uds despachadas`);
-  document.getElementById('d-items-wrap').innerHTML = '';
-  despachoItems = [];
   document.getElementById('d-remision').value = '';
-  addDespachoItem();
-  cargarBodega();
+  await cargarBodega();              // refresca bodegaData con el stock descontado
+  await llenarSelectDespachoRef();   // resetea tarjetas y dropdown con el stock nuevo
   cargarHistDespachos();
   if (confirm(`Despacho ${remision} guardado. ¿Generar la remisión imprimible (PDF)?`)) imprimirRemision(desp.id);
 }
