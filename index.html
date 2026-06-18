@@ -948,7 +948,7 @@
         <div class="form-section">
           <div class="alert alert-info">
             <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-            La vendedora selecciona su tienda y escribe cuántas unidades de cada referencia encuentra físicamente.
+            Selecciona la tienda y registra cuántas unidades hay físicamente de cada referencia. El admin puede contar <strong>cualquier</strong> referencia (aunque el sistema diga 0) y usar <strong>"Inventario inicial"</strong> para tiendas nuevas.
           </div>
           <div class="form-group">
             <label>Almacén</label>
@@ -966,6 +966,12 @@
           </div>
         </div>
         <div id="if-items-wrap" style="display:none">
+          <div id="if-controls" style="padding:10px 16px;border-bottom:1px solid var(--borde);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <input type="text" id="if-buscar" placeholder="🔍 Buscar referencia…" oninput="renderConteoItems()" style="flex:1;min-width:150px;padding:8px 12px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:14px;font-family:inherit">
+            <select id="if-cat" onchange="renderConteoItems()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"><option value="">Todas las categorías</option></select>
+            <label id="if-inicial-wrap" style="display:none;align-items:center;gap:6px;font-size:12px;color:var(--gris-medio);cursor:pointer;white-space:nowrap"><input type="checkbox" id="if-inicial" onchange="renderConteoItems()" style="width:16px;height:16px"> Inventario inicial</label>
+          </div>
+          <div id="if-count-nota" style="padding:6px 16px 0;font-size:11px;color:var(--gris-medio)"></div>
           <div class="conteo-row header">
             <div>Referencia</div><div style="text-align:center">Sistema</div><div style="text-align:center">Físico</div><div style="text-align:center">Dif.</div>
           </div>
@@ -2260,7 +2266,7 @@ function showTab(tabId) {
   }
   if (tabId === 'tab-inv-consolidado') cargarConsolidado();
   if (tabId === 'tab-inv-control') cargarControlMensual();
-  if (tabId === 'tab-inv-fisico' && esVendedora()) {
+  if (tabId === 'tab-inv-fisico') {
     const f = document.getElementById('if-fecha'); if (f && !f.value) f.value = hoy();
     cargarItemsConteo();
   }
@@ -4299,66 +4305,119 @@ async function renderConciliacion() {
 }
 
 // ─── INVENTARIO FÍSICO ────────────────────────
+let _conteoItems = [], _conteoFisico = {};
 async function cargarItemsConteo() {
   const almId = document.getElementById('if-almacen').value;
-  if (!almId) { document.getElementById('if-items-wrap').style.display = 'none'; return; }
+  const wrap = document.getElementById('if-items-wrap'), empty = document.getElementById('if-empty');
+  if (!almId) { wrap.style.display = 'none'; if (empty) empty.style.display = 'none'; return; }
   await loadInvCache();
-
-  // "Sistema" = inventario actual del motor (inicial + remisiones − ventas + ajustes)
-  const items = inventarioActual(almId).rows
-    .filter(r => r.final > 0)
-    .map(r => ({ ref: r.ref, cat: r.cat, esperado: r.final }));
-
-  if (!items.length) {
-    document.getElementById('if-items-wrap').style.display = 'none';
-    document.getElementById('if-empty').style.display = 'block';
-    return;
+  const admin = !esVendedora();
+  const invRows = inventarioActual(almId).rows;            // motor: inicial + remisiones − ventas + ajustes
+  const sysMap = {}; invRows.forEach(r => { sysMap[r.ref] = r.final; });
+  let items;
+  if (admin) {
+    // ADMIN: TODAS las referencias del catálogo (bodega) + cualquiera con movimiento, con su stock de sistema (0 si no hay)
+    const m = new Map();
+    (bodegaData || []).forEach(p => { if (p && p.referencia) m.set(p.referencia, { ref: p.referencia, cat: p.categoria || '', esperado: sysMap[p.referencia] || 0 }); });
+    invRows.forEach(r => { if (!m.has(r.ref)) m.set(r.ref, { ref: r.ref, cat: r.cat || '', esperado: r.final }); });
+    items = [...m.values()];
+  } else {
+    // VENDEDORA: solo referencias con stock en su almacén (sin cambios)
+    items = invRows.filter(r => r.final > 0).map(r => ({ ref: r.ref, cat: r.cat || '', esperado: r.final }));
   }
-  document.getElementById('if-empty').style.display = 'none';
-  document.getElementById('if-items-wrap').style.display = 'block';
-  document.getElementById('if-items-list').innerHTML = items.map((it, i) => `
-    <div class="conteo-row" data-ref="${it.ref}" data-cat="${it.cat}" data-esp="${it.esperado}">
-      <div>
-        <div style="font-size:13px;font-weight:600">${it.ref}</div>
-        <div style="font-size:11px;color:var(--gris-medio)">${it.cat}</div>
-      </div>
-      <div style="text-align:center;font-weight:600;color:var(--gris-medio)">${NUM(it.esperado)}</div>
-      <input type="number" id="if-c-${i}" min="0" placeholder="0" oninput="calcDiff(${i}, ${it.esperado})">
-      <div id="if-d-${i}" style="text-align:center;font-size:13px;color:var(--gris-medio)">—</div>
-    </div>`).join('');
+  // con stock primero; luego por categoría y referencia (las de stock 0 quedan al final)
+  items.sort((a, b) => (a.esperado > 0 ? 0 : 1) - (b.esperado > 0 ? 0 : 1) || (a.cat || '').localeCompare(b.cat || '') || a.ref.localeCompare(b.ref));
+  _conteoItems = items; _conteoFisico = {};
+  if (!items.length) { wrap.style.display = 'none'; if (empty) empty.style.display = 'block'; return; }
+  if (empty) empty.style.display = 'none';
+  wrap.style.display = 'block';
+  const cats = [...new Set(items.map(i => i.cat).filter(Boolean))].sort();
+  const catSel = document.getElementById('if-cat');
+  if (catSel) catSel.innerHTML = '<option value="">Todas las categorías</option>' + cats.map(c => `<option value="${c.replace(/"/g,'&quot;')}">${c}</option>`).join('');
+  const iw = document.getElementById('if-inicial-wrap'); if (iw) iw.style.display = admin ? 'inline-flex' : 'none';
+  const ich = document.getElementById('if-inicial'); if (ich) ich.checked = false;
+  const bus = document.getElementById('if-buscar'); if (bus) bus.value = '';
+  renderConteoItems();
 }
 
-function calcDiff(i, esp) {
-  const val = parseInt(document.getElementById('if-c-' + i)?.value);
-  const cell = document.getElementById('if-d-' + i);
-  if (isNaN(val)) { cell.textContent = '—'; cell.className = ''; return; }
-  const d = val - esp;
+function renderConteoItems() {
+  const q = (document.getElementById('if-buscar')?.value || '').toLowerCase().trim();
+  const cat = document.getElementById('if-cat')?.value || '';
+  const inicial = !!document.getElementById('if-inicial')?.checked;
+  const ea = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
+  const list = _conteoItems.filter(it => (!cat || it.cat === cat) && (!q || it.ref.toLowerCase().includes(q)));
+  const cont = document.getElementById('if-items-list');
+  cont.innerHTML = list.length ? list.map(it => {
+    const raw = _conteoFisico[it.ref], has = raw != null && raw !== '', vi = parseInt(raw);
+    let diffText = '—', diffCls = 'if-d';
+    if (inicial) diffText = (has && !isNaN(vi)) ? 'nuevo' : '—';
+    else if (has && !isNaN(vi)) { const d = vi - it.esperado; diffText = d === 0 ? '✓' : (d > 0 ? '+' : '') + NUM(d); diffCls = 'if-d ' + (d === 0 ? 'diff-ok' : d > 0 ? 'diff-pos' : 'diff-neg'); }
+    return `<div class="conteo-row" data-ref="${ea(it.ref)}" data-esp="${it.esperado}">
+      <div>
+        <div style="font-size:13px;font-weight:600">${it.ref}</div>
+        <div style="font-size:11px;color:var(--gris-medio)">${it.cat || '—'}${it.esperado === 0 ? ' · sin stock' : ''}</div>
+      </div>
+      <div style="text-align:center;font-weight:600;color:var(--gris-medio)">${inicial ? '—' : NUM(it.esperado)}</div>
+      <input type="number" class="if-c" data-ref="${ea(it.ref)}" min="0" placeholder="0" value="${has ? ea(raw) : ''}" oninput="onConteoInput(this)">
+      <div class="${diffCls}" data-ref="${ea(it.ref)}" style="text-align:center;font-size:13px">${diffText}</div>
+    </div>`;
+  }).join('') : '<div style="padding:16px;text-align:center;color:var(--gris-medio);font-size:13px">Sin referencias para el filtro.</div>';
+  const total = _conteoItems.length;
+  const contados = _conteoItems.filter(it => { const x = _conteoFisico[it.ref]; return x != null && x !== '' && !isNaN(parseInt(x)); }).length;
+  const nota = document.getElementById('if-count-nota');
+  if (nota) nota.textContent = `${contados} de ${total} referencias con conteo${(q || cat) ? ` · mostrando ${list.length}` : ''}`;
+}
+
+function onConteoInput(el) {
+  const ref = el.dataset.ref;
+  _conteoFisico[ref] = el.value;
+  const row = el.closest('.conteo-row');
+  const cell = row?.querySelector('.if-d');
+  if (!cell) return;
+  if (document.getElementById('if-inicial')?.checked) { cell.textContent = (el.value !== '' && !isNaN(parseInt(el.value))) ? 'nuevo' : '—'; cell.className = 'if-d'; return; }
+  const esp = parseInt(row?.dataset.esp) || 0, v = parseInt(el.value);
+  if (isNaN(v)) { cell.textContent = '—'; cell.className = 'if-d'; return; }
+  const d = v - esp;
   cell.textContent = d === 0 ? '✓' : (d > 0 ? '+' : '') + NUM(d);
-  cell.className = d === 0 ? 'diff-ok' : d > 0 ? 'diff-pos' : 'diff-neg';
+  cell.className = 'if-d ' + (d === 0 ? 'diff-ok' : d > 0 ? 'diff-pos' : 'diff-neg');
+  const nota = document.getElementById('if-count-nota');
+  if (nota) { const total = _conteoItems.length, contados = _conteoItems.filter(it => { const x = _conteoFisico[it.ref]; return x != null && x !== '' && !isNaN(parseInt(x)); }).length; nota.textContent = `${contados} de ${total} referencias con conteo`; }
 }
 
 async function enviarConteo() {
   const almId = document.getElementById('if-almacen').value;
-  const almNombre = document.querySelector('#if-almacen option:checked')?.dataset?.nombre || '';
+  const almNombre = document.querySelector('#if-almacen option:checked')?.dataset?.nombre || (almacenes.find(a => a.id === almId) || {}).nombre || '';
   const fecha = document.getElementById('if-fecha').value;
   const quien = document.getElementById('if-quien').value;
   if (!almId || !fecha) { toast('Selecciona almacén y fecha', 'err'); return; }
+  const inicial = !esVendedora() && !!document.getElementById('if-inicial')?.checked;
 
-  const filas = document.querySelectorAll('#if-items-list .conteo-row[data-ref]');
-  const items = [];
-  filas.forEach((fila, i) => {
-    const ref = fila.dataset.ref, cat = fila.dataset.cat, esp = parseInt(fila.dataset.esp) || 0;
-    const fisico = parseInt(document.getElementById('if-c-' + i)?.value);
-    if (!isNaN(fisico)) items.push({ referencia: ref, categoria: cat, cantidad_sistema: esp, cantidad_fisica: fisico, diferencia: fisico - esp });
-  });
-  if (!items.length) { toast('Ingresa al menos un conteo', 'err'); return; }
+  // Recoger lo ingresado (de TODAS las referencias, no solo las visibles tras filtrar)
+  const counted = _conteoItems.map(it => { const raw = _conteoFisico[it.ref]; const v = parseInt(raw); return { it, v, has: raw != null && raw !== '' && !isNaN(v) }; }).filter(x => x.has);
+  if (!counted.length) { toast('Ingresa al menos un conteo', 'err'); return; }
+  const faltan = _conteoItems.length - counted.length;
 
+  if (inicial) {
+    const periodo = periodoDe(fecha);
+    if (!confirm(`Inventario INICIAL de ${limpiarAlm(almNombre)} (${mesNombre(periodo)}): se registrará el inventario de ${counted.length} referencia(s) desde cero y reemplazará el inicial existente de ese mes.${faltan ? ` ${faltan} referencia(s) sin contar quedan sin inicial.` : ''}\n\n¿Confirmar?`)) return;
+    const rows = counted.map(x => ({ almacen_id: almId, almacen_nombre: almNombre, referencia: x.it.ref, categoria: x.it.cat || '', periodo, unidades: x.v }));
+    const { error } = await sb.from('inventario_apertura').upsert(rows, { onConflict: 'almacen_id,referencia,periodo' });
+    if (error) { toast('Error al guardar inventario inicial: ' + detalleError(error), 'err'); console.error(error); return; }
+    toast(`✓ Inventario inicial guardado — ${counted.length} referencia(s)`);
+    await loadInvCache(true);
+    cargarItemsConteo();
+    return;
+  }
+
+  // Conteo físico normal: registra físico vs sistema (diferencias)
+  if (faltan > 0 && !confirm(`Se registrarán ${counted.length} referencia(s) contadas. ${faltan} sin contar no se modifican.\n\n¿Enviar?`)) return;
+  const items = counted.map(x => ({ referencia: x.it.ref, categoria: x.it.cat || '', cantidad_sistema: x.it.esperado, cantidad_fisica: x.v, diferencia: x.v - x.it.esperado }));
   const { data: conteo, error } = await sb.from('conteos_fisicos').insert({ fecha, almacen_id: almId, almacen_nombre: almNombre, contado_por: quien }).select().single();
   if (error) { toast('Error al guardar conteo', 'err'); return; }
   await sb.from('conteo_items').insert(items.map(i => ({ ...i, conteo_id: conteo.id })));
-
-  const diffs = items.filter(i => i.cantidad_fisica !== i.cantidad_sistema).length;
+  const diffs = items.filter(i => i.diferencia !== 0).length;
   toast(`✓ Conteo enviado — ${diffs} diferencia(s)`);
+  await loadInvCache(true);
   showTab('tab-if-res');
 }
 
