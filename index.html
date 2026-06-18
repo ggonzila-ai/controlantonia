@@ -5572,7 +5572,12 @@ async function cargarVentasPorAlmacen() {
   }
 
   const pin = document.getElementById('vpa-periodo');
-  if (!pin.options.length) pin.innerHTML = periodoOpciones('', true);
+  if (!pin.options.length) {
+    let def = '';
+    try { const { data } = await sb.from('reportes_ventas_feria').select('mes').eq('estado','activo').order('mes',{ascending:false}).limit(1); def=(data&&data[0]&&data[0].mes)||''; } catch(e){}
+    if (!def) { try { const { data } = await sb.from('ventas').select('periodo').order('periodo',{ascending:false}).limit(1); def=(data&&data[0]&&data[0].periodo)||''; } catch(e){} }
+    pin.innerHTML = periodoOpciones(def, true);   // arranca en el último mes con datos (la opción "Todos" sigue disponible)
+  }
 
   const almNombre = selAlm.value, periodo = pin.value, cat = document.getElementById('vpa-cat').value;
 
