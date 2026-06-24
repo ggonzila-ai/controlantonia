@@ -1694,6 +1694,7 @@
     <div class="form-group"><label>Total PILA (COP)</label><input type="text" inputmode="numeric" id="pila-total" placeholder="0" oninput="pilaCheckSuma()" onblur="this.value=this.value?NUM(pesos(this.value)):''"></div>
     <div style="font-size:12px;color:var(--brand-dark);cursor:pointer;margin:2px 0 8px" onclick="document.getElementById('pila-detalle').style.display = document.getElementById('pila-detalle').style.display==='none'?'block':'none'">▾ Ver detalle (opcional)</div>
     <div id="pila-detalle" style="display:none">
+      <button type="button" class="btn btn-sm btn-secondary btn-full" style="margin-bottom:8px" onclick="pilaEstimar()">⚡ Estimar desde salarios</button>
       <div class="form-row">
         <div class="form-group"><label>Pensión (AFP)</label><input type="text" inputmode="numeric" id="pila-pension" placeholder="0" oninput="pilaCheckSuma()" onblur="this.value=this.value?NUM(pesos(this.value)):''"></div>
         <div class="form-group"><label>Salud (EPS)</label><input type="text" inputmode="numeric" id="pila-salud" placeholder="0" oninput="pilaCheckSuma()" onblur="this.value=this.value?NUM(pesos(this.value)):''"></div>
@@ -6723,6 +6724,26 @@ function pilaSyncSalud() {
   if (!_pilaEditId) verificarDobleContePila(ps.value);
 }
 
+// Estima el desglose PILA con tasas legales Colombia sobre el IBC (salario) de las
+// colaboradoras fijas activas. Empresa exonerada de SENA/ICBF. Editable después.
+async function pilaEstimar() {
+  await loadColaboradores();
+  let pen = 0, sal = 0, ccf = 0, arl = 0;
+  (_colaboradores || []).filter(c => c.activo !== false && !esSocia(c)).forEach(c => {
+    const ibc = c.salario || 0; if (!ibc) return;
+    pen += Math.round(ibc * 0.16);     // pensión 16%
+    sal += Math.round(ibc * 0.125);    // salud 12.5%
+    ccf += Math.round(ibc * 0.04);     // caja de compensación 4%
+    arl += Math.round(ibc * 0.01044);  // ARL nivel I
+  });
+  const set = (id, v) => { const e = document.getElementById(id); if (e) e.value = v ? NUM(v) : ''; };
+  set('pila-pension', pen); set('pila-salud', sal); set('pila-ccf', ccf); set('pila-arl', arl);
+  document.getElementById('pila-detalle').style.display = 'block';
+  if (!pesos(document.getElementById('pila-total').value)) set('pila-total', pen + sal + ccf + arl);
+  pilaCheckSuma();
+  if (!(pen + sal + ccf + arl)) toast('No hay salarios activos para estimar', 'err');
+}
+
 function pilaCheckSuma() {
   const g = id => pesos(document.getElementById(id).value);
   const det = g('pila-pension') + g('pila-salud') + g('pila-ccf') + g('pila-arl');
@@ -6856,7 +6877,10 @@ async function cargarNomina() {
   const anioActual = String(new Date().getFullYear());
   const tempPeriodo = _temporal.filter(t => periodo ? (t.fecha_inicio||'').slice(0,7)===periodo : (t.fecha_inicio||'').slice(0,4)===anioActual);
   const totalTemp = tempPeriodo.reduce((s,t)=>s+(t.valor_pagado||0),0);
-  const costoLaboral = nominaFija + totalTemp;
+  // PILA del período (seguridad social) — parte del costo laboral
+  let pilaMes = 0;
+  { let pq = sb.from('nomina_pila').select('total_pila'); if (periodo) pq = pq.eq('periodo_salario', periodo); const { data: pilad } = await pq; pilaMes = (pilad||[]).reduce((s,r)=>s+(r.total_pila||0),0); }
+  const costoLaboral = nominaFija + totalTemp + pilaMes;
   const periodoLbl = periodo ? mesNombre(periodo) : `año ${anioActual}`;
 
   // Costo por cargo (solo personal fijo)
@@ -6865,10 +6889,13 @@ async function cargarNomina() {
   const cargosRows = Object.entries(porCargo).sort((a,b)=>b[1]-a[1]);
 
   document.getElementById('nom-kpis').innerHTML = `
-    <div class="metric-card accent"><div class="m-label">Nómina fija mensual</div><div class="m-val">${COP(nominaFija)}</div><div class="m-sub">${fijosActivos.length} colaborador(es) · recurrente cada mes</div></div>
-    <div class="metric-card"><div class="m-label">Personal temporal</div><div class="m-val">${COP(totalTemp)}</div><div class="m-sub">${tempPeriodo.length} contratación(es)</div></div>
-    <div class="metric-card"><div class="m-label">Costo laboral total</div><div class="m-val">${COP(costoLaboral)}</div><div class="m-sub">fija + temporal</div></div>
-    <div class="metric-card"><div class="m-label">Retiro socias</div><div class="m-val">${COP(totalSocia)}</div><div class="m-sub">aparte de nómina operativa</div></div>`;
+    <div style="grid-column:1/-1;background:var(--rosa-oscuro);color:#fff;border-radius:var(--radius);padding:16px 18px">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;opacity:.85">Costo laboral total · ${periodoLbl}</div>
+      <div style="font-size:27px;font-weight:800;margin-top:3px">${COP(costoLaboral)}</div>
+      <div style="font-size:12px;opacity:.92;margin-top:5px">Salarios fijos ${COP(nominaFija)} · PILA ${COP(pilaMes)} · Temporal ${COP(totalTemp)}</div>
+    </div>
+    <div class="metric-card"><div class="m-label">Retiro socias</div><div class="m-val">${COP(totalSocia)}</div><div class="m-sub">aparte de la nómina operativa</div></div>
+    <div class="metric-card"><div class="m-label">Colaboradoras activas</div><div class="m-val">${fijosActivos.length}</div><div class="m-sub">personal fijo${totalTemp>0?` · ${tempPeriodo.length} temporal(es)`:''}</div></div>`;
 
   // Tabla pagos (fijo + socias con badge de tipo)
   const totPagos = totalFija + totalSocia;
