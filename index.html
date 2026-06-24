@@ -7351,23 +7351,28 @@ function docItemHtml(d){
 function renderDocFolder(){
   const f = docFolder(_docFolderActual); if(!f){ volverACarpetas(); return; }
   document.getElementById('docs-folder-title').textContent = f.id;
+  // Documentos de esta carpeta. La vista interior NO filtra por período (ese control vive en la
+  // vista de carpetas y aquí está oculto) — se muestran todos y se filtran por subcategoría/búsqueda.
+  const enCarpeta = _docs.filter(d => d.categoria===f.id);
   const subSel = document.getElementById('docs-sub');
-  if (subSel.getAttribute('data-folder') !== f.id){
-    subSel.innerHTML = '<option value="">Todas las subcategorías</option>' + f.subs.map(s=>`<option>${s}</option>`).join('');
-    subSel.setAttribute('data-folder', f.id);
-    subSel.value = '';
+  // Dropdown dinámico: subcategorías definidas de la carpeta + las que realmente existan en los documentos
+  const subsTodas = [...new Set([...(f.subs||[]), ...enCarpeta.map(d=>d.subcategoria).filter(Boolean)])];
+  const firma = f.id + '|' + subsTodas.join('|');
+  if (subSel.getAttribute('data-firma') !== firma){
+    const prev = subSel.value;
+    subSel.innerHTML = '<option value="">Todas las subcategorías</option>' + subsTodas.map(s=>`<option>${s}</option>`).join('');
+    subSel.setAttribute('data-firma', firma);
+    subSel.value = subsTodas.includes(prev) ? prev : '';
   }
   const sub = subSel.value;
   const q = (document.getElementById('docs-buscar').value||'').toLowerCase();
-  const { desde, hasta, label } = docRango();
-  const m1=desde.slice(0,7), m2=hasta.slice(0,7);
-  let docs = _docs.filter(d => d.categoria===f.id && (()=>{ const p=docPeriodo(d); return p && p>=m1 && p<=m2; })());
+  let docs = enCarpeta.slice();
   if(sub) docs = docs.filter(d => (d.subcategoria||'')===sub);
   if(q) docs = docs.filter(d => ((d.nombre||'')+' '+(d.descripcion||'')+' '+(d.observaciones||'')+' '+(d.proveedor||'')).toLowerCase().includes(q));
   docs.sort((a,b)=>(b.fecha_documento||'').localeCompare(a.fecha_documento||''));
   document.getElementById('docs-folder-list').innerHTML = docs.length
     ? docs.map(docItemHtml).join('')
-    : `<div style="padding:30px 16px;text-align:center;color:var(--gris-medio);font-size:13px">No hay documentos en este período (${label}).<br>¿Quieres agregar uno?<br><button class="btn btn-sm btn-primary" style="margin-top:12px" onclick="abrirModalDoc()">+ Nuevo documento</button></div>`;
+    : `<div style="padding:30px 16px;text-align:center;color:var(--gris-medio);font-size:13px">No hay documentos en esta carpeta${sub?` para "${sub}"`:''}${q?' con esa búsqueda':''}.<br><button class="btn btn-sm btn-primary" style="margin-top:12px" onclick="abrirModalDoc()">+ Nuevo documento</button></div>`;
 }
 
 // Vista 3: documentos anteriores (categorías que no son de las 6 carpetas)
