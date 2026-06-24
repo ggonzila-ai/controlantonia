@@ -1208,7 +1208,18 @@
       </div>
       <div class="metrics" id="nom-kpis" style="margin:14px 16px"></div>
 
-      <div style="padding:0 16px 8px;font-size:12px;font-weight:600;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Pagos del período (fijo y socias)</div>
+      <!-- APORTES PILA (Seguridad Social) -->
+      <div style="padding:8px 16px 4px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <div style="font-size:12px;font-weight:600;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">🏥 Aportes PILA (Seguridad Social)</div>
+        <button class="btn btn-sm btn-primary" onclick="abrirModalPila()">+ Registrar PILA</button>
+      </div>
+      <div style="padding:0 16px 8px;font-size:11px;color:var(--gris-medio)">Va en la columna <strong>Nómina</strong> del P&amp;L y en los Costos Mensuales — NO en Gastos.</div>
+      <div class="tabla-wrap"><table>
+        <thead><tr><th>Período salario</th><th>Fecha pago</th><th>N° planilla</th><th style="text-align:right">Pensión</th><th style="text-align:right">Salud</th><th style="text-align:right">CCF</th><th style="text-align:right">ARL</th><th style="text-align:right">Total</th><th>Soporte</th><th></th></tr></thead>
+        <tbody id="nom-pila-tbody"><tr><td colspan="10"><div class="loader"><div class="spinner"></div></div></td></tr></tbody>
+      </table></div>
+
+      <div style="padding:14px 16px 8px;font-size:12px;font-weight:600;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Pagos del período (fijo y socias)</div>
       <div class="tabla-wrap"><table>
         <thead><tr><th>Colaborador</th><th>Tipo</th><th>Cargo</th><th>Fecha pago</th><th style="text-align:right">Valor</th><th></th></tr></thead>
         <tbody id="nom-pagos-tbody"><tr><td colspan="6"><div class="loader"><div class="spinner"></div></div></td></tr></tbody>
@@ -1662,6 +1673,43 @@
     <div style="display:flex;gap:10px;margin-top:4px">
       <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-pago')">Cancelar</button>
       <button class="btn btn-primary" style="flex:2" id="pago-btn" onclick="guardarPago()">Registrar pago</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL APORTES PILA -->
+<div class="modal-overlay" id="modal-pila">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="pila-title">Registrar aportes PILA</div>
+    <div id="pila-aviso" style="display:none;margin-bottom:10px"></div>
+    <div class="form-row">
+      <div class="form-group"><label>Período de salario</label><select id="pila-periodo" onchange="pilaSyncSalud()"></select></div>
+      <div class="form-group"><label>Período de salud</label><select id="pila-periodo-salud"></select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Fecha de pago</label><input type="date" id="pila-fecha"></div>
+      <div class="form-group"><label>N° de planilla (opcional)</label><input type="text" id="pila-planilla" placeholder="Referencia"></div>
+    </div>
+    <div class="form-group"><label>Total PILA (COP)</label><input type="text" inputmode="numeric" id="pila-total" placeholder="0" oninput="pilaCheckSuma()" onblur="this.value=this.value?NUM(pesos(this.value)):''"></div>
+    <div style="font-size:12px;color:var(--brand-dark);cursor:pointer;margin:2px 0 8px" onclick="document.getElementById('pila-detalle').style.display = document.getElementById('pila-detalle').style.display==='none'?'block':'none'">▾ Ver detalle (opcional)</div>
+    <div id="pila-detalle" style="display:none">
+      <div class="form-row">
+        <div class="form-group"><label>Pensión (AFP)</label><input type="text" inputmode="numeric" id="pila-pension" placeholder="0" oninput="pilaCheckSuma()" onblur="this.value=this.value?NUM(pesos(this.value)):''"></div>
+        <div class="form-group"><label>Salud (EPS)</label><input type="text" inputmode="numeric" id="pila-salud" placeholder="0" oninput="pilaCheckSuma()" onblur="this.value=this.value?NUM(pesos(this.value)):''"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Caja compensación (CCF)</label><input type="text" inputmode="numeric" id="pila-ccf" placeholder="0" oninput="pilaCheckSuma()" onblur="this.value=this.value?NUM(pesos(this.value)):''"></div>
+        <div class="form-group"><label>ARL (riesgos)</label><input type="text" inputmode="numeric" id="pila-arl" placeholder="0" oninput="pilaCheckSuma()" onblur="this.value=this.value?NUM(pesos(this.value)):''"></div>
+      </div>
+      <div id="pila-suma-nota" style="font-size:11px;color:var(--gris-medio);margin:-2px 0 8px"></div>
+    </div>
+    <div class="form-group"><label>Soporte (PDF/imagen, opcional)</label><input type="file" id="pila-file" accept=".pdf,.jpg,.jpeg,.png" style="width:100%;font-size:13px"></div>
+    <div id="pila-soporte-actual" style="font-size:12px;margin:-4px 0 8px"></div>
+    <div class="form-group"><label>Observaciones</label><input type="text" id="pila-obs" placeholder="Opcional"></div>
+    <div style="display:flex;gap:10px;margin-top:4px">
+      <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-pila')">Cancelar</button>
+      <button class="btn btn-primary" style="flex:2" id="pila-btn" onclick="guardarPila()">Registrar PILA</button>
     </div>
   </div>
 </div>
@@ -2889,7 +2937,7 @@ function margenReferencia(ref) {
 
 // ─── COSTOS: PARÁMETROS DEL MES + RENTABILIDAD (cadena base sin IVA) ───
 const SALARIO_TC = 2722000, SALARIO_MT = 1361000;
-let _paramProdPrenda = 6890, _paramComPrenda = 4483, _paramCargados = false;
+let _paramProdPrenda = 6890, _paramComPrenda = 4483, _paramCargados = false, _pilaMesActual = 0;
 const _v = id => document.getElementById(id)?.value;
 const _setV = (id, val) => { const e = document.getElementById(id); if (e && val != null) e.value = val; };
 // Aplicar persiste en localStorage; al cargar la app, esos valores mandan en toda la rentabilidad
@@ -2905,10 +2953,14 @@ async function abrirCostosMensuales() {
 }
 
 function recalcParametros() {
-  const prodPrenda = Math.round(((parseFloat(_v('pp-costureras'))||0)*SALARIO_TC + (parseFloat(_v('pp-taller'))||0)) / (parseFloat(_v('pp-undprod'))||1));
-  const comPrenda = Math.round(((parseFloat(_v('pc-tc'))||0)*SALARIO_TC + (parseFloat(_v('pc-mt'))||0)*SALARIO_MT + (parseFloat(_v('pc-temp'))||0)*SALARIO_TC + (parseFloat(_v('pc-transp'))||0)) / (parseFloat(_v('pc-undventa'))||1));
+  const undProd = parseFloat(_v('pp-undprod'))||1, undVenta = parseFloat(_v('pc-undventa'))||1;
+  const baseProd = (parseFloat(_v('pp-costureras'))||0)*SALARIO_TC + (parseFloat(_v('pp-taller'))||0);
+  const baseCom  = (parseFloat(_v('pc-tc'))||0)*SALARIO_TC + (parseFloat(_v('pc-mt'))||0)*SALARIO_MT + (parseFloat(_v('pc-temp'))||0)*SALARIO_TC + (parseFloat(_v('pc-transp'))||0);
+  const pila = _pilaMesActual||0, pilaMitad = pila/2;   // seg. social del mes, repartida 50/50 prod/comercial
+  const prodPrenda = Math.round((baseProd + pilaMitad) / undProd);
+  const comPrenda  = Math.round((baseCom  + pilaMitad) / undVenta);
   const r = document.getElementById('param-resumen');
-  if (r) r.innerHTML = `Costo producción/prenda: <strong>${COP(prodPrenda)}</strong><br>Costo comercial/prenda: <strong>${COP(comPrenda)}</strong><br>Costo fijo total/prenda: <strong>${COP(prodPrenda+comPrenda)}</strong>`;
+  if (r) r.innerHTML = `Costo producción/prenda: <strong>${COP(prodPrenda)}</strong><br>Costo comercial/prenda: <strong>${COP(comPrenda)}</strong>${pila>0?`<br><span style="color:var(--gris-medio)">+ incluye PILA seg. social ${COP(pila)} (50/50)</span>`:''}<br>Costo fijo total/prenda: <strong>${COP(prodPrenda+comPrenda)}</strong>`;
   return { prodPrenda, comPrenda };
 }
 function aplicarParametros() {
@@ -2935,6 +2987,7 @@ async function guardarParametros() {
   if (document.getElementById('tab-content-bod-rentab')?.style.display !== 'none') cargarRentabilidadCostos();
 }
 async function loadParametros() {
+  try { const { data: pl } = await sb.from('nomina_pila').select('total_pila').eq('periodo_salario', periodoActual()); _pilaMesActual = (pl||[]).reduce((s,r)=>s+(r.total_pila||0),0); } catch(e){ _pilaMesActual = 0; }
   const { data } = await sb.from('parametros_mes').select('*').eq('periodo', periodoActual()).maybeSingle();
   if (data) {
     _setV('pp-costureras', data.costureras); _setV('pp-taller', data.taller); _setV('pp-undprod', data.unidades_produccion);
@@ -6643,7 +6696,143 @@ async function loadTemporal() {
   _temporal = data || [];
 }
 
+// ─── APORTES PILA (Seguridad Social) ───
+let _pilaEditId = null, _pilaSoporte = null;
+async function cargarPila() {
+  const tb = document.getElementById('nom-pila-tbody'); if (!tb) return;
+  const { data } = await sb.from('nomina_pila').select('*').order('fecha_pago', { ascending: false }).limit(500);
+  const rows = data || [];
+  tb.innerHTML = rows.length ? rows.map(r => `
+    <tr style="cursor:pointer" onclick="abrirModalPila('${r.id}')">
+      <td><strong>${mesNombre(r.periodo_salario)}</strong></td>
+      <td>${r.fecha_pago ? r.fecha_pago.split('-').reverse().join('/') : '—'}</td>
+      <td>${r.planilla_numero || '—'}</td>
+      <td style="text-align:right">${r.pension ? COP(r.pension) : '—'}</td>
+      <td style="text-align:right">${r.salud ? COP(r.salud) : '—'}</td>
+      <td style="text-align:right">${r.ccf ? COP(r.ccf) : '—'}</td>
+      <td style="text-align:right">${r.arl ? COP(r.arl) : '—'}</td>
+      <td style="text-align:right;font-weight:700">${COP(r.total_pila)}</td>
+      <td onclick="event.stopPropagation()">${r.soporte_url ? `<a href="${r.soporte_url}" target="_blank" rel="noopener">📎</a>` : '—'}</td>
+      <td onclick="event.stopPropagation()"><button onclick="eliminarPila('${r.id}')" style="background:none;border:none;color:var(--rojo);cursor:pointer;font-size:15px;padding:2px 6px">✕</button></td>
+    </tr>`).join('') : '<tr><td colspan="10" style="text-align:center;padding:16px;color:var(--gris-medio)">Sin aportes PILA registrados. Usa "+ Registrar PILA".</td></tr>';
+}
+
+function pilaSyncSalud() {
+  const ps = document.getElementById('pila-periodo'), psd = document.getElementById('pila-periodo-salud');
+  if (ps && psd && !_pilaEditId) psd.value = periodoNext(ps.value);
+  if (!_pilaEditId) verificarDobleContePila(ps.value);
+}
+
+function pilaCheckSuma() {
+  const g = id => pesos(document.getElementById(id).value);
+  const det = g('pila-pension') + g('pila-salud') + g('pila-ccf') + g('pila-arl');
+  const tot = g('pila-total'), nota = document.getElementById('pila-suma-nota');
+  if (det > 0) { nota.textContent = det === tot ? '✓ El desglose suma el total.' : `Desglose ${COP(det)} vs total ${COP(tot)} — no coinciden`; nota.style.color = det === tot ? 'var(--verde)' : 'var(--rojo)'; }
+  else nota.textContent = '';
+}
+
+async function verificarDobleContePila(periodo) {
+  const aviso = document.getElementById('pila-aviso'); if (!aviso || !periodo) return;
+  const [y, m] = periodo.split('-'); const ini = `${y}-${m}-01`, fin = `${y}-${m}-31`;
+  let conf = [];
+  try {
+    const { data } = await sb.from('gastos').select('id, descripcion, categoria, valor, fecha')
+      .or('categoria.ilike.%seguridad%,descripcion.ilike.%pila%,descripcion.ilike.%seguridad social%')
+      .gte('fecha', ini).lte('fecha', fin);
+    conf = data || [];
+  } catch (e) { conf = []; }
+  if (conf.length) {
+    const tot = conf.reduce((s, g) => s + (g.valor || 0), 0);
+    aviso.innerHTML = `<div class="alert alert-warn" style="margin:0">⚠️ Ya hay ${conf.length} gasto(s) de seguridad social en Gastos para ${mesNombre(periodo)} (${COP(tot)}). El P&amp;L los descuenta automáticamente cuando hay PILA registrada (no se cuentan dos veces), pero lo ideal es eliminarlos de Gastos para mantenerlo limpio.</div>`;
+    aviso.style.display = 'block';
+  } else aviso.style.display = 'none';
+}
+
+function abrirModalPila(id) {
+  if (esVendedora()) return;
+  _pilaEditId = id || null; _pilaSoporte = null;
+  const ps = document.getElementById('pila-periodo'), psd = document.getElementById('pila-periodo-salud');
+  ps.innerHTML = periodoOpciones(periodoActual(), false);
+  psd.innerHTML = periodoOpciones(periodoActual(), false);
+  const setV = (k, v) => { const e = document.getElementById(k); if (e) e.value = v; };
+  document.getElementById('pila-title').textContent = id ? 'Editar aportes PILA' : 'Registrar aportes PILA';
+  ['pila-planilla', 'pila-obs', 'pila-total', 'pila-pension', 'pila-salud', 'pila-ccf', 'pila-arl'].forEach(k => setV(k, ''));
+  setV('pila-fecha', hoy());
+  document.getElementById('pila-detalle').style.display = 'none';
+  document.getElementById('pila-suma-nota').textContent = '';
+  document.getElementById('pila-aviso').style.display = 'none';
+  document.getElementById('pila-soporte-actual').innerHTML = '';
+  document.getElementById('pila-file').value = '';
+  if (id) {
+    (async () => {
+      const { data: r } = await sb.from('nomina_pila').select('*').eq('id', id).single();
+      if (!r) return;
+      ps.value = r.periodo_salario; psd.value = r.periodo_salud || r.periodo_salario;
+      setV('pila-fecha', r.fecha_pago || hoy()); setV('pila-planilla', r.planilla_numero || '');
+      setV('pila-total', r.total_pila ? NUM(r.total_pila) : ''); setV('pila-obs', r.observaciones || '');
+      setV('pila-pension', r.pension ? NUM(r.pension) : ''); setV('pila-salud', r.salud ? NUM(r.salud) : '');
+      setV('pila-ccf', r.ccf ? NUM(r.ccf) : ''); setV('pila-arl', r.arl ? NUM(r.arl) : '');
+      if (r.pension || r.salud || r.ccf || r.arl) document.getElementById('pila-detalle').style.display = 'block';
+      _pilaSoporte = r.soporte_url ? { url: r.soporte_url, path: r.soporte_path } : null;
+      document.getElementById('pila-soporte-actual').innerHTML = r.soporte_url ? `<a href="${r.soporte_url}" target="_blank" rel="noopener" style="color:var(--brand-dark)">📎 Ver soporte actual</a>` : '';
+    })();
+  } else { pilaSyncSalud(); verificarDobleContePila(ps.value); }
+  document.getElementById('modal-pila').classList.add('open');
+}
+
+async function guardarPila() {
+  if (esVendedora()) { toast('Solo administración', 'err'); return; }
+  const periodo = document.getElementById('pila-periodo').value;
+  const total = pesos(document.getElementById('pila-total').value);
+  const fecha = document.getElementById('pila-fecha').value || hoy();
+  if (!periodo) { toast('Selecciona el período de salario', 'err'); return; }
+  if (total <= 0) { toast('Ingresa el total PILA', 'err'); return; }
+  if (!_pilaEditId) {
+    const { data: dup } = await sb.from('nomina_pila').select('id').eq('periodo_salario', periodo).limit(1);
+    if (dup && dup.length && !confirm(`Ya hay una PILA registrada para ${mesNombre(periodo)}. ¿Registrar otra de todos modos?`)) return;
+  }
+  const btn = document.getElementById('pila-btn'); btn.disabled = true; const prev = btn.textContent; btn.textContent = 'Guardando…';
+  let soporte_url = _pilaSoporte?.url || null, soporte_path = _pilaSoporte?.path || null;
+  const file = document.getElementById('pila-file').files[0];
+  if (file) {
+    const path = `pila/${Date.now()}_${file.name.replace(/[^\w.\-]/g, '_')}`;
+    const { error: upErr } = await sb.storage.from('soportes-gastos').upload(path, file, { contentType: file.type });
+    if (upErr) { btn.disabled = false; btn.textContent = prev; toast('Error subiendo soporte: ' + upErr.message, 'err'); return; }
+    soporte_url = sb.storage.from('soportes-gastos').getPublicUrl(path).data.publicUrl; soporte_path = path;
+  }
+  const row = {
+    periodo_salario: periodo,
+    periodo_salud: document.getElementById('pila-periodo-salud').value || null,
+    fecha_pago: fecha,
+    planilla_numero: document.getElementById('pila-planilla').value.trim() || null,
+    total_pila: total,
+    pension: pesos(document.getElementById('pila-pension').value),
+    salud: pesos(document.getElementById('pila-salud').value),
+    ccf: pesos(document.getElementById('pila-ccf').value),
+    arl: pesos(document.getElementById('pila-arl').value),
+    observaciones: document.getElementById('pila-obs').value.trim() || null,
+    soporte_url, soporte_path
+  };
+  let error;
+  if (_pilaEditId) ({ error } = await sb.from('nomina_pila').update(row).eq('id', _pilaEditId));
+  else ({ error } = await sb.from('nomina_pila').insert(row));
+  if (error) { btn.disabled = false; btn.textContent = prev; toast('Error al guardar PILA: ' + detalleError(error), 'err'); console.error(error); return; }
+  btn.disabled = false; btn.textContent = prev;
+  toast('✓ PILA guardada'); cerrarModal('modal-pila'); cargarPila();
+}
+
+async function eliminarPila(id) {
+  if (esVendedora()) return;
+  if (!confirm('¿Eliminar este registro de PILA?')) return;
+  const { data: r } = await sb.from('nomina_pila').select('soporte_path').eq('id', id).single();
+  if (r?.soporte_path) { try { await sb.storage.from('soportes-gastos').remove([r.soporte_path]); } catch (e) {} }
+  const { error } = await sb.from('nomina_pila').delete().eq('id', id);
+  if (error) { toast('Error al eliminar', 'err'); return; }
+  toast('PILA eliminada'); cargarPila();
+}
+
 async function cargarNomina() {
+  cargarPila();
   const pin = document.getElementById('nom-periodo');
   if (!pin.options.length) pin.innerHTML = periodoOpciones(periodoActual(), true);
   const periodo = pin.value;
@@ -8044,12 +8233,13 @@ async function cargarReportes() {
   const gran = document.getElementById('rep-gran')?.value || 'mes';
   renderPuntoEquilibrio();
   if (!_proveedores.length) await cargarProveedores();
-  const [gastos, ventMap, almMap, nomPagos, colabs, temporal, consData] = await Promise.all([
-    selectAll('gastos', 'periodo, valor, tipo, categoria, fecha, proveedor_id'), ventasPorPeriodo(), ventasPorAlmacen(),
+  const [gastos, ventMap, almMap, nomPagos, colabs, temporal, consData, pila] = await Promise.all([
+    selectAll('gastos', 'periodo, valor, tipo, categoria, descripcion, fecha, proveedor_id'), ventasPorPeriodo(), ventasPorAlmacen(),
     selectAll('nomina_pagos', 'periodo, valor, colaborador_id'),
     selectAll('colaboradores', 'id, tipo, salario, activo'),
     selectAll('personal_temporal', 'fecha_inicio, valor_pagado'),
-    selectAll('consignaciones', 'periodo, valor') ]);
+    selectAll('consignaciones', 'periodo, valor'),
+    selectAll('nomina_pila', 'periodo_salario, total_pila') ]);
   await loadGastosFijos();
   renderGastosPorProveedor(gastos);
   const gByP = {}, nByP = {}, consByP = {};
@@ -8058,6 +8248,12 @@ async function cargarReportes() {
   const nominaFijaMes = (colabs||[]).reduce((a,c)=> a + ((c.activo!==false && c.tipo!=='Socia') ? (c.salario||0) : 0), 0);
   (temporal||[]).forEach(t=>{ const p=(t.fecha_inicio||'').slice(0,7); if(!p) return; nByP[p]=(nByP[p]||0)+(t.valor_pagado||0); });
   (consData||[]).forEach(c=>{ const p=c.periodo||''; consByP[p]=(consByP[p]||0)+(c.valor||0); });
+  // PILA (seguridad social) por mes → va en NÓMINA, no en Gastos
+  const pilaByP = {}; (pila||[]).forEach(r=>{ const p=r.periodo_salario||''; if(p) pilaByP[p]=(pilaByP[p]||0)+(r.total_pila||0); });
+  const _esSegSocial = g => /seguridad|pila/i.test(((g.categoria||'')+' '+(g.descripcion||'')));
+  const segByP = {}; (gastos||[]).forEach(g=>{ if(_esSegSocial(g)){ const p=g.periodo||''; if(p) segByP[p]=(segByP[p]||0)+(g.valor||0); } });
+  const pilaNom = p => (pilaByP[p]||0);                          // PILA del mes para la columna Nómina
+  const gasAjuste = p => (pilaByP[p] ? (segByP[p]||0) : 0);      // si hay PILA, descontar el gasto de seg. social (anti doble conteo)
 
   // ── Mapa mensual con IVA, extendido con histórico 2024/2025 (para interanual) ──
   const conIvaMes = {};
@@ -8066,7 +8262,7 @@ async function cargarReportes() {
   const netoRecibidoMes = p => { const ci=conIvaMes[p]||0; return ci - comisionDe(ci); };
 
   // ── Meses reales (con ventas/gastos/nómina 2026+) ──
-  const mesesReales = [...new Set([...Object.keys(ventMap), ...Object.keys(gByP), ...Object.keys(nByP)])].filter(Boolean).sort();
+  const mesesReales = [...new Set([...Object.keys(ventMap), ...Object.keys(gByP), ...Object.keys(nByP), ...Object.keys(pilaByP)])].filter(Boolean).sort();
 
   // ── Agrupar por bucket ──
   const buckets = {};
@@ -8074,7 +8270,7 @@ async function cargarReportes() {
     const b = bucketDe(p, gran);
     const o = buckets[b.key] = buckets[b.key] || { key:b.key, label:b.label, sort:b.sort, meses:[], conIva:0, gas:0, nom:0, ingPrev:0 };
     o.meses.push(p);
-    o.conIva += conIvaMes[p]||0; o.gas += (gByP[p]||0) + gastoFijoDe(p); o.nom += (nByP[p]||0) + nominaFijaMes;
+    o.conIva += conIvaMes[p]||0; o.gas += (gByP[p]||0) + gastoFijoDe(p) - gasAjuste(p); o.nom += (nByP[p]||0) + nominaFijaMes + pilaNom(p);
   });
   const bArr = Object.values(buckets).sort((a,b)=> a.sort<b.sort?-1:a.sort>b.sort?1:0);
   bArr.forEach(o=>{
@@ -8105,7 +8301,7 @@ async function cargarReportes() {
   mesesFlujo.forEach(p => {
     const b = bucketDe(p, gran);
     const o = fb[b.key] = fb[b.key] || { key:b.key, label:b.label, sort:b.sort, meses:[], gas:0, nom:0 };
-    o.meses.push(p); o.gas += (gByP[p]||0) + gastoFijoDe(p); o.nom += (nByP[p]||0) + nominaFijaMes;
+    o.meses.push(p); o.gas += (gByP[p]||0) + gastoFijoDe(p) - gasAjuste(p); o.nom += (nByP[p]||0) + nominaFijaMes + pilaNom(p);
   });
   const fArr = Object.values(fb).sort((a,b)=> a.sort<b.sort?-1:a.sort>b.sort?1:0);
   fArr.forEach(o=>{
@@ -8211,8 +8407,8 @@ async function cargarReportes() {
   }).join('') || '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--gris-medio)">Sin ventas.</td></tr>';
 
   // ── Rentabilidad por almacén (nómina y gastos prorrateados por participación en ventas) ──
-  const totalNomAll = Object.values(nByP).reduce((s,x)=>s+x,0);
-  const totalGasAll = Object.values(gByP).reduce((s,x)=>s+x,0);
+  const totalNomAll = Object.values(nByP).reduce((s,x)=>s+x,0) + Object.values(pilaByP).reduce((s,x)=>s+x,0);
+  const totalGasAll = Object.values(gByP).reduce((s,x)=>s+x,0) - Object.keys(pilaByP).reduce((s,p)=>s+(segByP[p]||0),0);
   const filasAlm = Object.entries(almMap).map(([n,v])=>{ const base=baseSinIva(v.total); return { n, base, com:comisionDe(v.total), neto:base-comisionDe(v.total) }; }).sort((a,b)=>cmpAlm(a.n,b.n));
   const baseTotAlm = filasAlm.reduce((s,f)=>s+f.base,0) || 1;
   filasAlm.forEach(f=>{ const sh=f.base/baseTotAlm; f.nom=Math.round(totalNomAll*sh); f.gas=Math.round(totalGasAll*sh); f.utilidad=f.neto-f.nom-f.gas; f.margen=f.base?Math.round(f.utilidad/f.base*100):0; });
