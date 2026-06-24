@@ -6834,12 +6834,36 @@ async function guardarPila() {
     observaciones: document.getElementById('pila-obs').value.trim() || null,
     soporte_url, soporte_path
   };
-  let error;
-  if (_pilaEditId) ({ error } = await sb.from('nomina_pila').update(row).eq('id', _pilaEditId));
-  else ({ error } = await sb.from('nomina_pila').insert(row));
+  let error, saved;
+  if (_pilaEditId) { const r = await sb.from('nomina_pila').update(row).eq('id', _pilaEditId).select().single(); error = r.error; saved = r.data; }
+  else { const r = await sb.from('nomina_pila').insert(row).select().single(); error = r.error; saved = r.data; }
   if (error) { btn.disabled = false; btn.textContent = prev; toast('Error al guardar PILA: ' + detalleError(error), 'err'); console.error(error); return; }
+  if (saved) await sincronizarSoportePila(saved);   // refleja la PILA en Contabilidad → Soportes
   btn.disabled = false; btn.textContent = prev;
   toast('✓ PILA guardada'); cerrarModal('modal-pila'); cargarPila();
+}
+
+// Crea/actualiza automáticamente el documento de Soportes ligado a una PILA
+async function sincronizarSoportePila(pila) {
+  const lbl = mesNombre(pila.periodo_salario);
+  const archivos = pila.soporte_url ? [{ url: pila.soporte_url, nombre: `PILA ${lbl}`, ext: ((pila.soporte_url.split('?')[0].split('.').pop()) || 'pdf').toLowerCase() }] : [];
+  const docRow = {
+    nombre: `PILA ${lbl}`,
+    categoria: 'Seguridad Social',
+    subcategoria: 'Planilla PILA mensual',
+    fecha_documento: pila.fecha_pago || null,
+    descripcion: `Aportes PILA ${lbl} · Planilla ${pila.planilla_numero || '—'} · Total ${COP(pila.total_pila)}`,
+    valor: pila.total_pila || null,
+    periodo: pila.periodo_salario || null,
+    archivos,
+    origen: 'nomina_pila',
+    origen_id: pila.id
+  };
+  try {
+    const { data: ex } = await sb.from('documentos').select('id').eq('origen', 'nomina_pila').eq('origen_id', pila.id).limit(1);
+    if (ex && ex.length) await sb.from('documentos').update(docRow).eq('id', ex[0].id);
+    else await sb.from('documentos').insert(docRow);
+  } catch (e) { console.warn('sincronizarSoportePila', e); }
 }
 
 async function eliminarPila(id) {
@@ -6847,6 +6871,7 @@ async function eliminarPila(id) {
   if (!confirm('¿Eliminar este registro de PILA?')) return;
   const { data: r } = await sb.from('nomina_pila').select('soporte_path').eq('id', id).single();
   if (r?.soporte_path) { try { await sb.storage.from('soportes-gastos').remove([r.soporte_path]); } catch (e) {} }
+  try { await sb.from('documentos').delete().eq('origen', 'nomina_pila').eq('origen_id', id); } catch (e) {}   // quitar también el soporte auto-generado
   const { error } = await sb.from('nomina_pila').delete().eq('id', id);
   if (error) { toast('Error al eliminar', 'err'); return; }
   toast('PILA eliminada'); cargarPila();
