@@ -1697,6 +1697,8 @@
       <option value="dado_de_baja">Dado de baja</option>
     </select></div>
     <div class="form-group"><label>Observaciones</label><input type="text" id="act-obs" placeholder="Opcional"></div>
+    <div class="form-group"><label>Factura / soporte (PDF/imagen, opcional)</label><input type="file" id="act-file" accept=".pdf,.jpg,.jpeg,.png" style="width:100%;font-size:13px"></div>
+    <div id="act-soporte-actual" style="font-size:12px;margin:-4px 0 8px"></div>
     <div style="display:flex;gap:10px;margin-top:4px">
       <button class="btn btn-secondary" id="act-del" style="flex:1;display:none" onclick="eliminarActivo()">Eliminar</button>
       <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-activo')">Cancelar</button>
@@ -2785,7 +2787,7 @@ function renderCkAlertas(almRes, bodega) {
 }
 
 // ─── ACTIVOS FIJOS Y DEPRECIACIÓN ─────────────
-let _activosCache = [], _depreMensual = 0;
+let _activosCache = [], _depreMensual = 0, _actSoporte = null, _convertGastoId = null;
 
 function calcularDepreciacion(a) {
   if (!a || !a.costo_original) return { sinDatos: true, estaDepreciado: false, depreciacionMensual: 0, valorEnLibros: null, pctDepreciado: null, mesesRestantes: null };
@@ -2871,7 +2873,7 @@ function tarjetaActivo(a) {
   } else {
     const col = d.pctDepreciado >= 100 ? '#A32D2D' : d.pctDepreciado >= 75 ? '#D97706' : '#1E8A3A';
     cuerpo = `
-      <div style="font-size:12px;color:var(--gris-medio);margin:4px 0">${a.costo_estimado ? 'Costo estimado' : 'Costo'}: ${COP(a.costo_original)} · Compra: ${compra}</div>
+      <div style="font-size:12px;color:var(--gris-medio);margin:4px 0">${a.costo_estimado ? 'Costo estimado' : 'Costo'}: ${COP(a.costo_original)} · Compra: ${compra}${a.soporte_url ? ` · <a href="${a.soporte_url}" target="_blank" rel="noopener" style="color:var(--brand-dark)">📎 factura</a>` : ''}</div>
       <div style="height:10px;background:var(--gris-claro);border-radius:5px;overflow:hidden;margin:6px 0"><div style="height:100%;width:${d.pctDepreciado}%;background:${col};border-radius:5px"></div></div>
       <div style="font-size:12px">${d.estaDepreciado ? `<strong>100% — Depreciada completamente</strong> · Valor en libros: ${COP(0)} · Aún en uso` : `${d.pctDepreciado}% depreciada · Valor en libros: <strong>${COP(d.valorEnLibros)}</strong> · ${COP(d.depreciacionMensual)}/mes`}</div>`;
   }
@@ -2901,8 +2903,42 @@ function abrirModalActivo(id) {
   $('act-anio').value = a?.año_compra || a?.anio_compra || '';
   $('act-estado').value = a?.estado || 'activo';
   $('act-obs').value = a?.observaciones || '';
+  $('act-file').value = '';
+  _actSoporte = a?.soporte_url ? { url: a.soporte_url, path: a.soporte_path || null } : null;
+  _convertGastoId = null;
+  actRenderSoporte();
   $('act-del').style.display = a ? 'block' : 'none';
   $('modal-activo').classList.add('open');
+}
+
+function actRenderSoporte() {
+  const el = document.getElementById('act-soporte-actual'); if (!el) return;
+  el.innerHTML = _actSoporte?.url
+    ? `<a href="${_actSoporte.url}" target="_blank" rel="noopener" style="color:var(--brand-dark)">📎 Ver factura adjunta</a> <span style="color:var(--gris-medio);cursor:pointer;margin-left:6px" onclick="_actSoporte=null;actRenderSoporte()">✕ quitar</span>`
+    : '';
+}
+
+// Mover un gasto (compra de máquina/equipo) a Activos fijos, conservando su factura
+async function convertirGastoEnActivo(gastoId) {
+  if (esVendedora()) return;
+  const { data: g } = await sb.from('gastos').select('*').eq('id', gastoId).single();
+  if (!g) { toast('No se encontró el gasto', 'err'); return; }
+  let sop = null;
+  const { data: ss } = await sb.from('gasto_soportes').select('url_archivo').eq('gasto_id', gastoId).limit(1);
+  if (ss && ss.length) sop = { url: ss[0].url_archivo, path: pathDeSoporte(ss[0].url_archivo) };
+  else if (g.soporte_url) sop = { url: g.soporte_url, path: pathDeSoporte(g.soporte_url) };
+  abrirModalActivo();
+  const $ = x => document.getElementById(x);
+  $('act-title').textContent = 'Mover gasto a Activos';
+  $('act-nombre').value = g.descripcion || '';
+  $('act-tipo').value = 'maquinaria';
+  $('act-costo').value = g.valor ? NUM(g.valor) : '';
+  $('act-estimado').checked = false;
+  $('act-fecha').value = g.fecha || '';
+  $('act-obs').value = g.observaciones || '';
+  _actSoporte = sop; actRenderSoporte();
+  _convertGastoId = gastoId;
+  toast('Revisa los datos y guarda — el gasto pasará a Activos');
 }
 
 async function guardarActivo() {
@@ -2911,6 +2947,10 @@ async function guardarActivo() {
   const nombre = $('act-nombre').value.trim();
   if (!nombre) { toast('Ponle un nombre al activo', 'err'); return; }
   const costo = pesos($('act-costo').value);
+  // Soporte: archivo nuevo > soporte ya adjunto (o reusado de un gasto convertido)
+  let soporte_url = _actSoporte?.url || null, soporte_path = _actSoporte?.path || null;
+  const file = $('act-file').files?.[0];
+  if (file) { const up = await subirArchivoSoporte(file); if (up.error) { toast('No se pudo subir la factura: ' + detalleError(up.error), 'err'); return; } soporte_url = up.url; soporte_path = up.path; }
   const row = {
     nombre,
     tipo: $('act-tipo').value,
@@ -2923,6 +2963,7 @@ async function guardarActivo() {
     vida_util_meses: parseInt($('act-vida').value) || 120,
     estado: $('act-estado').value,
     observaciones: $('act-obs').value.trim() || null,
+    soporte_url, soporte_path,
     updated_at: new Date().toISOString()
   };
   const id = $('act-id').value;
@@ -2930,6 +2971,13 @@ async function guardarActivo() {
   if (id) ({ error: err } = await sb.from('activos_fijos').update(row).eq('id', id));
   else ({ error: err } = await sb.from('activos_fijos').insert(row));
   if (err) { toast('No se pudo guardar: ' + detalleError(err), 'err'); console.error('guardarActivo', err); return; }
+  // Si venía de "mover gasto", borrar el gasto (conservando el archivo en el bucket para el activo)
+  if (_convertGastoId) {
+    const gid = _convertGastoId; _convertGastoId = null;
+    const { error: dErr } = await sb.from('gastos').delete().eq('id', gid);
+    if (dErr) toast('Activo creado, pero no se pudo borrar el gasto: ' + detalleError(dErr), 'err');
+    if (document.getElementById('g-tbody')) cargarGastos();
+  }
   toast('✓ Activo guardado');
   cerrarModal('modal-activo');
   cargarActivos();
@@ -7047,7 +7095,7 @@ async function cargarGastos() {
       <td>${tipoChip(g.tipo)}</td>
       <td style="text-align:right;font-weight:700">${COP(g.valor)}</td>
       <td>${sopCell}</td>
-      <td><button onclick="deleteGasto('${g.id}')" style="background:none;border:none;color:var(--rojo);cursor:pointer;font-size:15px;padding:2px 6px">✕</button></td>
+      <td style="white-space:nowrap"><button onclick="convertirGastoEnActivo('${g.id}')" title="Mover a Activos fijos" style="background:none;border:none;color:var(--brand-dark);cursor:pointer;font-size:14px;padding:2px 4px">🛠</button><button onclick="deleteGasto('${g.id}')" style="background:none;border:none;color:var(--rojo);cursor:pointer;font-size:15px;padding:2px 6px">✕</button></td>
     </tr>`;
   }).join('') || '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--gris-medio)">Sin gastos registrados.</td></tr>';
 }
