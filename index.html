@@ -2654,14 +2654,14 @@ function renderCkAlmacenes(arr, ultimoDia) {
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gris-medio);margin-bottom:8px">Almacenes · datos al ${dd} de ${mesLargo}</div>
     ${!conMeta ? '<div class="alert alert-info" style="margin:0 0 8px">Configura las metas del mes (Ventas → Visión General → Metas inteligentes) para ver el semáforo de ritmo.</div>' : ''}
     <div style="display:flex;flex-direction:column;gap:6px">
-      ${rows.map(a => { const c = C[a.estado]; const rp = a.ritmoPct != null ? Math.round(a.ritmoPct*100)+'%' : '—';
+      ${rows.map(a => { const c = C[a.estado]; const metaTxt = a.meta > 0 ? Math.round((a.totalPct || 0)*100)+'% meta' : 'sin meta';
         let vs = 'sin dato 2025';
         if (a.vs2025 != null) { const p = Math.round(a.vs2025*100); vs = `<span style="color:${p>=0?'#1E8A3A':'#A32D2D'};font-weight:700">${p>=0?'▲':'▼'} ${Math.abs(p)}%</span> vs ${mesAbbr2025} <span style="font-size:9px">(proy)</span>`; }
         return `<div onclick="showPage('almacenes')" style="padding:9px 12px;border-radius:10px;background:${c.bg};border:1px solid ${c.bd};cursor:pointer">
           <div style="display:flex;align-items:center;gap:10px">
             <span style="width:9px;height:9px;border-radius:50%;background:${c.pt};flex-shrink:0"></span>
             <span style="flex:1;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.nombre}</span>
-            <span style="font-size:11px;font-weight:700;color:${c.pt};min-width:62px;text-align:right">${rp} ritmo</span>
+            <span style="font-size:11px;font-weight:700;color:${c.pt};min-width:62px;text-align:right">${metaTxt}</span>
           </div>
           <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:3px;padding-left:19px;font-size:11px;color:var(--gris-medio)">
             <span>${COP(a.ventas)} este mes</span>
@@ -2669,7 +2669,7 @@ function renderCkAlmacenes(arr, ultimoDia) {
           </div>
         </div>`; }).join('')}
     </div>
-    <div style="font-size:10px;color:var(--gris-medio);margin-top:6px">Ritmo = ventas vs meta esperada al ${dd} de ${mesLargo} (último import). "vs ${mesAbbr2025} (proy)" extrapola lo vendido a mes completo para comparar con 2025.</div>`;
+    <div style="font-size:10px;color:var(--gris-medio);margin-top:6px">% de la meta del mes (datos al ${dd} de ${mesLargo}). El color indica si va al día para esta altura del mes: 🟢 en ritmo · 🟡 algo atrás · 🔴 flojo. "vs ${mesAbbr2025} (proy)" extrapola a mes completo.</div>`;
 }
 
 function renderCkPE(ventasRows, ultimoDia) {
