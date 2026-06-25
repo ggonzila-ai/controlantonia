@@ -1080,14 +1080,20 @@
   <!-- CONTABILIDAD -->
   <div class="page" id="page-contabilidad">
     <div class="page-title">Contabilidad</div>
-    <div class="tabs" style="border-radius:var(--radius) var(--radius) 0 0;overflow:hidden">
-      <div class="tab active" id="tab-cont-reportes" onclick="showTab('tab-cont-reportes')">Reportes</div>
+    <div class="tabs" style="border-radius:var(--radius) var(--radius) 0 0;overflow-x:auto">
+      <div class="tab active" id="tab-cont-flujo" onclick="showTab('tab-cont-flujo')">💵 Flujo de caja</div>
+      <div class="tab" id="tab-cont-reportes" onclick="showTab('tab-cont-reportes')">Reportes</div>
       <div class="tab" id="tab-cont-ingresos" onclick="showTab('tab-cont-ingresos')">Ingresos</div>
       <div class="tab" id="tab-cont-gastos" onclick="showTab('tab-cont-gastos')">Gastos</div>
       <div class="tab" id="tab-cont-nomina" onclick="showTab('tab-cont-nomina')">Nómina</div>
       <div class="tab" id="tab-cont-consignaciones" onclick="showTab('tab-cont-consignaciones')">Consignaciones</div>
       <div class="tab" id="tab-cont-soportes" onclick="showTab('tab-cont-soportes')">Soportes</div>
       <div class="tab" id="tab-cont-proveedores" onclick="showTab('tab-cont-proveedores')">Proveedores</div>
+    </div>
+
+    <!-- FLUJO DE CAJA -->
+    <div id="tab-content-cont-flujo">
+      <div id="cont-flujo-wrap" style="padding:14px 16px"><div class="loader"><div class="spinner"></div></div></div>
     </div>
 
     <!-- INGRESOS -->
@@ -1304,7 +1310,7 @@
     </div>
 
     <!-- REPORTES -->
-    <div id="tab-content-cont-reportes">
+    <div id="tab-content-cont-reportes" style="display:none">
       <div style="padding:12px 16px;border-bottom:1px solid var(--borde);display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
         <div class="form-group" style="margin:0;min-width:170px">
           <label>Ver por período</label>
@@ -2295,6 +2301,7 @@ function showTab(tabId) {
   if (tabId === 'tab-cont-consignaciones') { cargarConsignaciones(); cargarCierres(); }
   if (tabId === 'tab-cont-soportes') { _docFolderActual = null; cargarDocumentos(); }
   if (tabId === 'tab-cont-proveedores') cargarProveedoresTab();
+  if (tabId === 'tab-cont-flujo') cargarFlujoCaja();
   if (tabId === 'tab-cont-reportes') cargarReportes();
 }
 
@@ -6375,7 +6382,123 @@ function iniciarContabilidad() {
   if (cat && !cat.options.length) cat.innerHTML = CATEGORIAS_GASTO.map(c=>`<option value="${c}">${c}</option>`).join('');
   const fcat = document.getElementById('g-filtro-cat');
   if (fcat && fcat.options.length <= 1) fcat.innerHTML = `<option value="">Todas las categorías</option>` + CATEGORIAS_GASTO.map(c=>`<option value="${c}">${c}</option>`).join('');
-  cargarReportes();
+  cargarFlujoCaja();   // Flujo de caja es la vista por defecto de Contabilidad
+}
+
+// ─── FLUJO DE CAJA ────────────────────────────
+let _fcAño = new Date().getFullYear(), _fcMes = new Date().getMonth() + 1;
+function cambiarMesFlujo(d) { _fcMes += d; if (_fcMes > 12) { _fcMes = 1; _fcAño++; } if (_fcMes < 1) { _fcMes = 12; _fcAño--; } cargarFlujoCaja(); }
+
+async function cargarFlujoCaja() {
+  if (esVendedora()) return;
+  const wrap = document.getElementById('cont-flujo-wrap'); if (!wrap) return;
+  wrap.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  const año = _fcAño, mes = _fcMes, mm = String(mes).padStart(2, '0'), periodo = `${año}-${mm}`;
+  const prev = (() => { let y = año, m = mes - 1; if (m < 1) { m = 12; y--; } return `${y}-${String(m).padStart(2,'0')}`; })();
+  await Promise.all([loadColaboradores(), loadTemporal(), loadGastosFijos()]);
+  let cierres = [], pila = [], gastos = [];
+  try {
+    const [cR, pR, gR] = await Promise.all([
+      sb.from('consignaciones_cierre').select('*'),
+      sb.from('nomina_pila').select('total_pila').eq('periodo_salario', periodo),
+      sb.from('gastos').select('descripcion, categoria, valor, fecha, periodo')
+    ]);
+    cierres = cR.data || []; pila = pR.data || []; gastos = gR.data || [];
+  } catch (e) { console.warn('flujo', e); }
+
+  // INGRESOS: cierres cuyo dinero entra este mes (recibidos por fecha_recibido; pendientes por fecha esperada)
+  const inMes = d => d && String(d).slice(0, 7) === periodo;
+  let ingresos = cierres.filter(c =>
+    (c.estado === 'recibido' && (inMes(c.fecha_recibido) || (!c.fecha_recibido && inMes(c.fecha_esperada_consignacion)))) ||
+    (c.estado !== 'recibido' && inMes(c.fecha_esperada_consignacion))
+  ).map(c => ({
+    desc: 'Cierre ' + mesNombre(c.periodo),
+    valor: c.estado === 'recibido' ? (c.valor_recibido || c.neto_a_recibir || 0) : (c.neto_a_recibir || 0),
+    estado: c.estado === 'recibido' ? 'recibido' : 'pendiente'
+  }));
+  let estimado = false;
+  if (!ingresos.length) {
+    // sin cierre del mes → estimar el neto de las ventas del mes ANTERIOR (la caja llega ~1 mes después)
+    let conIvaPrev = 0; try { const r = await ventasShapedDelPeriodo(prev); conIvaPrev = (r.rows || []).reduce((s, v) => s + ventaTotal(v), 0); } catch (e) {}
+    const neto = conIvaPrev > 0 ? conIvaPrev - comisionDe(conIvaPrev) : 0;
+    if (neto > 0) { ingresos = [{ desc: `Estimado · neto ventas ${mesNombre(prev)}`, valor: neto, estado: 'estimado' }]; estimado = true; }
+  }
+  const totalIngresos = ingresos.reduce((s, i) => s + i.valor, 0);
+
+  // EGRESOS
+  const salarios = (_colaboradores || []).filter(c => c.activo !== false && !esSocia(c)).reduce((s, c) => s + (c.salario || 0), 0);
+  const temporal = (_temporal || []).filter(t => (t.fecha_inicio || '').slice(0, 7) === periodo).reduce((s, t) => s + (t.valor_pagado || 0), 0);
+  const totalPila = (pila || []).reduce((s, p) => s + (p.total_pila || 0), 0);
+  const esSeg = g => /seguridad|pila|eps|pensi[oó]n/i.test(((g.descripcion || '') + ' ' + (g.categoria || '')));
+  const gastosMes = (gastos || []).filter(g => ((g.periodo || (g.fecha || '').slice(0, 7)) === periodo) && !esSeg(g)).sort((a, b) => (b.valor || 0) - (a.valor || 0));
+  const gFijo = gastoFijoDe(periodo);
+  const gastosTotal = gastosMes.reduce((s, g) => s + (g.valor || 0), 0) + gFijo;
+  const totalEgresos = salarios + temporal + totalPila + gastosTotal;
+  const libre = totalIngresos - totalEgresos;
+  const pctLibre = totalIngresos > 0 ? libre / totalIngresos * 100 : 0;
+
+  // PROYECCIÓN próximo mes: caja ≈ neto de las ventas de ESTE mes (proyectadas a mes completo)
+  const hoy = new Date();
+  const esMesActual = (hoy.getFullYear() === año && hoy.getMonth() + 1 === mes);
+  let conIvaAct = 0; try { const r = await ventasShapedDelPeriodo(periodo); conIvaAct = (r.rows || []).reduce((s, v) => s + ventaTotal(v), 0); } catch (e) {}
+  const diasMes = new Date(año, mes, 0).getDate();
+  const diasDatos = esMesActual ? hoy.getDate() : diasMes;
+  const conIvaProy = diasDatos > 0 ? Math.round(conIvaAct / diasDatos * diasMes) : conIvaAct;
+  const ingProy = conIvaProy > 0 ? conIvaProy - comisionDe(conIvaProy) : 0;
+  const egrProy = salarios + temporal + totalPila + gastosTotal;
+  const libreProy = ingProy - egrProy;
+  const sig = new Date(año, mes, 1).toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
+  const sigCap = sig.charAt(0).toUpperCase() + sig.slice(1);
+
+  const colorLibre = libre > 0 ? (pctLibre >= 30 ? '#1E8A3A' : '#D97706') : '#A32D2D';
+  const barW = Math.min(100, Math.max(0, Math.round(pctLibre)));
+  const notaParcial = esMesActual ? ` · datos al ${hoy.getDate()}/${mm}` : '';
+
+  wrap.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <button class="btn btn-sm btn-secondary" onclick="cambiarMesFlujo(-1)">←</button>
+      <div style="font-size:15px;font-weight:800;text-transform:capitalize">${mesNombre(periodo)}<span style="font-size:11px;font-weight:400;color:var(--gris-medio);text-transform:none">${notaParcial}</span></div>
+      <button class="btn btn-sm btn-secondary" onclick="cambiarMesFlujo(1)">→</button>
+    </div>
+
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gris-medio);margin-bottom:6px">Ingresos${estimado ? ' (estimado)' : ''}</div>
+    <div style="border:1px solid var(--borde);border-radius:12px;overflow:hidden;margin-bottom:14px">
+      ${ingresos.length ? ingresos.map((i, ix) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;${ix > 0 ? 'border-top:1px solid var(--border-light)' : ''}">
+          <div><div style="font-size:13px">${i.desc}</div><div style="font-size:11px;color:var(--gris-medio)">${i.estado === 'recibido' ? '✓ Recibido' : i.estado === 'pendiente' ? '⏳ Pendiente (estimado)' : '≈ Estimado'}</div></div>
+          <div style="font-size:14px;font-weight:700;${i.estado === 'recibido' ? 'color:#1E8A3A' : ''}">${COP(i.valor)}</div>
+        </div>`).join('') : '<div style="padding:14px;color:var(--gris-medio);font-size:13px">Sin consignaciones para este mes.</div>'}
+      <div style="display:flex;justify-content:space-between;padding:10px 14px;background:var(--gris-claro);border-top:1px solid var(--borde);font-weight:700"><span style="font-size:12px">Total ingresos</span><span style="font-size:14px">${COP(totalIngresos)}</span></div>
+    </div>
+
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gris-medio);margin-bottom:6px">Egresos</div>
+    <div style="border:1px solid var(--borde);border-radius:12px;overflow:hidden;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;padding:10px 14px"><div><div style="font-size:13px">Nómina (salarios)</div><div style="font-size:11px;color:var(--gris-medio)">Colaboradoras fijas${temporal > 0 ? ' + temporal' : ''}</div></div><div style="font-size:14px;font-weight:700">${COP(salarios + temporal)}</div></div>
+      <div style="display:flex;justify-content:space-between;padding:10px 14px;border-top:1px solid var(--border-light)"><div><div style="font-size:13px">PILA (seguridad social)</div><div style="font-size:11px;color:var(--gris-medio)">Pensión+Salud+CCF+ARL</div></div><div style="font-size:14px;font-weight:700">${COP(totalPila)}</div></div>
+      ${gastosMes.slice(0, 5).map(g => `<div style="display:flex;justify-content:space-between;padding:8px 14px;border-top:1px solid var(--border-light)"><div style="font-size:12px;color:var(--gris-medio)">${g.descripcion || g.categoria || 'Gasto'}</div><div style="font-size:12px">${COP(g.valor || 0)}</div></div>`).join('')}
+      ${gFijo > 0 ? `<div style="display:flex;justify-content:space-between;padding:8px 14px;border-top:1px solid var(--border-light)"><div style="font-size:12px;color:var(--gris-medio)">Gastos fijos recurrentes</div><div style="font-size:12px">${COP(gFijo)}</div></div>` : ''}
+      ${gastosMes.length > 5 ? `<div style="padding:6px 14px;border-top:1px solid var(--border-light);font-size:11px;color:var(--gris-medio)">+ ${gastosMes.length - 5} gasto(s) más</div>` : ''}
+      <div style="display:flex;justify-content:space-between;padding:10px 14px;background:var(--gris-claro);border-top:1px solid var(--borde);font-weight:700"><span style="font-size:12px">Total egresos</span><span style="font-size:14px">${COP(totalEgresos)}</span></div>
+    </div>
+
+    <div style="border:1px solid ${colorLibre}55;background:${colorLibre}11;border-radius:12px;padding:14px 16px;margin-bottom:14px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:${colorLibre};margin-bottom:8px">Libre después de pagar todo</div>
+      <div style="height:7px;background:${colorLibre}33;border-radius:4px;margin-bottom:10px"><div style="height:100%;width:${barW}%;background:${colorLibre};border-radius:4px"></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <span style="font-size:26px;font-weight:800;color:${colorLibre}">${COP(libre)}</span>
+        <span style="font-size:12px;color:var(--gris-medio)">${Math.round(pctLibre)}% de los ingresos</span>
+      </div>
+      ${libre < 0 ? `<div style="margin-top:6px;font-size:12px;color:#A32D2D">⚠ Los egresos superan los ingresos en ${COP(Math.abs(libre))}</div>` : ''}
+      <div style="margin-top:6px;font-size:10px;color:var(--gris-medio)">El retiro de socias no se cuenta como egreso (es distribución, no gasto).</div>
+    </div>
+
+    <div style="border:1px solid var(--borde);border-radius:12px;padding:12px 16px;background:var(--gris-claro)">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gris-medio);margin-bottom:8px">Proyección ${sigCap} <span style="font-weight:400;text-transform:none;font-size:10px;background:var(--borde);padding:1px 6px;border-radius:4px">estimado</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+        <div><div style="font-size:11px;color:var(--gris-medio)">Ingresos est.</div><div style="font-size:15px;font-weight:700">${COP(ingProy)}</div></div>
+        <div><div style="font-size:11px;color:var(--gris-medio)">Egresos</div><div style="font-size:15px;font-weight:700">${COP(egrProy)}</div></div>
+        <div><div style="font-size:11px;color:var(--gris-medio)">Libre est.</div><div style="font-size:15px;font-weight:700;color:${libreProy > 0 ? '#1E8A3A' : '#A32D2D'}">${COP(libreProy)}</div></div>
+      </div>
+    </div>`;
 }
 
 async function ventasPorPeriodo() {
