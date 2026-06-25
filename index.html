@@ -4693,13 +4693,9 @@ async function cargarVistaAlmacen() {
 
   const almNombre = (almacenes.find(a=>a.id===almSeleccionado)||{}).nombre || '';
 
-  // Ventas del período filtrado (para totales del almacén)
-  const ventas = await selectAll('ventas', 'referencia, categoria, cantidad, precio_unitario, descuento', q => {
-    q = q.eq('almacen_id', almSeleccionado);
-    if (periodo) q = q.eq('periodo', periodo);
-    if (cat) q = q.eq('categoria', cat);
-    return q;
-  });
+  // Ventas del período desde la fuente unificada (Feria + manuales), filtradas a este almacén
+  const { rows: allPeriodo } = await ventasShapedDelPeriodo(periodo);
+  const ventas = allPeriodo.filter(v => v.almacen_nombre === almNombre && (!cat || v.categoria === cat));
 
   // Inventario actual por referencia (motor, no despachos−ventas roto)
   const invRows = inventarioActual(almSeleccionado).rows;
@@ -4716,7 +4712,7 @@ async function cargarVistaAlmacen() {
   const totalCOP = (ventas||[]).reduce((a,v) => a + ventaTotal(v), 0);
 
   // Participación = ventas del almacén / ventas totales del período (con IVA)
-  const totalPeriodoTodos = invCache.ventas.filter(v => !periodo || v.periodo === periodo).reduce((s,v) => s + v.cantidad*v.precio, 0) || 1;
+  const totalPeriodoTodos = allPeriodo.reduce((s,v) => s + ventaTotal(v), 0) || 1;
   const participacion = Math.round(totalCOP / totalPeriodoTodos * 100);
   const rotacion = invActualTotal > 0 ? (totalUnd / invActualTotal) : null;
 
