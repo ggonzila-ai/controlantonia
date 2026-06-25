@@ -2613,7 +2613,7 @@ async function cargarCockpit() {
   } catch (e) {}
   const alm = ckAlmacenes(ventasRows, mRes.data || [], ultimoDia);
   renderCkAlmacenes(alm, ultimoDia);
-  renderCkPE(ventasRows);
+  renderCkPE(ventasRows, ultimoDia);
   renderCkConsignacion((cRes.data || [])[0] || null);
   renderCkAlertas(alm, bRes.data || []);
 }
@@ -2672,7 +2672,7 @@ function renderCkAlmacenes(arr, ultimoDia) {
     <div style="font-size:10px;color:var(--gris-medio);margin-top:6px">Ritmo = ventas vs meta esperada al ${dd} de ${mesLargo} (último import). "vs ${mesAbbr2025} (proy)" extrapola lo vendido a mes completo para comparar con 2025.</div>`;
 }
 
-function renderCkPE(ventasRows) {
+function renderCkPE(ventasRows, ultimoDia) {
   const cont = document.getElementById('ck-pe'); if (!cont) return;
   const uds = (ventasRows || []).reduce((s,v) => s + (v.cantidad || 0), 0);
   const p = beParams(); const fijos = (p.costo_produccion_total||0) + (p.costo_comercial_total||0) + (p.otros_costos_fijos||0);
@@ -2680,19 +2680,22 @@ function renderCkPE(ventasRows) {
   const pe = mcUnit > 0 ? Math.ceil(fijos / mcUnit) : 0;
   const pct = pe > 0 ? Math.min(100, Math.round(uds / pe * 100)) : 0;
   const faltan = Math.max(0, pe - uds);
-  const hoy = new Date(), fin = new Date(hoy.getFullYear(), hoy.getMonth()+1, 0); let habiles = 0;
-  for (let d = new Date(hoy); d <= fin; d.setDate(d.getDate()+1)) if (d.getDay() !== 0) habiles++;
+  // Días hábiles restantes desde el ÚLTIMO día con datos (no desde hoy): las ventas van al día del último import
+  const now = new Date(), yy = now.getFullYear(), mo = now.getMonth();
+  const finMes = new Date(yy, mo + 1, 0).getDate();
+  const corte = Math.min(ultimoDia || now.getDate(), finMes);
+  let habiles = 0; for (let dd = corte + 1; dd <= finMes; dd++) { if (new Date(yy, mo, dd).getDay() !== 0) habiles++; }
   const col = pct >= 90 ? '#1E8A3A' : pct >= 70 ? '#D97706' : '#E24B4A';
   cont.innerHTML = `
     <div style="border:1px solid var(--borde);border-radius:12px;padding:14px;margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
-        <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gris-medio)">Punto de equilibrio del mes</span>
+        <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gris-medio)">Punto de equilibrio del mes <span style="font-weight:400;text-transform:none">· datos al ${corte}</span></span>
         <span style="font-size:11px;color:var(--gris-medio)">${NUM(uds)} / ${pe ? NUM(pe) : '—'} prendas</span>
       </div>
       <div style="height:8px;background:var(--gris-claro);border-radius:4px;overflow:hidden;margin-bottom:8px"><div style="height:100%;width:${pct}%;background:${col};border-radius:4px;transition:width .4s"></div></div>
       <div style="display:flex;justify-content:space-between;align-items:baseline">
         <span style="font-size:22px;font-weight:800;color:${col}">${pct}%</span>
-        <span style="font-size:12px;color:var(--gris-medio)">${pe <= 0 ? 'Configura los costos del mes (Bodega → Costos) para el PE' : faltan > 0 ? `Faltan <strong style="color:var(--carbon)">${NUM(faltan)} prendas</strong> · ${habiles} días hábiles` : '✓ Punto de equilibrio alcanzado'}</span>
+        <span style="font-size:12px;color:var(--gris-medio)">${pe <= 0 ? 'Configura los costos del mes (Bodega → Costos) para el PE' : faltan > 0 ? `Faltan <strong style="color:var(--carbon)">${NUM(faltan)} prendas</strong> · quedan ${habiles} días hábiles` : '✓ Punto de equilibrio alcanzado'}</span>
       </div>
     </div>`;
 }
