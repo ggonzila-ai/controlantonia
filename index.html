@@ -2602,6 +2602,7 @@ function ckAlmacenes(ventasRows, metas) {
   const hoy = new Date();
   const diasMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).getDate();
   const ritmo = hoy.getDate() / diasMes;
+  const mesIdx = hoy.getMonth();   // 0=ene … para el mismo mes de 2025
   const metaById = {}; (metas || []).forEach(m => { metaById[m.almacen_id] = m.meta_valor || 0; });
   const ventasByNom = {}; (ventasRows || []).forEach(v => { const k = v.almacen_nombre || '—'; ventasByNom[k] = (ventasByNom[k] || 0) + ventaTotal(v); });
   return (almacenes || []).filter(a => !/ermita/i.test(a.nombre || '')).map(a => {
@@ -2610,12 +2611,16 @@ function ckAlmacenes(ventasRows, metas) {
     const ritmoPct = espHoy > 0 ? ventas / espHoy : null, totalPct = meta > 0 ? ventas / meta : null;
     let estado = 'sin-meta';
     if (ritmoPct !== null) estado = ritmoPct >= 0.90 ? 'verde' : ritmoPct >= 0.70 ? 'amarillo' : 'rojo';
-    return { nombre: limpiarAlm(a.nombre), ventas, meta, ritmoPct, totalPct, estado };
+    // Mismo mes de 2025 (datos embebidos en HIST.alm2025, por nombre completo, con IVA)
+    const hist2025 = ((HIST.alm2025 && HIST.alm2025[a.nombre]) || [])[mesIdx] || 0;
+    const vs2025 = hist2025 > 0 ? (ventas / hist2025 - 1) : null;
+    return { nombre: limpiarAlm(a.nombre), ventas, meta, ritmoPct, totalPct, estado, hist2025, vs2025 };
   });
 }
 
 function renderCkAlmacenes(arr) {
   const cont = document.getElementById('ck-almacenes'); if (!cont) return;
+  const mesAbbr2025 = MESES[new Date().getMonth()].slice(0, 3).toLowerCase() + ' 2025';
   const C = { verde:{bg:'#EAF5EC',bd:'#5DCAA5',pt:'#1E8A3A'}, amarillo:{bg:'#FEF6E4',bd:'#D97706',pt:'#B45309'}, rojo:{bg:'#FCEBEB',bd:'#E24B4A',pt:'#A32D2D'}, 'sin-meta':{bg:'var(--gris-claro)',bd:'var(--borde)',pt:'#94a3b8'} };
   const ord = { rojo:0, amarillo:1, 'sin-meta':2, verde:3 };
   const rows = [...arr].sort((a,b) => ord[a.estado]-ord[b.estado] || b.ventas-a.ventas);
@@ -2625,14 +2630,21 @@ function renderCkAlmacenes(arr) {
     ${!conMeta ? '<div class="alert alert-info" style="margin:0 0 8px">Configura las metas del mes (Ventas → Visión General → Metas inteligentes) para ver el semáforo de ritmo.</div>' : ''}
     <div style="display:flex;flex-direction:column;gap:6px">
       ${rows.map(a => { const c = C[a.estado]; const rp = a.ritmoPct != null ? Math.round(a.ritmoPct*100)+'%' : '—';
-        return `<div onclick="showPage('almacenes')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;background:${c.bg};border:1px solid ${c.bd};cursor:pointer">
-          <span style="width:9px;height:9px;border-radius:50%;background:${c.pt};flex-shrink:0"></span>
-          <span style="flex:1;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.nombre}</span>
-          <span style="font-size:12px;color:var(--gris-medio)">${COP(a.ventas)}</span>
-          <span style="font-size:11px;font-weight:700;color:${c.pt};min-width:62px;text-align:right">${rp} ritmo</span>
+        let vs = 'sin dato 2025';
+        if (a.vs2025 != null) { const p = Math.round(a.vs2025*100); vs = `<span style="color:${p>=0?'#1E8A3A':'#A32D2D'};font-weight:700">${p>=0?'▲':'▼'} ${Math.abs(p)}%</span> vs ${mesAbbr2025}`; }
+        return `<div onclick="showPage('almacenes')" style="padding:9px 12px;border-radius:10px;background:${c.bg};border:1px solid ${c.bd};cursor:pointer">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="width:9px;height:9px;border-radius:50%;background:${c.pt};flex-shrink:0"></span>
+            <span style="flex:1;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.nombre}</span>
+            <span style="font-size:11px;font-weight:700;color:${c.pt};min-width:62px;text-align:right">${rp} ritmo</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:3px;padding-left:19px;font-size:11px;color:var(--gris-medio)">
+            <span>${COP(a.ventas)} este mes</span>
+            <span>${vs}</span>
+          </div>
         </div>`; }).join('')}
     </div>
-    <div style="font-size:10px;color:var(--gris-medio);margin-top:6px">Ritmo = ventas reales vs meta esperada al día de hoy (no vs meta del mes completo).</div>`;
+    <div style="font-size:10px;color:var(--gris-medio);margin-top:6px">Ritmo = ventas reales vs meta esperada al día de hoy. "vs ${mesAbbr2025}" compara con el mismo mes de 2025.</div>`;
 }
 
 function renderCkPE(ventasRows) {
