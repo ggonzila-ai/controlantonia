@@ -2664,7 +2664,7 @@ function renderCkAlmacenes(arr, ultimoDia) {
             <span style="font-size:11px;font-weight:700;color:${c.pt};min-width:62px;text-align:right">${metaTxt}</span>
           </div>
           <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:3px;padding-left:19px;font-size:11px;color:var(--gris-medio)">
-            <span>${COP(a.ventas)} este mes</span>
+            <span>${COP(a.ventas)}${a.meta > 0 ? ' de ' + COP(a.meta) : ' este mes'}</span>
             <span>${vs}</span>
           </div>
         </div>`; }).join('')}
