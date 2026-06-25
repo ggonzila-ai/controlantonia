@@ -433,6 +433,7 @@
       <div class="tab" id="tab-bod-rentab" onclick="showTab('tab-bod-rentab')">Rentabilidad</div>
       <div class="tab" id="tab-bod-abc" onclick="showTab('tab-bod-abc')">Curva ABC</div>
       <div class="tab" id="tab-bod-despachos" onclick="showTab('tab-bod-despachos')">Despachos</div>
+      <div class="tab" id="tab-bod-activos" onclick="showTab('tab-bod-activos')">Activos</div>
     </div>
 
     <!-- EXISTENCIAS -->
@@ -453,6 +454,17 @@
           </table>
         </div>
       </div>
+    </div>
+
+    <!-- ACTIVOS FIJOS -->
+    <div id="tab-content-bod-activos" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="font-size:13px;font-weight:700">Activos fijos y depreciación</div>
+        <button class="btn btn-primary btn-sm" onclick="abrirModalActivo()">+ Agregar</button>
+      </div>
+      <div id="act-resumen" style="margin-bottom:12px"></div>
+      <div id="act-alertas" style="margin-bottom:12px"></div>
+      <div id="act-lista"><div class="loader"><div class="spinner"></div></div></div>
     </div>
 
     <!-- CATÁLOGO -->
@@ -1650,6 +1662,49 @@
 </div>
 
 <!-- MODAL APORTES PILA -->
+<div class="modal-overlay" id="modal-activo">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="act-title">Agregar activo</div>
+    <input type="hidden" id="act-id">
+    <div class="form-group"><label>Nombre del activo</label><input type="text" id="act-nombre" placeholder="Fileteadora Jack C7"></div>
+    <div class="form-row">
+      <div class="form-group"><label>Tipo</label><select id="act-tipo">
+        <option value="maquinaria">Maquinaria</option>
+        <option value="muebles_enseres">Muebles y enseres</option>
+        <option value="tecnologia">Tecnología</option>
+        <option value="otro">Otro</option>
+      </select></div>
+      <div class="form-group"><label>Vida útil</label><select id="act-vida">
+        <option value="60">60 meses — 5 años</option>
+        <option value="120" selected>120 meses — 10 años</option>
+        <option value="180">180 meses — 15 años</option>
+      </select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Marca</label><input type="text" id="act-marca" placeholder="Jack"></div>
+      <div class="form-group"><label>Modelo</label><input type="text" id="act-modelo" placeholder="C7"></div>
+    </div>
+    <div class="form-group"><label>Costo original (COP)</label><input type="text" inputmode="numeric" id="act-costo" placeholder="0" onblur="this.value=this.value?NUM(pesos(this.value)):''"></div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:-2px 0 8px;cursor:pointer"><input type="checkbox" id="act-estimado" style="width:auto"> Es un estimado (sin factura)</label>
+    <div class="form-row">
+      <div class="form-group"><label>Fecha de compra</label><input type="date" id="act-fecha"></div>
+      <div class="form-group"><label>Año aprox. (si no sabe la fecha)</label><input type="number" id="act-anio" placeholder="2022"></div>
+    </div>
+    <div class="form-group"><label>Estado</label><select id="act-estado">
+      <option value="activo">Activo</option>
+      <option value="vendido">Vendido</option>
+      <option value="dado_de_baja">Dado de baja</option>
+    </select></div>
+    <div class="form-group"><label>Observaciones</label><input type="text" id="act-obs" placeholder="Opcional"></div>
+    <div style="display:flex;gap:10px;margin-top:4px">
+      <button class="btn btn-secondary" id="act-del" style="flex:1;display:none" onclick="eliminarActivo()">Eliminar</button>
+      <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-activo')">Cancelar</button>
+      <button class="btn btn-primary" style="flex:2" onclick="guardarActivo()">Guardar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-pila">
   <div class="modal">
     <div class="modal-handle"></div>
@@ -2283,6 +2338,7 @@ function showTab(tabId) {
   if (tabId === 'tab-bod-catalogo') cargarCatalogo();
   if (tabId === 'tab-bod-costos') cargarCostos();
   if (tabId === 'tab-bod-rentab') cargarRentabilidadCostos();
+  if (tabId === 'tab-bod-activos') cargarActivos();
   if (tabId === 'tab-bod-despachos') {
     llenarSelectAlmacenes();
     const addSel = document.getElementById('d-add-ref');
@@ -2612,6 +2668,7 @@ async function cargarCockpit() {
     const ds = [f1.data?.[0]?.fecha, f2.data?.[0]?.fecha].filter(Boolean).map(d => new Date(d + 'T00:00:00').getDate());
     if (ds.length) ultimoDia = Math.max(...ds);
   } catch (e) {}
+  await cargarDepreMensual();
   const alm = ckAlmacenes(ventasRows, mRes.data || [], ultimoDia);
   renderCkAlmacenes(alm, ultimoDia);
   renderCkPE(ventasRows, ultimoDia);
@@ -2676,7 +2733,7 @@ function renderCkAlmacenes(arr, ultimoDia) {
 function renderCkPE(ventasRows, ultimoDia) {
   const cont = document.getElementById('ck-pe'); if (!cont) return;
   const uds = (ventasRows || []).reduce((s,v) => s + (v.cantidad || 0), 0);
-  const p = beParams(); const fijos = (p.costo_produccion_total||0) + (p.costo_comercial_total||0) + (p.otros_costos_fijos||0);
+  const p = beParams(); const fijos = (p.costo_produccion_total||0) + (p.costo_comercial_total||0) + (p.otros_costos_fijos||0) + (_depreMensual||0);
   const mcUnit = (beMC().mcUnitProm) || 0;
   const pe = mcUnit > 0 ? Math.ceil(fijos / mcUnit) : 0;
   const pct = pe > 0 ? Math.min(100, Math.round(uds / pe * 100)) : 0;
@@ -2718,12 +2775,175 @@ function renderCkAlertas(almRes, bodega) {
   const al = [];
   (bodega || []).forEach(b => { const min = b.stock_minimo || 0; if (min > 0 && (b.stock || 0) <= min) al.push({ u: (b.stock||0)===0?0:1, t: `📦 ${b.referencia}: ${NUM(b.stock||0)} uds (mín ${NUM(min)})` }); });
   (almRes || []).filter(a => a.estado === 'rojo').forEach(a => al.push({ u: 0, t: `🔴 ${a.nombre} en riesgo (${a.ritmoPct != null ? Math.round(a.ritmoPct*100) : 0}% del ritmo)` }));
+  alertasReposicion(_activosCache).forEach(x => al.push({ u: 0, t: `🛠 ${x.a.nombre}: se deprecia en ${x.d.mesesRestantes} mes(es) — evaluar reposición` }));
   al.sort((a,b) => a.u - b.u);
   const top = al.slice(0, 5);
   cont.innerHTML = `<div style="border:1px solid var(--borde);border-radius:12px;padding:14px;height:100%">
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gris-medio);margin-bottom:8px">Alertas operativas</div>
     ${top.length ? top.map(a => `<div style="font-size:12.5px;padding:5px 0;border-bottom:1px solid var(--border-light)">${a.t}</div>`).join('') + (al.length > 5 ? `<div style="font-size:11px;color:var(--brand-dark);margin-top:6px;cursor:pointer" onclick="showPage('bodega')">Ver todas (${al.length}) →</div>` : '') : '<div style="font-size:13px;color:var(--gris-medio);padding:6px 0">Sin alertas — todo en orden ✓</div>'}
   </div>`;
+}
+
+// ─── ACTIVOS FIJOS Y DEPRECIACIÓN ─────────────
+let _activosCache = [], _depreMensual = 0;
+
+function calcularDepreciacion(a) {
+  if (!a || !a.costo_original) return { sinDatos: true, estaDepreciado: false, depreciacionMensual: 0, valorEnLibros: null, pctDepreciado: null, mesesRestantes: null };
+  let fechaInicio = null;
+  if (a.fecha_compra) fechaInicio = new Date(a.fecha_compra + 'T00:00:00');
+  else { const yr = a.año_compra || a.anio_compra; if (yr) fechaInicio = new Date(yr, 0, 1); }
+  if (!fechaInicio || isNaN(fechaInicio.getTime())) return { sinDatos: true, estaDepreciado: false, depreciacionMensual: 0, valorEnLibros: a.costo_original, pctDepreciado: 0, mesesRestantes: null };
+  const vidaUtil = a.vida_util_meses || 120;
+  const meses = Math.max(0, Math.floor((Date.now() - fechaInicio.getTime()) / (1000 * 60 * 60 * 24 * 30.44)));
+  const depMensual = Math.round(a.costo_original / vidaUtil);
+  const depAcum = Math.min(a.costo_original, depMensual * meses);
+  const mesesRestantes = Math.max(0, vidaUtil - meses);
+  return {
+    sinDatos: false,
+    depreciacionMensual: mesesRestantes > 0 ? depMensual : 0,
+    mesesDepreciados: Math.min(meses, vidaUtil),
+    mesesRestantes,
+    valorEnLibros: a.costo_original - depAcum,
+    pctDepreciado: Math.min(100, Math.round(meses / vidaUtil * 100)),
+    estaDepreciado: mesesRestantes === 0
+  };
+}
+
+function totalDepreciacionMensual(activos) {
+  return (activos || []).filter(a => (a.estado || 'activo') === 'activo').reduce((s, a) => s + (calcularDepreciacion(a).depreciacionMensual || 0), 0);
+}
+
+function alertasReposicion(activos) {
+  return (activos || []).filter(a => (a.estado || 'activo') === 'activo').map(a => ({ a, d: calcularDepreciacion(a) }))
+    .filter(x => !x.d.sinDatos && !x.d.estaDepreciado && x.d.mesesRestantes != null && x.d.mesesRestantes <= 12)
+    .sort((x, y) => x.d.mesesRestantes - y.d.mesesRestantes);
+}
+
+async function cargarDepreMensual() {
+  try { const { data } = await sb.from('activos_fijos').select('*'); _activosCache = data || []; }
+  catch (e) { _activosCache = []; }
+  _depreMensual = totalDepreciacionMensual(_activosCache);
+  return _depreMensual;
+}
+
+async function cargarActivos() {
+  if (esVendedora()) return;
+  const cont = document.getElementById('act-lista'); if (!cont) return;
+  cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  await cargarDepreMensual();
+  const activos = _activosCache;
+  const valorTotal = activos.reduce((s, a) => s + (a.costo_original || 0), 0);
+  const valorLibros = activos.reduce((s, a) => { const d = calcularDepreciacion(a); return s + (d.sinDatos ? (a.costo_original || 0) : (d.valorEnLibros || 0)); }, 0);
+  const res = document.getElementById('act-resumen');
+  if (res) res.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
+      <div style="border:1px solid var(--borde);border-radius:12px;padding:12px"><div style="font-size:11px;color:var(--gris-medio)">Valor total activos</div><div style="font-size:18px;font-weight:800">${COP(valorTotal)}</div></div>
+      <div style="border:1px solid var(--borde);border-radius:12px;padding:12px"><div style="font-size:11px;color:var(--gris-medio)">Valor en libros hoy</div><div style="font-size:18px;font-weight:800">${COP(valorLibros)}</div></div>
+      <div style="border:1px solid var(--brand-dark);border-radius:12px;padding:12px"><div style="font-size:11px;color:var(--gris-medio)">Depreciación este mes</div><div style="font-size:18px;font-weight:800;color:var(--brand-dark)">${COP(_depreMensual)}</div></div>
+    </div>`;
+  const alertas = alertasReposicion(activos);
+  const aDiv = document.getElementById('act-alertas');
+  if (aDiv) aDiv.innerHTML = alertas.length ? `
+    <div style="border:1px solid #D97706;background:#FEF6E4;border-radius:12px;padding:12px 14px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#B45309;margin-bottom:6px">⚠ Alertas de reposición</div>
+      ${alertas.map(x => `<div style="font-size:12.5px;padding:3px 0">${x.a.nombre}: se deprecia completamente en <strong>${x.d.mesesRestantes} mes(es)</strong> — evaluar reposición</div>`).join('')}
+    </div>` : '';
+  if (!activos.length) { cont.innerHTML = '<div class="empty"><p>Sin activos. Agrega el primero con "+ Agregar".</p></div>'; return; }
+  const TIPOS = { maquinaria: '🧵 Maquinaria', muebles_enseres: '🪑 Muebles y enseres', tecnologia: '💻 Tecnología', otro: '📦 Otro' };
+  const porTipo = {}; activos.forEach(a => { const t = a.tipo || 'otro'; (porTipo[t] = porTipo[t] || []).push(a); });
+  let html = '';
+  Object.keys(porTipo).forEach(t => {
+    html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gris-medio);margin:14px 0 8px">${TIPOS[t] || t}</div>`;
+    porTipo[t].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '')).forEach(a => { html += tarjetaActivo(a); });
+  });
+  cont.innerHTML = html;
+}
+
+function tarjetaActivo(a) {
+  const d = calcularDepreciacion(a);
+  const baja = (a.estado || 'activo') !== 'activo';
+  const compra = a.fecha_compra ? new Date(a.fecha_compra + 'T00:00:00').getFullYear() : (a.año_compra || a.anio_compra || '—');
+  const estimBadge = a.costo_estimado ? ' <span style="font-size:10px;background:var(--gris-claro);padding:1px 6px;border-radius:4px;color:var(--gris-medio)">estimado</span>' : '';
+  let cuerpo;
+  if (d.sinDatos) {
+    cuerpo = `<div style="font-size:12px;color:#B45309;margin:6px 0">⚠ Sin datos de costo — completar para calcular depreciación</div>
+      <button class="btn btn-sm btn-secondary" onclick="abrirModalActivo('${a.id}')">Ingresar costo y fecha →</button>`;
+  } else {
+    const col = d.pctDepreciado >= 100 ? '#A32D2D' : d.pctDepreciado >= 75 ? '#D97706' : '#1E8A3A';
+    cuerpo = `
+      <div style="font-size:12px;color:var(--gris-medio);margin:4px 0">${a.costo_estimado ? 'Costo estimado' : 'Costo'}: ${COP(a.costo_original)} · Compra: ${compra}</div>
+      <div style="height:10px;background:var(--gris-claro);border-radius:5px;overflow:hidden;margin:6px 0"><div style="height:100%;width:${d.pctDepreciado}%;background:${col};border-radius:5px"></div></div>
+      <div style="font-size:12px">${d.estaDepreciado ? `<strong>100% — Depreciada completamente</strong> · Valor en libros: ${COP(0)} · Aún en uso` : `${d.pctDepreciado}% depreciada · Valor en libros: <strong>${COP(d.valorEnLibros)}</strong> · ${COP(d.depreciacionMensual)}/mes`}</div>`;
+  }
+  return `<div style="border:1px solid var(--borde);border-radius:12px;padding:12px 14px;margin-bottom:8px;${baja ? 'opacity:.55' : ''}">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <div style="font-size:14px;font-weight:700">${a.nombre}${estimBadge}${baja ? ` <span style="font-size:10px;color:var(--gris-medio)">(${a.estado})</span>` : ''}</div>
+      <button class="btn btn-sm btn-secondary" onclick="abrirModalActivo('${a.id}')">✏ Editar</button>
+    </div>
+    ${cuerpo}
+  </div>`;
+}
+
+function abrirModalActivo(id) {
+  if (esVendedora()) { toast('Solo administración', 'err'); return; }
+  const $ = x => document.getElementById(x);
+  const a = id ? _activosCache.find(x => String(x.id) === String(id)) : null;
+  $('act-title').textContent = a ? 'Editar activo' : 'Agregar activo';
+  $('act-id').value = a ? a.id : '';
+  $('act-nombre').value = a?.nombre || '';
+  $('act-tipo').value = a?.tipo || 'maquinaria';
+  $('act-vida').value = String(a?.vida_util_meses || 120);
+  $('act-marca').value = a?.marca || '';
+  $('act-modelo').value = a?.modelo || '';
+  $('act-costo').value = a?.costo_original ? NUM(a.costo_original) : '';
+  $('act-estimado').checked = !!a?.costo_estimado;
+  $('act-fecha').value = a?.fecha_compra || '';
+  $('act-anio').value = a?.año_compra || a?.anio_compra || '';
+  $('act-estado').value = a?.estado || 'activo';
+  $('act-obs').value = a?.observaciones || '';
+  $('act-del').style.display = a ? 'block' : 'none';
+  $('modal-activo').classList.add('open');
+}
+
+async function guardarActivo() {
+  if (esVendedora()) return;
+  const $ = x => document.getElementById(x);
+  const nombre = $('act-nombre').value.trim();
+  if (!nombre) { toast('Ponle un nombre al activo', 'err'); return; }
+  const costo = pesos($('act-costo').value);
+  const row = {
+    nombre,
+    tipo: $('act-tipo').value,
+    marca: $('act-marca').value.trim() || null,
+    modelo: $('act-modelo').value.trim() || null,
+    costo_original: costo > 0 ? costo : null,
+    costo_estimado: $('act-estimado').checked,
+    fecha_compra: $('act-fecha').value || null,
+    año_compra: parseInt($('act-anio').value) || null,
+    vida_util_meses: parseInt($('act-vida').value) || 120,
+    estado: $('act-estado').value,
+    observaciones: $('act-obs').value.trim() || null,
+    updated_at: new Date().toISOString()
+  };
+  const id = $('act-id').value;
+  let err;
+  if (id) ({ error: err } = await sb.from('activos_fijos').update(row).eq('id', id));
+  else ({ error: err } = await sb.from('activos_fijos').insert(row));
+  if (err) { toast('No se pudo guardar: ' + detalleError(err), 'err'); console.error('guardarActivo', err); return; }
+  toast('✓ Activo guardado');
+  cerrarModal('modal-activo');
+  cargarActivos();
+}
+
+async function eliminarActivo() {
+  if (esVendedora()) return;
+  const id = document.getElementById('act-id').value; if (!id) return;
+  if (!confirm('¿Eliminar este activo? Si solo dejó de usarse, mejor cambia el estado a "Dado de baja".')) return;
+  const { error } = await sb.from('activos_fijos').delete().eq('id', id);
+  if (error) { toast('No se pudo eliminar: ' + detalleError(error), 'err'); return; }
+  toast('Activo eliminado');
+  cerrarModal('modal-activo');
+  cargarActivos();
 }
 
 // ─── FECHAS EN ESPAÑOL ────────────────────────
@@ -6431,7 +6651,7 @@ async function cargarFlujoCaja() {
   wrap.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
   const año = _fcAño, mes = _fcMes, mm = String(mes).padStart(2, '0'), periodo = `${año}-${mm}`;
   const prev = (() => { let y = año, m = mes - 1; if (m < 1) { m = 12; y--; } return `${y}-${String(m).padStart(2,'0')}`; })();
-  await Promise.all([loadColaboradores(), loadTemporal(), loadGastosFijos()]);
+  await Promise.all([loadColaboradores(), loadTemporal(), loadGastosFijos(), cargarDepreMensual()]);
   let cierres = [], pila = [], gastos = [];
   try {
     const [cR, pR, gR] = await Promise.all([
@@ -6526,6 +6746,7 @@ async function cargarFlujoCaja() {
       </div>
       ${libre < 0 ? `<div style="margin-top:6px;font-size:12px;color:#A32D2D">⚠ Los egresos superan los ingresos en ${COP(Math.abs(libre))}</div>` : ''}
       <div style="margin-top:6px;font-size:10px;color:var(--gris-medio)">El retiro de socias no se cuenta como egreso (es distribución, no gasto).</div>
+      ${_depreMensual > 0 ? `<div style="margin-top:3px;font-size:10px;color:var(--gris-medio)">Nota: la depreciación (${COP(_depreMensual)}/mes) es costo contable, no salida de caja — ya se pagó al comprar el equipo.</div>` : ''}
     </div>
 
     <div style="border:1px solid var(--borde);border-radius:12px;padding:12px 16px;background:var(--gris-claro)">
@@ -8363,12 +8584,13 @@ function beMC(){
 async function renderPuntoEquilibrio() {
   const cont = document.getElementById('rep-equilibrio'); if (!cont) return;
   await loadCostosData();
+  await cargarDepreMensual();
   await cargarVentasReales2026();
   const mc = beMC(); const p = beParams();
   const fmt = n => NUM(n);
   const mcTabla = mc.hayDatos ? mc.list.map(r=>{
     const colp = r.mcPct>=0.6?'var(--verde)':r.mcPct>=0.5?'var(--amarillo)':'var(--rojo)';
-    const prendasBE = r.mc>0 ? Math.ceil((p.costo_produccion_total+p.costo_comercial_total+p.otros_costos_fijos)/r.mc) : 0;
+    const prendasBE = r.mc>0 ? Math.ceil((p.costo_produccion_total+p.costo_comercial_total+p.otros_costos_fijos+(_depreMensual||0))/r.mc) : 0;
     return `<tr>
       <td><strong>${r.ref}</strong></td><td style="text-align:right">${COP(r.pSin)}</td>
       <td style="text-align:right;color:var(--gris-medio)">${COP(r.mp)}</td>
@@ -8387,6 +8609,7 @@ async function renderPuntoEquilibrio() {
       <div class="form-group"><label>Costos comerciales</label><input type="text" inputmode="numeric" id="be-com" value="${fmt(p.costo_comercial_total)}" oninput="beRecompute()" onblur="this.value=NUM(pesos(this.value))"></div>
     </div>
     <div class="form-group"><label>Otros costos fijos (salario gerencial, contador…)</label><input type="text" inputmode="numeric" id="be-otros" value="${fmt(p.otros_costos_fijos)}" oninput="beRecompute()" onblur="this.value=NUM(pesos(this.value))"></div>
+    <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--gris-medio);padding:4px 0"><span>Depreciación maquinaria <span style="font-size:10px">(auto, desde Activos)</span></span><span id="be-depre">${COP(_depreMensual)}</span></div>
     <div style="display:flex;justify-content:space-between;border-top:1px solid var(--borde);padding-top:8px;font-weight:700"><span>TOTAL COSTOS FIJOS</span><span id="be-fijos-tot" style="color:var(--brand-dark)"></span></div>
   </div>
 
@@ -8456,7 +8679,8 @@ function beSyncUnd(src){
 function beRecompute(){
   const $=id=>document.getElementById(id); if(!$('be-prod')) return;
   const prod=pesos($('be-prod').value), com=pesos($('be-com').value), otros=pesos($('be-otros').value);
-  const fijos=prod+com+otros;
+  const depre=_depreMensual||0; const fijos=prod+com+otros+depre;
+  if($('be-depre')) $('be-depre').textContent = COP(depre);
   const mc=beMC(); const mcPct=mc.mcProm, precioProm=mc.precioProm, mcUnit=mc.mcUnitProm || Math.round((precioProm||35000)*0.56);
   $('be-fijos-tot').textContent = COP(fijos);
   // S2 break-even
