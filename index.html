@@ -6389,6 +6389,20 @@ function iniciarContabilidad() {
 let _fcAño = new Date().getFullYear(), _fcMes = new Date().getMonth() + 1;
 function cambiarMesFlujo(d) { _fcMes += d; if (_fcMes > 12) { _fcMes = 1; _fcAño++; } if (_fcMes < 1) { _fcMes = 12; _fcAño--; } cargarFlujoCaja(); }
 
+// Libre de un mes (para el histórico), con los datos ya cargados. Ingresos = consignaciones registradas.
+function flujoLibreMes(periodo, ctx) {
+  const inMes = d => d && String(d).slice(0, 7) === periodo;
+  const ing = ctx.cierres.filter(c =>
+    (c.estado === 'recibido' && (inMes(c.fecha_recibido) || (!c.fecha_recibido && inMes(c.fecha_esperada_consignacion)))) ||
+    (c.estado !== 'recibido' && inMes(c.fecha_esperada_consignacion))
+  ).reduce((s, c) => s + (c.estado === 'recibido' ? (c.valor_recibido || c.neto_a_recibir || 0) : (c.neto_a_recibir || 0)), 0);
+  const temp = (ctx.temporalRows || []).filter(t => (t.fecha_inicio || '').slice(0, 7) === periodo).reduce((s, t) => s + (t.valor_pagado || 0), 0);
+  const esSeg = g => /seguridad|pila|eps|pensi[oó]n/i.test(((g.descripcion || '') + ' ' + (g.categoria || '')));
+  const gM = ctx.gastos.filter(g => ((g.periodo || (g.fecha || '').slice(0, 7)) === periodo) && !esSeg(g)).reduce((s, g) => s + (g.valor || 0), 0) + gastoFijoDe(periodo);
+  const egr = ctx.salarios + temp + (ctx.pilaByPeriodo[periodo] || 0) + gM;
+  return { ing, egr, libre: ing - egr };
+}
+
 async function cargarFlujoCaja() {
   if (esVendedora()) return;
   const wrap = document.getElementById('cont-flujo-wrap'); if (!wrap) return;
@@ -6400,7 +6414,7 @@ async function cargarFlujoCaja() {
   try {
     const [cR, pR, gR] = await Promise.all([
       sb.from('consignaciones_cierre').select('*'),
-      sb.from('nomina_pila').select('total_pila').eq('periodo_salario', periodo),
+      sb.from('nomina_pila').select('periodo_salario, total_pila'),
       sb.from('gastos').select('descripcion, categoria, valor, fecha, periodo')
     ]);
     cierres = cR.data || []; pila = pR.data || []; gastos = gR.data || [];
@@ -6428,7 +6442,8 @@ async function cargarFlujoCaja() {
   // EGRESOS
   const salarios = (_colaboradores || []).filter(c => c.activo !== false && !esSocia(c)).reduce((s, c) => s + (c.salario || 0), 0);
   const temporal = (_temporal || []).filter(t => (t.fecha_inicio || '').slice(0, 7) === periodo).reduce((s, t) => s + (t.valor_pagado || 0), 0);
-  const totalPila = (pila || []).reduce((s, p) => s + (p.total_pila || 0), 0);
+  const pilaByPeriodo = {}; (pila || []).forEach(p => { const k = p.periodo_salario || ''; pilaByPeriodo[k] = (pilaByPeriodo[k] || 0) + (p.total_pila || 0); });
+  const totalPila = pilaByPeriodo[periodo] || 0;
   const esSeg = g => /seguridad|pila|eps|pensi[oó]n/i.test(((g.descripcion || '') + ' ' + (g.categoria || '')));
   const gastosMes = (gastos || []).filter(g => ((g.periodo || (g.fecha || '').slice(0, 7)) === periodo) && !esSeg(g)).sort((a, b) => (b.valor || 0) - (a.valor || 0));
   const gFijo = gastoFijoDe(periodo);
@@ -6499,6 +6514,23 @@ async function cargarFlujoCaja() {
         <div><div style="font-size:11px;color:var(--gris-medio)">Libre est.</div><div style="font-size:15px;font-weight:700;color:${libreProy > 0 ? '#1E8A3A' : '#A32D2D'}">${COP(libreProy)}</div></div>
       </div>
     </div>`;
+
+  // Histórico de "libre" — últimos 6 meses
+  const ctx = { cierres, gastos, temporalRows: _temporal || [], salarios, pilaByPeriodo };
+  const meses6 = []; { let y = año, m = mes; for (let k = 0; k < 6; k++) { meses6.unshift(`${y}-${String(m).padStart(2,'0')}`); m--; if (m < 1) { m = 12; y--; } } }
+  const hist = meses6.map(p => ({ p, ...flujoLibreMes(p, ctx) }));
+  const maxAbs = Math.max(1, ...hist.map(h => Math.abs(h.libre)));
+  wrap.insertAdjacentHTML('beforeend', `
+    <div style="margin-top:16px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gris-medio);margin-bottom:8px">Histórico de libre · últimos 6 meses</div>
+      ${hist.map(h => { const col = h.libre >= 0 ? '#1E8A3A' : '#A32D2D'; const w = Math.round(Math.abs(h.libre) / maxAbs * 100); return `
+        <div style="display:flex;align-items:center;gap:10px;padding:5px 0">
+          <div style="width:76px;font-size:11px;color:var(--gris-medio)">${mesNombreCorto(h.p)}</div>
+          <div style="flex:1;height:7px;background:var(--gris-claro);border-radius:4px;overflow:hidden"><div style="height:100%;width:${w}%;background:${col};border-radius:4px"></div></div>
+          <div style="min-width:96px;text-align:right;font-size:12px;font-weight:700;color:${col}">${COP(h.libre)}</div>
+        </div>`; }).join('')}
+      <div style="font-size:10px;color:var(--gris-medio);margin-top:6px">Ingresos = consignaciones registradas del mes; salarios estimados con la nómina actual (no guardamos histórico de salarios).</div>
+    </div>`);
 }
 
 async function ventasPorPeriodo() {
