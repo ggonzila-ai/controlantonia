@@ -2601,9 +2601,11 @@ async function cargarCockpit() {
   // Último día CON DATOS del mes (el Excel de Feria se importa cada ~15 días) → para el ritmo real
   let ultimoDia = new Date().getDate();
   try {
-    const ini = periodo + '-01', fin = periodo + '-31';
+    const ini = periodo + '-01';
+    const [yy, mmn] = periodo.split('-').map(Number);
+    const finEx = mmn >= 12 ? `${yy + 1}-01-01` : `${yy}-${String(mmn + 1).padStart(2, '0')}-01`;  // 1er día del mes siguiente (evita fechas inválidas como -31)
     const [f1, f2] = await Promise.all([
-      sb.from('ventas_feria_detalle').select('fecha').gte('fecha', ini).lte('fecha', fin).order('fecha', { ascending: false }).limit(1),
+      sb.from('ventas_feria_detalle').select('fecha').gte('fecha', ini).lt('fecha', finEx).order('fecha', { ascending: false }).limit(1),
       sb.from('ventas').select('fecha').eq('periodo', periodo).order('fecha', { ascending: false }).limit(1)
     ]);
     const ds = [f1.data?.[0]?.fecha, f2.data?.[0]?.fecha].filter(Boolean).map(d => new Date(d + 'T00:00:00').getDate());
@@ -7004,12 +7006,13 @@ function pilaCheckSuma() {
 
 async function verificarDobleContePila(periodo) {
   const aviso = document.getElementById('pila-aviso'); if (!aviso || !periodo) return;
-  const [y, m] = periodo.split('-'); const ini = `${y}-${m}-01`, fin = `${y}-${m}-31`;
+  const [y, m] = periodo.split('-').map(Number); const ini = `${periodo}-01`;
+  const finEx = m >= 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
   let conf = [];
   try {
     const { data } = await sb.from('gastos').select('id, descripcion, categoria, valor, fecha')
       .or('categoria.ilike.%seguridad%,descripcion.ilike.%pila%,descripcion.ilike.%seguridad social%')
-      .gte('fecha', ini).lte('fecha', fin);
+      .gte('fecha', ini).lt('fecha', finEx);
     conf = data || [];
   } catch (e) { conf = []; }
   if (conf.length) {
