@@ -2598,17 +2598,30 @@ async function cargarCockpit() {
     sb.from('consignaciones_cierre').select('*').eq('estado', 'pendiente').order('fecha_esperada_consignacion', { ascending: true }).limit(1),
     sb.from('bodega').select('referencia, stock, stock_minimo')
   ]);
-  const alm = ckAlmacenes(ventasRows, mRes.data || []);
-  renderCkAlmacenes(alm);
+  // Último día CON DATOS del mes (el Excel de Feria se importa cada ~15 días) → para el ritmo real
+  let ultimoDia = new Date().getDate();
+  try {
+    const ini = periodo + '-01', fin = periodo + '-31';
+    const [f1, f2] = await Promise.all([
+      sb.from('ventas_feria_detalle').select('fecha').gte('fecha', ini).lte('fecha', fin).order('fecha', { ascending: false }).limit(1),
+      sb.from('ventas').select('fecha').eq('periodo', periodo).order('fecha', { ascending: false }).limit(1)
+    ]);
+    const ds = [f1.data?.[0]?.fecha, f2.data?.[0]?.fecha].filter(Boolean).map(d => new Date(d + 'T00:00:00').getDate());
+    if (ds.length) ultimoDia = Math.max(...ds);
+  } catch (e) {}
+  const alm = ckAlmacenes(ventasRows, mRes.data || [], ultimoDia);
+  renderCkAlmacenes(alm, ultimoDia);
   renderCkPE(ventasRows);
   renderCkConsignacion((cRes.data || [])[0] || null);
   renderCkAlertas(alm, bRes.data || []);
 }
 
-function ckAlmacenes(ventasRows, metas) {
+function ckAlmacenes(ventasRows, metas, ultimoDia) {
   const hoy = new Date();
   const diasMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).getDate();
-  const ritmo = hoy.getDate() / diasMes;
+  const diaCorte = Math.min(ultimoDia || hoy.getDate(), diasMes);   // último día CON datos, no el día de hoy
+  const ritmo = diaCorte / diasMes;
+  const extrap = diaCorte > 0 ? diasMes / diaCorte : 1;             // factor para proyectar a mes completo
   const mesIdx = hoy.getMonth();   // 0=ene … para el mismo mes de 2025
   const metaById = {}; (metas || []).forEach(m => { metaById[m.almacen_id] = m.meta_valor || 0; });
   const ventasByNom = {}; (ventasRows || []).forEach(v => { const k = v.almacen_nombre || '—'; ventasByNom[k] = (ventasByNom[k] || 0) + ventaTotal(v); });
@@ -2618,27 +2631,30 @@ function ckAlmacenes(ventasRows, metas) {
     const ritmoPct = espHoy > 0 ? ventas / espHoy : null, totalPct = meta > 0 ? ventas / meta : null;
     let estado = 'sin-meta';
     if (ritmoPct !== null) estado = ritmoPct >= 0.90 ? 'verde' : ritmoPct >= 0.70 ? 'amarillo' : 'rojo';
-    // Mismo mes de 2025 (datos embebidos en HIST.alm2025, por nombre completo, con IVA)
+    // vs mismo mes 2025 (HIST.alm2025, nombre completo, con IVA) — extrapolado a mes completo para comparar parejo
     const hist2025 = ((HIST.alm2025 && HIST.alm2025[a.nombre]) || [])[mesIdx] || 0;
-    const vs2025 = hist2025 > 0 ? (ventas / hist2025 - 1) : null;
+    const vs2025 = hist2025 > 0 ? (ventas * extrap / hist2025 - 1) : null;
     return { nombre: limpiarAlm(a.nombre), ventas, meta, ritmoPct, totalPct, estado, hist2025, vs2025 };
   });
 }
 
-function renderCkAlmacenes(arr) {
+function renderCkAlmacenes(arr, ultimoDia) {
   const cont = document.getElementById('ck-almacenes'); if (!cont) return;
-  const mesAbbr2025 = MESES[new Date().getMonth()].slice(0, 3).toLowerCase() + ' 2025';
+  const now = new Date();
+  const mesAbbr2025 = MESES[now.getMonth()].slice(0, 3).toLowerCase() + ' 2025';
+  const dd = ultimoDia || now.getDate();
+  const mesLargo = MESES[now.getMonth()].toLowerCase();
   const C = { verde:{bg:'#EAF5EC',bd:'#5DCAA5',pt:'#1E8A3A'}, amarillo:{bg:'#FEF6E4',bd:'#D97706',pt:'#B45309'}, rojo:{bg:'#FCEBEB',bd:'#E24B4A',pt:'#A32D2D'}, 'sin-meta':{bg:'var(--gris-claro)',bd:'var(--borde)',pt:'#94a3b8'} };
   const ord = { rojo:0, amarillo:1, 'sin-meta':2, verde:3 };
   const rows = [...arr].sort((a,b) => ord[a.estado]-ord[b.estado] || b.ventas-a.ventas);
   const conMeta = arr.some(a => a.meta > 0);
   cont.innerHTML = `
-    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gris-medio);margin-bottom:8px">Almacenes hoy</div>
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gris-medio);margin-bottom:8px">Almacenes · datos al ${dd} de ${mesLargo}</div>
     ${!conMeta ? '<div class="alert alert-info" style="margin:0 0 8px">Configura las metas del mes (Ventas → Visión General → Metas inteligentes) para ver el semáforo de ritmo.</div>' : ''}
     <div style="display:flex;flex-direction:column;gap:6px">
       ${rows.map(a => { const c = C[a.estado]; const rp = a.ritmoPct != null ? Math.round(a.ritmoPct*100)+'%' : '—';
         let vs = 'sin dato 2025';
-        if (a.vs2025 != null) { const p = Math.round(a.vs2025*100); vs = `<span style="color:${p>=0?'#1E8A3A':'#A32D2D'};font-weight:700">${p>=0?'▲':'▼'} ${Math.abs(p)}%</span> vs ${mesAbbr2025}`; }
+        if (a.vs2025 != null) { const p = Math.round(a.vs2025*100); vs = `<span style="color:${p>=0?'#1E8A3A':'#A32D2D'};font-weight:700">${p>=0?'▲':'▼'} ${Math.abs(p)}%</span> vs ${mesAbbr2025} <span style="font-size:9px">(proy)</span>`; }
         return `<div onclick="showPage('almacenes')" style="padding:9px 12px;border-radius:10px;background:${c.bg};border:1px solid ${c.bd};cursor:pointer">
           <div style="display:flex;align-items:center;gap:10px">
             <span style="width:9px;height:9px;border-radius:50%;background:${c.pt};flex-shrink:0"></span>
@@ -2651,7 +2667,7 @@ function renderCkAlmacenes(arr) {
           </div>
         </div>`; }).join('')}
     </div>
-    <div style="font-size:10px;color:var(--gris-medio);margin-top:6px">Ritmo = ventas reales vs meta esperada al día de hoy. "vs ${mesAbbr2025}" compara con el mismo mes de 2025.</div>`;
+    <div style="font-size:10px;color:var(--gris-medio);margin-top:6px">Ritmo = ventas vs meta esperada al ${dd} de ${mesLargo} (último import). "vs ${mesAbbr2025} (proy)" extrapola lo vendido a mes completo para comparar con 2025.</div>`;
 }
 
 function renderCkPE(ventasRows) {
