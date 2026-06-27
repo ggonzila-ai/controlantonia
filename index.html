@@ -389,7 +389,7 @@
 
     <!-- ACCESOS RÁPIDOS (arriba) -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:14px 0 4px">
-      <button onclick="showPage('bodega');setTimeout(()=>showTab('tab-bod-catalogo'),100)" style="background:var(--verde);color:#fff;border:none;border-radius:12px;padding:14px 8px;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:700;-webkit-tap-highlight-color:transparent"><span style="font-size:20px">📥</span>Ingreso a bodega</button>
+      <button onclick="showPage('bodega');setTimeout(()=>showTab('tab-bod-existencias'),100)" style="background:var(--verde);color:#fff;border:none;border-radius:12px;padding:14px 8px;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:700;-webkit-tap-highlight-color:transparent"><span style="font-size:20px">📥</span>Ingreso a bodega</button>
       <button onclick="showPage('bodega');setTimeout(()=>showTab('tab-bod-despachos'),100)" style="background:var(--brand-dark);color:#fff;border:none;border-radius:12px;padding:14px 8px;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:700;-webkit-tap-highlight-color:transparent"><span style="font-size:20px">📦</span>Despacho</button>
       <button onclick="showPage('contabilidad');setTimeout(()=>showTab('tab-cont-gastos'),100)" style="background:var(--brand-mid);color:#fff;border:none;border-radius:12px;padding:14px 8px;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:700;-webkit-tap-highlight-color:transparent"><span style="font-size:20px">💸</span>Gasto</button>
       <button onclick="abrirModalCorte()" style="background:var(--brand);color:#fff;border:none;border-radius:12px;padding:14px 8px;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:700;-webkit-tap-highlight-color:transparent"><span style="font-size:20px">✂️</span>Corte</button>
@@ -428,7 +428,6 @@
 
     <div class="tabs" style="border-radius:var(--radius) var(--radius) 0 0;overflow-x:auto">
       <div class="tab active" id="tab-bod-existencias" onclick="showTab('tab-bod-existencias')">Existencias</div>
-      <div class="tab" id="tab-bod-catalogo" onclick="showTab('tab-bod-catalogo')">Catálogo</div>
       <div class="tab" id="tab-bod-costos" onclick="showTab('tab-bod-costos')">Costos</div>
       <div class="tab" id="tab-bod-rentab" onclick="showTab('tab-bod-rentab')">Rentabilidad</div>
       <div class="tab" id="tab-bod-abc" onclick="showTab('tab-bod-abc')">Curva ABC</div>
@@ -442,15 +441,16 @@
         <div style="font-size:13px;font-weight:600;color:var(--rosa-oscuro)">⚠️ <span id="bodega-count-alerta">0</span> productos con stock bajo</div>
       </div>
       <div class="section-card" style="border-radius:0;margin-bottom:0;border-bottom:none">
-        <div style="padding:12px 16px">
-          <input type="text" id="bodega-buscar" placeholder="Buscar referencia…" style="width:100%;padding:10px 14px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:14px;font-family:inherit" oninput="filtrarBodega()">
+        <div style="padding:12px 16px;display:flex;gap:8px;align-items:center">
+          <input type="text" id="bodega-buscar" placeholder="Buscar referencia, categoría o SKU…" style="flex:1;padding:10px 14px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:14px;font-family:inherit" oninput="filtrarBodega()">
+          <button class="btn btn-primary btn-sm" style="flex-shrink:0" onclick="abrirModalProducto()">+ Producto</button>
         </div>
       </div>
       <div class="section-card" style="border-radius:0 0 var(--radius) var(--radius)">
         <div class="tabla-wrap">
           <table>
-            <thead><tr><th>Referencia</th><th>Cat.</th><th>Stock por talla</th><th style="text-align:right">Total</th><th style="text-align:right">Mín</th><th>Estado</th></tr></thead>
-            <tbody id="bodega-tbody"><tr><td colspan="6"><div class="loader"><div class="spinner"></div> Cargando…</div></td></tr></tbody>
+            <thead><tr><th>Referencia</th><th>Cat.</th><th>Stock por talla</th><th style="text-align:right">Total</th><th style="text-align:right">Mín</th><th>Estado</th><th></th></tr></thead>
+            <tbody id="bodega-tbody"><tr><td colspan="7"><div class="loader"><div class="spinner"></div> Cargando…</div></td></tr></tbody>
           </table>
         </div>
       </div>
@@ -465,19 +465,6 @@
       <div id="act-resumen" style="margin-bottom:12px"></div>
       <div id="act-alertas" style="margin-bottom:12px"></div>
       <div id="act-lista"><div class="loader"><div class="spinner"></div></div></div>
-    </div>
-
-    <!-- CATÁLOGO -->
-    <div id="tab-content-bod-catalogo" style="display:none">
-      <div class="section-card" style="border-radius:0;margin-bottom:0;border-bottom:none">
-        <div style="padding:12px 16px;display:flex;gap:8px;align-items:center">
-          <input type="text" id="catalogo-buscar" placeholder="Buscar producto o código…" style="flex:1;padding:10px 14px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:14px;font-family:inherit" oninput="renderCatalogo()">
-          <button class="btn btn-primary btn-sm" style="flex-shrink:0" onclick="abrirModalProducto()">+ Producto</button>
-        </div>
-      </div>
-      <div id="catalogo-list" class="section-card" style="border-radius:0 0 var(--radius) var(--radius)">
-        <div class="loader"><div class="spinner"></div></div>
-      </div>
     </div>
 
     <!-- COSTOS POR REFERENCIA -->
@@ -1450,9 +1437,19 @@
       <label>Categoría</label>
       <select id="p-cat"></select>
     </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:2">
+        <label>Tallas (separadas por coma)</label>
+        <input type="text" id="p-tallas" placeholder="S, M, L, XL, 2XL">
+      </div>
+      <div class="form-group" style="flex:1">
+        <label>Stock mínimo</label>
+        <input type="number" id="p-min" value="10">
+      </div>
+    </div>
     <div class="form-group">
-      <label>Tallas (separadas por coma)</label>
-      <input type="text" id="p-tallas" placeholder="S, M, L, XL, 2XL">
+      <label>Códigos SKU</label>
+      <div id="p-skus"></div>
     </div>
     <div style="font-size:10px;color:var(--gris-medio);margin:-4px 0 8px">El stock por talla se registra con "+ Entrada" en cada referencia. El costo va en Costos / Rentabilidad.</div>
     <div style="display:flex;gap:10px;margin-top:4px">
@@ -2337,7 +2334,6 @@ function showTab(tabId) {
   if (tabId === 'tab-ventas-feria') cargarVentasFeria();
   if (tabId === 'tab-if-res') cargarResultadosConteo();
   if (tabId === 'tab-alm-conc') { llenarSelectAlmacenes(); renderConciliacion(); }
-  if (tabId === 'tab-bod-catalogo') cargarCatalogo();
   if (tabId === 'tab-bod-costos') cargarCostos();
   if (tabId === 'tab-bod-rentab') cargarRentabilidadCostos();
   if (tabId === 'tab-bod-activos') cargarActivos();
@@ -3197,15 +3193,22 @@ async function renderBodega(items) {
     const min = p.stock_minimo || 10;
     const est = p.stock === 0 ? ['badge-err','Sin stock'] : p.stock <= min ? ['badge-warn','⚠️ Bajo'] : ['badge-ok','✓ OK'];
     const rowStyle = p.stock <= min ? 'background:var(--rosa-suave)' : '';
+    const cods = codigosDe(p.referencia);
+    const skuLine = cods.length ? `<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:3px">${cods.map(c => `<span class="badge badge-gray" style="font-size:10px" title="${c.descripcion||''}">${c.codigo}</span>`).join('')}</div>` : '';
+    const refEsc = p.referencia.replace(/'/g,"\\'");
     return `<tr style="${rowStyle}">
-      <td><strong>${p.referencia}</strong>${alertaTalla(p)}</td>
+      <td><strong>${p.referencia}</strong>${alertaTalla(p)}${skuLine}</td>
       <td><span class="badge badge-rosa">${p.categoria}</span></td>
       <td style="max-width:240px">${chipTallas(p.referencia)}</td>
       <td style="text-align:right;font-weight:700">${NUM(p.stock)}</td>
       <td style="text-align:right;font-size:12px;color:var(--gris-medio)">Mín: ${NUM(min)}</td>
       <td><span class="badge ${est[0]}">${est[1]}</span></td>
+      <td style="white-space:nowrap;text-align:right">
+        <button onclick="abrirEntradaBodega('${refEsc}')" style="background:var(--verde);color:#fff;border:none;border-radius:var(--radius-sm);font-size:12px;font-weight:700;padding:5px 9px;cursor:pointer">+ Entrada</button>
+        <button onclick="abrirModalProducto('${p.id}')" style="background:none;border:1px solid var(--borde);border-radius:var(--radius-sm);color:var(--gris-medio);font-size:12px;padding:5px 9px;cursor:pointer;margin-left:4px">✏ Editar</button>
+      </td>
     </tr>`;
-  }).join('') || '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--gris-medio)">Sin referencias en bodega.</td></tr>';
+  }).join('') || '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--gris-medio)">Sin referencias en bodega.</td></tr>';
 }
 
 function mostrarAlertasStock() {
@@ -3221,7 +3224,16 @@ function mostrarAlertasStock() {
 
 function filtrarBodega() {
   const q = document.getElementById('bodega-buscar').value.toLowerCase();
-  renderBodega(bodegaData.filter(p => p.referencia.toLowerCase().includes(q) || p.categoria.toLowerCase().includes(q)));
+  renderBodega(bodegaData.filter(p =>
+    p.referencia.toLowerCase().includes(q) ||
+    (p.categoria || '').toLowerCase().includes(q) ||
+    codigosDe(p.referencia).some(c => (c.codigo || '').toLowerCase().includes(q) || (c.descripcion || '').toLowerCase().includes(q))
+  ));
+}
+// Re-render Existencias respetando el texto de búsqueda actual
+function refrescarBodegaVista() {
+  const b = document.getElementById('bodega-buscar');
+  if (b && b.value) filtrarBodega(); else renderBodega(bodegaData);
 }
 
 // ─── CATÁLOGO ─────────────────────────────────
@@ -3235,6 +3247,7 @@ async function cargarCatalogo() {
 }
 
 function renderCatalogo() {
+  if (!document.getElementById('catalogo-list')) return;   // Catálogo fusionado en Existencias
   const q = (document.getElementById('catalogo-buscar')?.value || '').toLowerCase();
   const productos = bodegaData.filter(p => {
     if (!q) return true;
@@ -3653,7 +3666,8 @@ async function quitarCodigo(codigo) {
   const { error } = await sb.from('codigos_sku').delete().eq('codigo', codigo);
   if (error) { toast('Error al quitar código', 'err'); return; }
   toast(`✓ Código ${codigo} quitado`);
-  await cargarCodigos(); renderCatalogo();
+  await cargarCodigos(); refrescarBodegaVista();
+  if (document.getElementById('modal-producto')?.classList.contains('open')) renderProdSkus();
 }
 
 // ─── MODAL CÓDIGO ─────────────────────────────
@@ -3676,7 +3690,8 @@ async function guardarCodigo() {
   if (error) { toast('Error: ¿código ya asignado a otro producto?', 'err'); return; }
   cerrarModal('modal-codigo');
   toast(`✓ ${codigo} → ${_codigoRefDestino.ref}`);
-  await cargarCodigos(); renderCatalogo();
+  await cargarCodigos(); refrescarBodegaVista();
+  if (document.getElementById('modal-producto')?.classList.contains('open')) renderProdSkus();
 }
 
 // ─── MODAL PRODUCTO (crear/editar) ────────────
@@ -3688,30 +3703,44 @@ function abrirModalProducto(id) {
   document.getElementById('p-ref').value = p?.referencia || '';
   document.getElementById('p-cat').innerHTML = CATEGORIAS.map(c => `<option ${p?.categoria===c?'selected':''}>${c}</option>`).join('');
   document.getElementById('p-tallas').value = p?.tallas || '';
+  document.getElementById('p-min').value = p?.stock_minimo ?? 10;
+  renderProdSkus();
   document.getElementById('p-del-wrap').style.display = p ? 'block' : 'none';
   document.getElementById('modal-producto').classList.add('open');
+}
+
+function renderProdSkus() {
+  const wrap = document.getElementById('p-skus'); if (!wrap) return;
+  const p = _prodEditId ? bodegaData.find(x => x.id === _prodEditId) : null;
+  if (!p) { wrap.innerHTML = '<div style="font-size:11px;color:var(--gris-medio)">Guarda el producto para poder agregarle códigos SKU.</div>'; return; }
+  const cods = codigosDe(p.referencia);
+  wrap.innerHTML = `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:5px">
+    ${cods.map(c => `<span style="display:inline-flex;align-items:center;gap:5px;background:var(--rosa-suave);color:var(--rosa-oscuro);border-radius:6px;padding:3px 8px;font-size:12px;font-weight:600" title="${c.descripcion||''}">${c.codigo}<span onclick="quitarCodigo('${c.codigo}')" style="cursor:pointer;font-weight:700;opacity:.6">✕</span></span>`).join('')}
+    <button type="button" onclick="abrirModalCodigo('${p.referencia.replace(/'/g,"\\'")}','${p.categoria}')" style="background:none;border:1px dashed var(--borde);border-radius:6px;color:var(--gris-medio);font-size:12px;padding:3px 9px;cursor:pointer">+ agregar código</button>
+  </div>`;
 }
 async function guardarProducto() {
   const referencia = (document.getElementById('p-ref').value || '').trim();
   const categoria = document.getElementById('p-cat').value;
   const tallas = (document.getElementById('p-tallas').value || '').trim();
+  const stock_minimo = parseInt(document.getElementById('p-min').value) || 10;
   if (!referencia) { toast('Escribe el nombre de la referencia', 'err'); return; }
   let error;
   if (_prodEditId) {
     const prev = bodegaData.find(x => x.id === _prodEditId);
-    ({ error } = await sb.from('bodega').update({ referencia, categoria, tallas }).eq('id', _prodEditId));
+    ({ error } = await sb.from('bodega').update({ referencia, categoria, tallas, stock_minimo }).eq('id', _prodEditId));
     // si cambió el nombre, reasignar códigos y tallas
     if (!error && prev && prev.referencia !== referencia) {
       await sb.from('codigos_sku').update({ referencia }).eq('referencia', prev.referencia);
       await sb.from('bodega_tallas').update({ referencia }).eq('referencia', prev.referencia);
     }
   } else {
-    ({ error } = await sb.from('bodega').insert({ referencia, categoria, tallas, stock: 0 }));
+    ({ error } = await sb.from('bodega').insert({ referencia, categoria, tallas, stock_minimo, stock: 0 }));
   }
   if (error) { toast('Error al guardar producto', 'err'); return; }
   cerrarModal('modal-producto');
   toast(`✓ ${referencia} guardado`);
-  await cargarBodega(); renderCatalogo();
+  await cargarBodega(); mostrarAlertasStock();
 }
 async function eliminarProducto() {
   const p = bodegaData.find(x => x.id === _prodEditId);
@@ -3723,7 +3752,7 @@ async function eliminarProducto() {
   if (error) { toast('Error al eliminar', 'err'); return; }
   cerrarModal('modal-producto');
   toast(`✓ ${p.referencia} eliminado`);
-  await cargarBodega(); renderCatalogo();
+  await cargarBodega(); mostrarAlertasStock();
 }
 
 // ─── ENTRADA A BODEGA (stock por talla) ───
