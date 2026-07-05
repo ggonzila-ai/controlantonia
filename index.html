@@ -1098,6 +1098,7 @@
       <div class="tab" id="tab-cont-consignaciones" onclick="showTab('tab-cont-consignaciones')">Consignaciones</div>
       <div class="tab" id="tab-cont-soportes" onclick="showTab('tab-cont-soportes')">Soportes</div>
       <div class="tab" id="tab-cont-proveedores" onclick="showTab('tab-cont-proveedores')">Proveedores</div>
+      <div class="tab" id="tab-cont-backup" onclick="descargarBackup(this)" title="Descargar copia de seguridad en Excel">💾</div>
     </div>
 
     <!-- FLUJO DE CAJA -->
@@ -8998,6 +8999,37 @@ const BE_KEY = 'parametros_be';
 let _beChart = null;
 function beParams(){ try { return { ...BE_DEFAULTS, ...(JSON.parse(localStorage.getItem(BE_KEY))||{}) }; } catch(e){ return { ...BE_DEFAULTS }; } }
 function beGuardar(p){ try { localStorage.setItem(BE_KEY, JSON.stringify(p)); } catch(e){} configRemotaSet('parametros_be', p); }
+
+// ─── COPIA DE SEGURIDAD (Excel con todas las tablas) ───
+const BACKUP_TABLAS = ['almacenes','bodega','bodega_tallas','codigos_sku','ventas','reportes_ventas_feria','ventas_feria_detalle','despachos','despacho_items','entradas_bodega','inventario_apertura','inventario_ajustes','remisiones_ajuste','conteos_fisicos','conteo_items','cortes','gastos','gastos_fijos','gasto_soportes','proveedores','colaboradores','personal_temporal','nomina_pagos','nomina_pila','consignaciones','consignaciones_cierre','documentos','metas_ventas','referencia_costos','referencia_insumos','parametros_mes','activos_fijos','produccion_mensual','app_config','usuarios'];
+async function descargarBackup(el) {
+  if (esVendedora()) { toast('Solo administración', 'err'); return; }
+  if (el) el.textContent = '⏳';
+  toast('Preparando copia de seguridad…');
+  const wb = XLSX.utils.book_new();
+  let ok = 0, vacías = 0;
+  for (const t of BACKUP_TABLAS) {
+    try {
+      let rows = [], from = 0;
+      while (true) {   // paginar por si una tabla supera 1000 filas
+        const { data, error } = await sb.from(t).select('*').range(from, from + 999);
+        if (error) throw error;
+        rows = rows.concat(data || []);
+        if (!data || data.length < 1000) break;
+        from += 1000;
+        if (from > 50000) break;
+      }
+      if (!rows.length) { vacías++; continue; }
+      const plano = rows.map(r => { const o = {}; Object.keys(r).forEach(k => { const v = r[k]; o[k] = (v && typeof v === 'object') ? JSON.stringify(v) : v; }); return o; });
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(plano), t.slice(0, 31));
+      ok++;
+    } catch (e) { /* tabla inexistente o sin permiso → se omite */ }
+  }
+  if (el) el.textContent = '💾';
+  if (!ok) { toast('No se pudo exportar ninguna tabla', 'err'); return; }
+  XLSX.writeFile(wb, `antonia_backup_${hoy()}.xlsx`);
+  toast(`✓ Copia descargada: ${ok} tablas con datos`);
+}
 
 // ─── CONFIG COMPARTIDA (app_config en Supabase) ───
 // Los costos fijos/parámetros vivían solo en localStorage → cada dispositivo veía
