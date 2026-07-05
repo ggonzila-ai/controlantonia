@@ -2542,144 +2542,6 @@ async function cargarDash() {
   return cargarCockpit();
 }
 // Dashboard anterior — conservado como referencia, ya no se ejecuta.
-async function _cargarDashViejo() {
-  // último período con ventas (las ventas pueden no ser del mes calendario en curso)
-  await Promise.all([ (almacenes.length ? Promise.resolve() : llenarSelectAlmacenes()), loadInvCache() ]);
-  const { data: ultimo } = await sb.from('ventas').select('periodo').order('periodo', { ascending: false }).limit(1);
-  const periodoVista = (ultimo && ultimo[0] && ultimo[0].periodo) || periodoActual();
-
-  const [{ data: bod }, { data: vent }] = await Promise.all([
-    sb.from('bodega').select('stock, costo'),
-    sb.from('ventas').select('cantidad, precio_unitario, almacen_nombre').eq('periodo', periodoVista)
-  ]);
-
-  const totalBodega = (bod || []).reduce((a, r) => a + r.stock, 0);
-  const valorBodega = (bod || []).reduce((a, r) => a + r.stock * (r.costo || 0), 0);
-  const totalVentasCOP = (vent || []).reduce((a, v) => a + v.cantidad * v.precio_unitario, 0);
-  const totalUndVentas = (vent || []).reduce((a, v) => a + v.cantidad, 0);
-
-  // En tiendas: inventario actual (motor), sumado sobre todos los almacenes
-  let enTiendas = 0;
-  almacenes.forEach(a => { enTiendas += inventarioActual(a.id).total; });
-  const hayApertura = invCache && invCache.aperturas.length > 0;
-
-  document.getElementById('kpi-grid').innerHTML = `
-    <div class="metric-card"><div class="m-label">Stock bodega</div><div class="m-val">${NUM(totalBodega)}</div><div class="m-sub">unidades disponibles</div></div>
-    <div class="metric-card"><div class="m-label">En tiendas</div><div class="m-val">${hayApertura?NUM(enTiendas):'—'}</div><div class="m-sub">${hayApertura?'inventario en almacenes':'pendiente inv. inicial'}</div></div>
-    <div class="metric-card accent"><div class="m-label">Ventas ${mesNombre(periodoVista)}</div><div class="m-val">${COP(totalVentasCOP)}</div><div class="m-sub">${NUM(totalUndVentas)} unidades</div></div>
-    <div class="metric-card"><div class="m-label">Valor en bodega</div><div class="m-val">${COP(valorBodega)}</div><div class="m-sub">precio de costo</div></div>`;
-
-  // ── Datos para insights por área ──
-  const { data: criticos } = await sb.from('bodega').select('referencia, categoria, stock, stock_minimo').lte('stock', 10).gt('stock', 0).order('stock');
-  const [{ data: bodegaTodos }, { data: gastosUlt }, { data: periodosRows },
-         { data: nomPagos }, { data: colabs }, { data: temporal }, { data: consPer }] = await Promise.all([
-    sb.from('bodega').select('stock, costo, stock_minimo'),
-    sb.from('gastos').select('valor, periodo, categoria').eq('periodo', periodoVista).limit(500),
-    sb.from('ventas').select('periodo').order('periodo', { ascending: false }).limit(5000),
-    sb.from('nomina_pagos').select('valor, colaborador_id').eq('periodo', periodoVista).limit(500),
-    sb.from('colaboradores').select('id, tipo, salario, activo'),
-    sb.from('personal_temporal').select('valor_pagado, fecha_inicio').limit(500),
-    sb.from('consignaciones').select('valor').eq('periodo', periodoVista).limit(500)
-  ]);
-
-  // Período anterior con ventas (para tendencia)
-  const periodosUnicos = [...new Set((periodosRows || []).map(r => r.periodo))].filter(Boolean).sort().reverse();
-  const periodoPrevV = periodosUnicos.find(p => p < periodoVista) || null;
-  let ventasPrevCOP = 0;
-  if (periodoPrevV) {
-    const { data: vp } = await sb.from('ventas').select('cantidad, precio_unitario').eq('periodo', periodoPrevV);
-    ventasPrevCOP = (vp || []).reduce((a, v) => a + v.cantidad * v.precio_unitario, 0);
-  }
-
-  // Métricas base
-  const sinStock = (bodegaTodos || []).filter(p => p.stock === 0).length;
-  const bajosStock = (criticos || []).length;
-  const baseVtas = baseSinIva(totalVentasCOP);
-  await loadGastosFijos();
-  const totalGastos = (gastosUlt || []).reduce((a, g) => a + (g.valor || 0), 0) + gastoFijoDe(periodoVista);
-  // Nómina recurrente: suma de salarios de colaboradores fijos activos (no socias), igual cada mes
-  let nominaOper = (colabs || []).reduce((a, c) => a + ((c.activo !== false && c.tipo !== 'Socia') ? (c.salario || 0) : 0), 0);
-  nominaOper += (temporal || []).reduce((a, t) => a + ((t.fecha_inicio || '').slice(0, 7) === periodoVista ? (t.valor_pagado || 0) : 0), 0);
-  const recibidoCaja = (consPer || []).reduce((a, c) => a + (c.valor || 0), 0);
-  const comisionVtas = comisionDe(totalVentasCOP);   // comisión Feria (igual que Reportes y cierres)
-  const egresos = totalGastos + nominaOper;
-  const utilidad = baseVtas - comisionVtas - egresos;
-  const margen = baseVtas > 0 ? Math.round(utilidad / baseVtas * 100) : 0;
-
-  // Almacén líder y gasto por categoría
-  const porAlm = {};
-  (vent || []).forEach(v => { const k = v.almacen_nombre || '—'; porAlm[k] = (porAlm[k] || 0) + v.cantidad * v.precio_unitario; });
-  const almLider = Object.entries(porAlm).sort((a, b) => b[1] - a[1])[0];
-  const porCatG = {};
-  (gastosUlt || []).forEach(g => { const k = g.categoria || 'Sin categoría'; porCatG[k] = (porCatG[k] || 0) + (g.valor || 0); });
-  const catTop = Object.entries(porCatG).sort((a, b) => b[1] - a[1])[0];
-
-  // ── 1) BODEGA E INVENTARIO ──
-  const insBodega = [];
-  insBodega.push({ tipo: 'info', icono: '📦', texto: `Bodega: ${NUM(totalBodega)} uds · ${COP(valorBodega)} en costo`, accion: () => showPage('bodega') });
-  if (hayApertura) insBodega.push({ tipo: 'info', icono: '🏬', texto: `En tiendas: ${NUM(enTiendas)} uds repartidas`, accion: () => showPage('inventarios') });
-  if (sinStock > 0) insBodega.push({ tipo: 'danger', icono: '🚫', texto: `${sinStock} referencia${sinStock>1?'s':''} sin stock en bodega`, accion: () => showPage('bodega') });
-  if (bajosStock > 0) insBodega.push({ tipo: 'warn', icono: '⚠️', texto: `${bajosStock} referencia${bajosStock>1?'s':''} con stock bajo (≤10 uds)`, accion: () => showPage('bodega') });
-  if (totalBodega > 0 && totalBodega < 50) insBodega.push({ tipo: 'warn', icono: '🏭', texto: `Stock total bajo (${NUM(totalBodega)} uds) — considera nueva producción`, accion: () => abrirModalCorte() });
-  if (!hayApertura) insBodega.push({ tipo: 'info', icono: '📋', texto: 'Sin inventario inicial cargado — los datos de tiendas no son precisos', accion: () => showPage('inventarios') });
-  if (sinStock === 0 && bajosStock === 0 && totalBodega >= 50) insBodega.push({ tipo: 'ok', icono: '✅', texto: 'Inventario sano — sin alertas de stock', accion: null });
-
-  // ── 2) VENTAS ──
-  const insVentas = [];
-  if (totalUndVentas > 0) {
-    insVentas.push({ tipo: 'ok', icono: '🛍️', texto: `Ventas ${mesNombre(periodoVista)}: ${COP(totalVentasCOP)} · ${NUM(totalUndVentas)} uds`, accion: () => showPage('ventas') });
-    if (periodoPrevV && ventasPrevCOP > 0) {
-      const dv = Math.round((totalVentasCOP - ventasPrevCOP) / ventasPrevCOP * 100);
-      insVentas.push(dv >= 0
-        ? { tipo: 'ok', icono: '📈', texto: `Ventas +${dv}% vs ${mesNombreCorto(periodoPrevV)} (antes ${COP(ventasPrevCOP)})`, accion: () => showPage('ventas') }
-        : { tipo: 'warn', icono: '📉', texto: `Ventas ${dv}% vs ${mesNombreCorto(periodoPrevV)} (antes ${COP(ventasPrevCOP)})`, accion: () => showPage('ventas') });
-    }
-    if (almLider) insVentas.push({ tipo: 'info', icono: '🏆', texto: `Almacén líder: ${almLider[0]} (${COP(almLider[1])})`, accion: () => showPage('almacenes') });
-    insVentas.push({ tipo: 'info', icono: '🏷️', texto: `Precio promedio: ${COP(Math.round(totalVentasCOP / totalUndVentas))} por unidad`, accion: null });
-  } else {
-    insVentas.push({ tipo: 'info', icono: '🛍️', texto: `Sin ventas registradas en ${mesNombre(periodoVista)}`, accion: () => showPage('ventas') });
-  }
-
-  // ── 3) CONTABILIDAD Y RENTABILIDAD ──
-  const insConta = [];
-  const mesNumV = +((periodoVista.split('-')[1]) || 0);
-  const mesesEquilibrio = mesNumV >= 1 && mesNumV <= 11; // ene–nov: meses de equilibrio (la utilidad del año se hace en diciembre)
-  if (totalVentasCOP > 0 || egresos > 0) {
-    if (utilidad >= 0 && margen >= 20) {
-      insConta.push({ tipo: 'ok', icono: '✅', texto: `Utilidad ${mesNombre(periodoVista)}: ${COP(utilidad)} (margen ${margen}%)`, accion: () => showPage('contabilidad') });
-    } else if (mesesEquilibrio) {
-      insConta.push({ tipo: 'info', icono: '⚖️', texto: `En equilibrio — normal para la época (resultado ${COP(utilidad)}). La utilidad del año se concentra en diciembre.`, accion: () => showPage('contabilidad') });
-    } else {
-      insConta.push(utilidad >= 0
-        ? { tipo: 'ok', icono: '✅', texto: `Utilidad ${mesNombre(periodoVista)}: ${COP(utilidad)} (margen ${margen}%)`, accion: () => showPage('contabilidad') }
-        : { tipo: 'danger', icono: '📉', texto: `Utilidad negativa en diciembre: ${COP(utilidad)} — conviene revisar`, accion: () => showPage('contabilidad') });
-    }
-    if (egresos > 0) insConta.push({ tipo: 'info', icono: '💸', texto: `Egresos: ${COP(egresos)} — gastos ${COP(totalGastos)} · nómina ${COP(nominaOper)}`, accion: () => showPage('contabilidad') });
-    if (catTop && catTop[1] > 0) insConta.push({ tipo: 'info', icono: '📂', texto: `Mayor gasto: ${catTop[0]} (${COP(catTop[1])})`, accion: () => showPage('contabilidad') });
-    if (baseVtas > 0 && margen < 20 && !mesesEquilibrio) insConta.push({ tipo: 'warn', icono: '⚠️', texto: `Margen bajo (${margen}%) — revisa gastos y precios`, accion: () => showPage('contabilidad') });
-  }
-  if (recibidoCaja > 0) insConta.push({ tipo: 'info', icono: '💵', texto: `Recibido en caja ${mesNombre(periodoVista)}: ${COP(recibidoCaja)}`, accion: () => showPage('contabilidad') });
-  if (egresos === 0 && recibidoCaja === 0) insConta.push({ tipo: 'info', icono: '💰', texto: `Sin gastos ni nómina registrados en ${mesNombre(periodoVista)}`, accion: () => showPage('contabilidad') });
-  // Alerta de posible doble conteo de nómina: gasto manual en "Nómina y sueldos" + nómina fija automática
-  const gastoNominaMes = (gastosUlt || []).filter(g => (g.categoria || '') === 'Nómina y sueldos').reduce((s, g) => s + (g.valor || 0), 0);
-  const nominaFijaAuto = (colabs || []).reduce((a, c) => a + ((c.activo !== false && c.tipo !== 'Socia') ? (c.salario || 0) : 0), 0);
-  if (gastoNominaMes > 0 && nominaFijaAuto > 0) insConta.push({ tipo: 'warn', icono: '⚠️', texto: `Posible doble conteo de nómina en ${mesNombre(periodoVista)}: ${COP(gastoNominaMes)} en gastos "Nómina y sueldos" + nómina fija automática ${COP(nominaFijaAuto)}. Los sueldos recurrentes ya se cuentan desde Colaboradores; usa esa categoría de gasto solo para extras.`, accion: () => showPage('contabilidad') });
-
-  pintarDashInsights('dash-insights-bodega', insBodega);
-  pintarDashInsights('dash-insights-ventas', insVentas);
-  pintarDashInsights('dash-insights-conta', insConta);
-
-  document.getElementById('stock-critico').innerHTML = criticos && criticos.length ? criticos.map(p => {
-    const minimo = p.stock_minimo || 10;
-    const pct = Math.min(100, Math.round(p.stock / minimo * 100));
-    const color = p.stock <= 2 ? 'var(--danger-text)' : 'var(--warning-text)';
-    return `<div class="chart-row" style="padding:10px 16px">
-      <div class="chart-label" style="width:160px;color:var(--text-primary);font-weight:500">${p.referencia}</div>
-      <div style="flex:1"><div class="stock-bar"><div class="stock-fill" style="width:${pct}%;background:${color}"></div></div></div>
-      <div style="width:60px;text-align:right;font-size:12px;font-weight:700;color:${color}">${p.stock} uds</div>
-    </div>`;
-  }).join('') : '<div style="padding:16px;text-align:center;font-size:13px;color:var(--gris-medio)">✓ Sin referencias críticas en bodega</div>';
-}
 
 // ─── INICIO: COCKPIT OPERATIVO ────────────────
 async function cargarCockpit() {
@@ -3279,8 +3141,10 @@ async function eliminarActivo() {
   if (esVendedora()) return;
   const id = document.getElementById('act-id').value; if (!id) return;
   if (!confirm('¿Eliminar este activo? Si solo dejó de usarse, mejor cambia el estado a "Dado de baja".')) return;
+  const a = _activosCache.find(x => String(x.id) === String(id));
   const { error } = await sb.from('activos_fijos').delete().eq('id', id);
   if (error) { toast('No se pudo eliminar: ' + detalleError(error), 'err'); return; }
+  if (a?.soporte_path) { try { await sb.storage.from('soportes-gastos').remove([a.soporte_path]); } catch (e) {} }   // no dejar la factura huérfana
   toast('Activo eliminado');
   cerrarModal('modal-activo');
   cargarActivos();
@@ -3486,7 +3350,14 @@ function chipTallas(ref) {
 
 async function renderBodega(items) {
   const cont = document.getElementById('bodega-list'); if (!cont) return;
-  cont.innerHTML = items.map(p => {
+  // Códigos SKU que apuntan a un producto que ya no existe (rescatado del viejo Catálogo)
+  const refsValidas = new Set(bodegaData.map(p => p.referencia));
+  const huerfanos = codigosSku.filter(c => !refsValidas.has(c.referencia));
+  const avisoHuerfanos = huerfanos.length ? `<div style="grid-column:1/-1;padding:10px 14px;background:#FFF0D9;border:1px solid #E8C48A;border-radius:10px">
+      <div style="font-size:12px;font-weight:600;color:#9A5700;margin-bottom:4px">⚠️ ${huerfanos.length} código(s) SKU sin producto válido</div>
+      <div>${huerfanos.map(c => `<span class="badge badge-warn" style="margin:2px" title="${c.descripcion||''}">${c.codigo}</span>`).join('')}</div>
+    </div>` : '';
+  cont.innerHTML = avisoHuerfanos + items.map(p => {
     const min = p.stock_minimo || 10;
     const est = p.stock === 0 ? ['badge-err','Sin stock'] : p.stock <= min ? ['badge-warn','⚠️ Bajo'] : ['badge-ok','✓ OK'];
     const low = p.stock <= min;
@@ -3540,59 +3411,7 @@ function refrescarBodegaVista() {
 }
 
 // ─── CATÁLOGO ─────────────────────────────────
-async function cargarCatalogo() {
-  if (!bodegaData.length) {
-    const { data } = await sb.from('bodega').select('*').order('categoria').order('referencia');
-    bodegaData = data || [];
-  }
-  await Promise.all([cargarCodigos(), cargarTallas()]);
-  renderCatalogo();
-}
 
-function renderCatalogo() {
-  if (!document.getElementById('catalogo-list')) return;   // Catálogo fusionado en Existencias
-  const q = (document.getElementById('catalogo-buscar')?.value || '').toLowerCase();
-  const productos = bodegaData.filter(p => {
-    if (!q) return true;
-    if (p.referencia.toLowerCase().includes(q) || p.categoria.toLowerCase().includes(q)) return true;
-    return codigosDe(p.referencia).some(c => c.codigo.toLowerCase().includes(q) || (c.descripcion||'').toLowerCase().includes(q));
-  });
-  // códigos sin asignar a ningún producto existente
-  const refsValidas = new Set(bodegaData.map(p => p.referencia));
-  const huerfanos = codigosSku.filter(c => !refsValidas.has(c.referencia));
-
-  let html = '';
-  if (huerfanos.length) {
-    html += `<div style="padding:12px 16px;background:#FFF0D9;border-bottom:1px solid var(--borde)">
-      <div style="font-size:12px;font-weight:600;color:#9A5700;margin-bottom:6px">⚠️ ${huerfanos.length} código(s) sin producto válido</div>
-      <div>${huerfanos.map(c => `<span class="badge badge-warn" style="margin:2px" title="${c.descripcion||''}">${c.codigo}</span>`).join('')}</div>
-    </div>`;
-  }
-  html += productos.map(p => {
-    const cods = codigosDe(p.referencia);
-    const tallasDef = parseTallas(p.tallas);
-    return `<div style="padding:14px 16px;border-bottom:1px solid var(--borde)">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-        <div style="min-width:0">
-          <div style="font-weight:700;font-size:14px">${p.referencia}</div>
-          <div style="font-size:11px;color:var(--gris-medio);margin-top:2px"><span class="badge badge-rosa">${p.categoria}</span></div>
-        </div>
-        <div style="display:flex;gap:6px;flex-shrink:0">
-          <button onclick="abrirEntradaBodega('${p.referencia.replace(/'/g,"\\'")}')" style="background:var(--verde);color:#fff;border:none;border-radius:var(--radius-sm);font-size:12px;font-weight:700;padding:5px 10px;cursor:pointer">+ Entrada</button>
-          <button onclick="abrirModalProducto('${p.id}')" style="background:none;border:1px solid var(--borde);border-radius:var(--radius-sm);color:var(--gris-medio);font-size:12px;padding:5px 10px;cursor:pointer">Editar</button>
-        </div>
-      </div>
-      <div style="margin-top:8px;font-size:11px;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Tallas</div>
-      <div style="margin-top:3px">${tallasDef.length ? tallasDef.map(t => `<span class="badge badge-gray" style="margin:2px 3px 2px 0">${t}</span>`).join('') : '<span style="font-size:12px;color:var(--gris-medio)">— sin definir —</span>'}</div>
-      <div style="margin-top:8px;font-size:11px;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Códigos SKU</div>
-      <div style="margin-top:3px;display:flex;flex-wrap:wrap;align-items:center;gap:4px">
-        ${cods.map(c => `<span style="display:inline-flex;align-items:center;gap:5px;background:var(--rosa-suave);color:var(--rosa-oscuro);border-radius:6px;padding:3px 8px;font-size:12px;font-weight:600" title="${c.descripcion||''}">${c.codigo}<span onclick="quitarCodigo('${c.codigo}')" style="cursor:pointer;font-weight:700;opacity:.6">✕</span></span>`).join('')}
-        <button onclick="abrirModalCodigo('${p.referencia}','${p.categoria}')" style="background:none;border:1px dashed var(--borde);border-radius:6px;color:var(--gris-medio);font-size:12px;padding:3px 9px;cursor:pointer">+ código</button>
-      </div>
-    </div>`;
-  }).join('');
-  document.getElementById('catalogo-list').innerHTML = html || '<div class="empty"><p>Sin productos. Crea uno con "+ Producto".</p></div>';
-}
 
 // ─── COSTOS POR REFERENCIA ────────────────────
 const INSUMOS_DEFAULT = ['Tela','Gancho','Etiqueta','Plastiflecha'];
