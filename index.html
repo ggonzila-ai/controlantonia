@@ -2685,7 +2685,7 @@ async function cargarCockpit() {
   const fEl = document.getElementById('ck-fecha');
   if (fEl) fEl.textContent = '· ' + new Date().toLocaleDateString('es-CO', { weekday:'long', day:'numeric', month:'long' });
   const periodo = periodoActual();
-  await Promise.all([ (almacenes.length ? Promise.resolve() : llenarSelectAlmacenes()), loadCostosData() ]);
+  await Promise.all([ (almacenes.length ? Promise.resolve() : llenarSelectAlmacenes()), loadCostosData(), sincronizarConfigRemota() ]);
   let ventasRows = [];
   try { const r = await ventasShapedDelPeriodo(periodo); ventasRows = r.rows || []; } catch (e) { ventasRows = []; }
   const [mRes, cRes, bRes] = await Promise.all([
@@ -3683,6 +3683,8 @@ function aplicarParametros() {
   const r = recalcParametros(); _paramProdPrenda = r.prodPrenda; _paramComPrenda = r.comPrenda; _paramCargados = true;
   localStorage.setItem('param_costo_produccion', r.prodPrenda);
   localStorage.setItem('param_costo_comercial', r.comPrenda);
+  configRemotaSet('param_costo_produccion', r.prodPrenda);
+  configRemotaSet('param_costo_comercial', r.comPrenda);
   toast('✓ Costos aplicados al análisis');
   cerrarModal('modal-costos-mensuales');
   renderCostos();
@@ -3692,6 +3694,8 @@ async function guardarParametros() {
   const r = recalcParametros(); _paramProdPrenda = r.prodPrenda; _paramComPrenda = r.comPrenda; _paramCargados = true;
   localStorage.setItem('param_costo_produccion', r.prodPrenda);
   localStorage.setItem('param_costo_comercial', r.comPrenda);
+  configRemotaSet('param_costo_produccion', r.prodPrenda);
+  configRemotaSet('param_costo_comercial', r.comPrenda);
   const row = { periodo: periodoActual(), costureras:+_v('pp-costureras')||0, taller:+_v('pp-taller')||0, unidades_produccion:+_v('pp-undprod')||0,
     vend_tc:+_v('pc-tc')||0, vend_mt:+_v('pc-mt')||0, vend_temp:+_v('pc-temp')||0, transporte:+_v('pc-transp')||0, unidades_venta:+_v('pc-undventa')||0,
     costo_produccion_prenda:r.prodPrenda, costo_comercial_prenda:r.comPrenda, updated_at:new Date().toISOString() };
@@ -8993,7 +8997,33 @@ const BE_DEFAULTS = { costo_produccion_total:6890000, costo_comercial_total:4483
 const BE_KEY = 'parametros_be';
 let _beChart = null;
 function beParams(){ try { return { ...BE_DEFAULTS, ...(JSON.parse(localStorage.getItem(BE_KEY))||{}) }; } catch(e){ return { ...BE_DEFAULTS }; } }
-function beGuardar(p){ try { localStorage.setItem(BE_KEY, JSON.stringify(p)); } catch(e){} }
+function beGuardar(p){ try { localStorage.setItem(BE_KEY, JSON.stringify(p)); } catch(e){} configRemotaSet('parametros_be', p); }
+
+// ─── CONFIG COMPARTIDA (app_config en Supabase) ───
+// Los costos fijos/parámetros vivían solo en localStorage → cada dispositivo veía
+// números distintos. Ahora se sincronizan vía app_config (remoto manda al cargar);
+// si la tabla no existe todavía, la app sigue funcionando con localStorage.
+let _cfgRemotaCargada = false;
+const _cfgTimers = {};
+function configRemotaSet(clave, valor) {
+  clearTimeout(_cfgTimers[clave]);
+  _cfgTimers[clave] = setTimeout(async () => {
+    try { await sb.from('app_config').upsert({ clave, valor, updated_at: new Date().toISOString() }); } catch (e) {}
+  }, 1200);   // debounce: beGuardar corre en cada tecla del simulador
+}
+async function sincronizarConfigRemota() {
+  if (_cfgRemotaCargada) return;
+  try {
+    const { data, error } = await sb.from('app_config').select('clave, valor');
+    if (error) throw error;
+    (data || []).forEach(r => {
+      if (r.clave === 'parametros_be' && r.valor) localStorage.setItem(BE_KEY, JSON.stringify(r.valor));
+      if (r.clave === 'param_costo_produccion' && r.valor != null) { localStorage.setItem('param_costo_produccion', r.valor); _paramProdPrenda = +r.valor; }
+      if (r.clave === 'param_costo_comercial' && r.valor != null) { localStorage.setItem('param_costo_comercial', r.valor); _paramComPrenda = +r.valor; }
+    });
+  } catch (e) { /* tabla app_config aún no creada → seguimos con localStorage local */ }
+  _cfgRemotaCargada = true;
+}
 function beMC(){
   const list = Object.keys(_costos||{}).map(ref=>{
     const c=_costos[ref]; if(!c||!c.precio_venta) return null;
@@ -9010,6 +9040,7 @@ function beMC(){
 
 async function renderPuntoEquilibrio() {
   const cont = document.getElementById('rep-equilibrio'); if (!cont) return;
+  await sincronizarConfigRemota();
   await loadCostosData();
   await cargarDepreMensual();
   await cargarVentasReales2026();
@@ -9478,6 +9509,7 @@ window.addEventListener('DOMContentLoaded', () => {
   inyectarCierreModales();
   verificarConexion();
   cargarProveedores();
+  sincronizarConfigRemota();   // costos fijos/parámetros compartidos entre dispositivos
   initAuth();
   setInterval(verificarConexion, 30000);
 });
