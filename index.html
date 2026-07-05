@@ -2039,6 +2039,8 @@
     <div class="form-group" style="max-width:160px"><label>Comisión %</label><input type="number" id="ci-comision" value="16" oninput="ciRecalc()"></div>
     <div id="ci-calc" style="font-size:12px;color:var(--gris-medio);background:var(--gris-claro);border-radius:8px;padding:8px 10px;margin-bottom:10px"></div>
     <div class="form-group"><label>Fecha esperada de consignación</label><input type="date" id="ci-fecha-esp"></div>
+    <div class="form-group"><label>PDF del cierre que envía Feria (opcional)</label><input type="file" id="ci-file" accept=".pdf,.jpg,.jpeg,.png" style="width:100%;font-size:13px"></div>
+    <div id="ci-soporte-actual" style="font-size:12px;margin:-4px 0 8px"></div>
     <div class="form-group"><label>Observaciones (opcional)</label><input type="text" id="ci-obs" placeholder="Opcional"></div>
     <div style="display:flex;gap:10px">
       <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-cierre')">Cancelar</button>
@@ -2055,6 +2057,7 @@
     <div id="rec-info" style="font-size:12px;color:var(--gris-medio);margin-bottom:10px"></div>
     <div class="form-group"><label>Valor recibido</label><input type="text" inputmode="numeric" id="rec-valor" onblur="this.value=this.value?NUM(pesos(this.value)):''"></div>
     <div class="form-group"><label>Fecha en que se recibió</label><input type="date" id="rec-fecha"></div>
+    <div class="form-group"><label>Comprobante de consignación (PDF/imagen, opcional)</label><input type="file" id="rec-file" accept=".pdf,.jpg,.jpeg,.png" style="width:100%;font-size:13px"></div>
     <div class="form-group"><label>Observaciones (opcional)</label><input type="text" id="rec-obs" placeholder="Opcional"></div>
     <div style="display:flex;gap:10px">
       <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-recibido')">Cancelar</button>
@@ -6918,6 +6921,7 @@ async function cargarFlujoCaja() {
     (c.estado === 'recibido' && (inMes(c.fecha_recibido) || (!c.fecha_recibido && inMes(c.fecha_esperada_consignacion)))) ||
     (c.estado !== 'recibido' && inMes(c.fecha_esperada_consignacion))
   ).map(c => ({
+    id: c.id,
     desc: 'Cierre ' + mesNombre(c.periodo),
     valor: c.estado === 'recibido' ? (c.valor_recibido || c.neto_a_recibir || 0) : (c.neto_a_recibir || 0),
     estado: c.estado === 'recibido' ? 'recibido' : 'pendiente'
@@ -6970,9 +6974,12 @@ async function cargarFlujoCaja() {
 
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gris-medio);margin-bottom:6px">Ingresos${estimado ? ' (estimado)' : ''}</div>
     <div style="border:1px solid var(--borde);border-radius:12px;overflow:hidden;margin-bottom:14px">
-      ${ingresos.length ? ingresos.map((i, ix) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;${ix > 0 ? 'border-top:1px solid var(--border-light)' : ''}">
-          <div><div style="font-size:13px">${i.desc}</div><div style="font-size:11px;color:var(--gris-medio)">${i.estado === 'recibido' ? '✓ Recibido' : i.estado === 'pendiente' ? '⏳ Pendiente (estimado)' : '≈ Estimado'}</div></div>
-          <div style="font-size:14px;font-weight:700;${i.estado === 'recibido' ? 'color:#1E8A3A' : ''}">${COP(i.valor)}</div>
+      ${ingresos.length ? ingresos.map((i, ix) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 14px;${ix > 0 ? 'border-top:1px solid var(--border-light)' : ''}">
+          <div style="min-width:0"><div style="font-size:13px">${i.desc}</div><div style="font-size:11px;color:var(--gris-medio)">${i.estado === 'recibido' ? '✓ Recibido' : i.estado === 'pendiente' ? '⏳ Pendiente (estimado)' : '≈ Estimado'}</div></div>
+          <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+            ${i.estado === 'pendiente' && i.id ? `<button onclick="flujoMarcarRecibida('${i.id}')" style="background:var(--verde);color:#fff;border:none;border-radius:var(--radius-sm);font-size:11px;font-weight:700;padding:6px 9px;cursor:pointer">✓ Marcar recibida</button>` : ''}
+            <div style="font-size:14px;font-weight:700;${i.estado === 'recibido' ? 'color:#1E8A3A' : ''}">${COP(i.valor)}</div>
+          </div>
         </div>`).join('') : '<div style="padding:14px;color:var(--gris-medio);font-size:13px">Sin consignaciones para este mes.</div>'}
       <div style="display:flex;justify-content:space-between;padding:10px 14px;background:var(--gris-claro);border-top:1px solid var(--borde);font-weight:700"><span style="font-size:12px">Total ingresos</span><span style="font-size:14px">${COP(totalIngresos)}</span></div>
     </div>
@@ -8439,6 +8446,7 @@ function abrirModalCierre(id){
     document.getElementById('ci-comision').value = c.comision_pct||16;
     document.getElementById('ci-fecha-esp').value = c.fecha_esperada_consignacion||'';
     document.getElementById('ci-obs').value = c.observaciones||'';
+    ciMostrarSoporte(c.soporte_id);
   } else {
     const now=new Date(), y=now.getFullYear(), m=now.getMonth();
     document.getElementById('ci-desde').value = fmtD(new Date(y, m-1, 26));
@@ -8448,9 +8456,43 @@ function abrirModalCierre(id){
     document.getElementById('ci-comision').value = 16;
     document.getElementById('ci-fecha-esp').value = fmtD(new Date(y, m+1, 24));
     document.getElementById('ci-obs').value = '';
+    document.getElementById('ci-soporte-actual').innerHTML = '';
   }
+  document.getElementById('ci-file').value = '';
   ciRecalc();
   document.getElementById('modal-cierre').classList.add('open');
+}
+
+async function ciMostrarSoporte(docId) {
+  const el = document.getElementById('ci-soporte-actual'); if (!el) return;
+  el.innerHTML = '';
+  if (!docId) return;
+  try {
+    const { data } = await sb.from('documentos').select('archivos').eq('id', docId).limit(1);
+    const url = data?.[0]?.archivos?.[0]?.url;
+    if (url) el.innerHTML = `<a href="${url}" target="_blank" rel="noopener" style="color:var(--brand-dark)">📎 Ver PDF del cierre adjunto</a>`;
+  } catch (e) {}
+}
+
+// Crea/actualiza un documento en Soportes (carpeta Feria) ligado a un cierre/recibo
+async function crearDocConsignacion(origen, origenId, subcategoria, nombre, up, extra) {
+  const ext = ((up.url.split('?')[0].split('.').pop()) || 'pdf').toLowerCase();
+  const docRow = {
+    nombre,
+    categoria: 'Feria del Brasier / Solo Kukos',
+    subcategoria,
+    fecha_documento: (extra && extra.fecha) || hoy(),
+    descripcion: (extra && extra.descripcion) || null,
+    valor: (extra && extra.valor) || null,
+    periodo: (extra && extra.periodo) || null,
+    archivos: [{ url: up.url, nombre, ext }],
+    origen, origen_id: origenId
+  };
+  const { data: ex } = await sb.from('documentos').select('id').eq('origen', origen).eq('origen_id', origenId).limit(1);
+  if (ex && ex.length) { await sb.from('documentos').update(docRow).eq('id', ex[0].id); return ex[0].id; }
+  const { data: ins, error } = await sb.from('documentos').insert(docRow).select('id').single();
+  if (error) { console.error('crearDocConsignacion', error); return null; }
+  return ins?.id || null;
 }
 async function guardarCierre(){
   const desde=document.getElementById('ci-desde').value, hasta=document.getElementById('ci-hasta').value;
@@ -8463,12 +8505,33 @@ async function guardarCierre(){
     ventas_brutas_sin_iva:sinIva, ventas_con_iva:conIva, comision_pct:pct, fecha_esperada_consignacion:fechaEsp,
     observaciones:document.getElementById('ci-obs').value.trim()||null };
   const btn=document.getElementById('ci-btn'); btn.disabled=true; const prev=btn.textContent; btn.textContent='Guardando…';
-  let error;
+  let error, cierreId = _cierreEdit;
   if(_cierreEdit) ({error}=await sb.from('consignaciones_cierre').update(row).eq('id',_cierreEdit));
-  else ({error}=await sb.from('consignaciones_cierre').insert(row));
+  else { const ins = await sb.from('consignaciones_cierre').insert(row).select('id').single(); error = ins.error; cierreId = ins.data?.id; }
+  if(error){ btn.disabled=false; btn.textContent=prev; toast('No se pudo guardar el cierre: '+detalleError(error),'err'); console.error(error); return; }
+  // PDF del cierre → sube al bucket y queda como Soporte en la carpeta Feria (ligado por soporte_id)
+  const file = document.getElementById('ci-file').files?.[0];
+  if (file && cierreId) {
+    const up = await subirArchivoSoporte(file);
+    if (up.error) { toast('Cierre guardado, pero el PDF no subió: '+detalleError(up.error), 'err'); }
+    else {
+      const per = (fechaEsp||hasta||'').slice(0,7);
+      const docId = await crearDocConsignacion('consignacion_cierre', cierreId, CC_SUBCAT,
+        `Cierre Feria ${ccPeriodoTexto(desde,hasta)}`, up,
+        { fecha: hasta, periodo: per, valor: conIva, descripcion: `Cierre contable ${ccPeriodoTexto(desde,hasta)} · neto ${COP(conIva - Math.round(sinIva*pct/100))}` });
+      if (docId) await sb.from('consignaciones_cierre').update({ soporte_id: docId }).eq('id', cierreId);
+    }
+  }
   btn.disabled=false; btn.textContent=prev;
-  if(error){ toast('No se pudo guardar el cierre: '+detalleError(error),'err'); console.error(error); return; }
   toast('✓ Cierre guardado'); cerrarModal('modal-cierre'); cargarCierres();
+}
+
+// Desde el Flujo de caja: abrir el modal de recibido asegurando el caché de cierres
+async function flujoMarcarRecibida(id) {
+  if (!_cierres.length || !_cierres.some(x => x.id === id)) {
+    try { const { data } = await sb.from('consignaciones_cierre').select('*'); _cierres = data || []; } catch (e) {}
+  }
+  abrirRecibido(id);
 }
 
 // ── Modal marcar recibido ──
@@ -8479,6 +8542,7 @@ function abrirRecibido(id){
   document.getElementById('rec-valor').value = c.neto_a_recibir ? NUM(c.neto_a_recibir) : '';
   document.getElementById('rec-fecha').value = new Date().toISOString().slice(0,10);
   document.getElementById('rec-obs').value = c.observaciones||'';
+  document.getElementById('rec-file').value = '';
   document.getElementById('modal-recibido').classList.add('open');
 }
 async function guardarRecibido(){
@@ -8489,9 +8553,20 @@ async function guardarRecibido(){
   const estado = valor >= (c.neto_a_recibir||0) ? 'recibido' : 'parcial';
   const btn=document.getElementById('rec-btn'); btn.disabled=true; const prev=btn.textContent; btn.textContent='Guardando…';
   const { error } = await sb.from('consignaciones_cierre').update({ estado, valor_recibido:valor, fecha_recibido:fecha, observaciones:document.getElementById('rec-obs').value.trim()||null }).eq('id',_reciboId);
+  if(error){ btn.disabled=false; btn.textContent=prev; toast('No se pudo guardar: '+detalleError(error),'err'); console.error(error); return; }
+  // Comprobante de la consignación → Soporte en carpeta Feria (Liquidaciones y consignaciones)
+  const file = document.getElementById('rec-file').files?.[0];
+  if (file) {
+    const up = await subirArchivoSoporte(file);
+    if (up.error) toast('Registrado, pero el comprobante no subió: '+detalleError(up.error), 'err');
+    else await crearDocConsignacion('consignacion_recibo', _reciboId, 'Liquidaciones y consignaciones',
+      `Consignación recibida ${ccFechaCorta(fecha)}`, up,
+      { fecha, periodo: fecha.slice(0,7), valor, descripcion: `Consignación ${ccPeriodoTexto(c.periodo_desde,c.periodo_hasta)} · recibido ${COP(valor)}` });
+  }
   btn.disabled=false; btn.textContent=prev;
-  if(error){ toast('No se pudo guardar: '+detalleError(error),'err'); console.error(error); return; }
   toast('✓ Consignación registrada'); cerrarModal('modal-recibido'); cargarCierres();
+  const fw = document.getElementById('tab-content-cont-flujo');
+  if (fw && fw.style.display !== 'none') cargarFlujoCaja();   // refrescar si venimos del Flujo de caja
 }
 
 // ── Integración con el formulario de Soportes (subcategoría cierre contable) ──
