@@ -427,6 +427,7 @@
       </button>
 
     <div class="tabs" style="border-radius:var(--radius) var(--radius) 0 0;overflow-x:auto">
+      <div class="tab" id="tab-bod-registro" onclick="showTab('tab-bod-registro')">Registro</div>
       <div class="tab active" id="tab-bod-existencias" onclick="showTab('tab-bod-existencias')">Existencias</div>
       <div class="tab" id="tab-bod-costos" onclick="showTab('tab-bod-costos')">Costos</div>
       <div class="tab" id="tab-bod-rentab" onclick="showTab('tab-bod-rentab')">Rentabilidad</div>
@@ -451,6 +452,18 @@
       </div>
     </div>
 
+    <!-- REGISTRO DE PRODUCCIÓN MENSUAL -->
+    <div id="tab-content-bod-registro" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <button class="btn btn-sm btn-secondary" onclick="cambiarMesProdMes(-1)">←</button>
+        <div id="pm-mes-label" style="font-size:15px;font-weight:800"></div>
+        <button class="btn btn-sm btn-secondary" onclick="cambiarMesProdMes(1)">→</button>
+      </div>
+      <div id="pm-resumen" style="margin-bottom:12px"></div>
+      <button class="btn btn-primary btn-full" style="margin-bottom:12px" onclick="abrirModalProdMes()">+ Registrar referencia</button>
+      <div id="pm-lista"><div class="loader"><div class="spinner"></div></div></div>
+    </div>
+
     <!-- ACTIVOS FIJOS -->
     <div id="tab-content-bod-activos" style="display:none">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -468,6 +481,7 @@
         <div style="padding:12px 16px">
           <button onclick="abrirCostosMensuales()" style="width:100%;background:linear-gradient(135deg,var(--brand),#0192bb);color:#fff;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:800;cursor:pointer;box-shadow:0 4px 14px rgba(2,171,213,.35);display:flex;align-items:center;justify-content:center;gap:10px;-webkit-tap-highlight-color:transparent">💰 Costos Mensuales</button>
           <div style="font-size:11px;color:var(--gris-medio);margin-top:6px">Define los costos fijos del mes (taller, costureras, vendedoras, arriendo, transporte). El sistema los reparte por prenda y los usa en la rentabilidad de cada referencia.</div>
+          <div id="costos-real-banner"></div>
         </div>
       </div>
       <div class="section-card" style="border-radius:0;margin-bottom:0;border-bottom:none">
@@ -1654,6 +1668,35 @@
 </div>
 
 <!-- MODAL APORTES PILA -->
+<div class="modal-overlay" id="modal-prodmes">
+  <div class="modal" style="max-height:88vh;overflow-y:auto">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="pm-title">Registrar producción</div>
+    <input type="hidden" id="pm-id">
+    <div class="form-group"><label>Referencia</label>
+      <select id="pm-ref" onchange="pmRefChange()"></select>
+      <input type="text" id="pm-ref-libre" placeholder="Nombre de la referencia" style="display:none;margin-top:6px">
+    </div>
+    <div class="form-group"><label>Cantidad por talla</label>
+      <div id="pm-tallas" style="display:flex;flex-wrap:wrap;gap:8px"></div>
+      <div style="font-size:13px;font-weight:700;margin-top:6px">Total: <span id="pm-total">0</span> prendas</div>
+    </div>
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gris-medio);margin:10px 0 6px">Telas utilizadas</div>
+    <div id="pm-telas"></div>
+    <button type="button" class="btn btn-sm btn-secondary" style="margin:4px 0 10px" onclick="pmAddTela()">+ Agregar tela</button>
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gris-medio);margin:4px 0 6px">Insumos utilizados</div>
+    <div id="pm-insumos"></div>
+    <button type="button" class="btn btn-sm btn-secondary" style="margin:4px 0 10px" onclick="pmAddInsumo()">+ Agregar insumo</button>
+    <div id="pm-costo-resumen" style="border:1px solid var(--borde);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:13px"></div>
+    <div class="form-group"><label>Observaciones</label><input type="text" id="pm-obs" placeholder="Opcional"></div>
+    <div style="display:flex;gap:10px;margin-top:4px">
+      <button class="btn btn-secondary" id="pm-del" style="flex:1;display:none" onclick="eliminarProdMes()">Eliminar</button>
+      <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-prodmes')">Cancelar</button>
+      <button class="btn btn-primary" style="flex:2" onclick="guardarProdMes()">Guardar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-activo">
   <div class="modal">
     <div class="modal-handle"></div>
@@ -2332,6 +2375,7 @@ function showTab(tabId) {
   if (tabId === 'tab-bod-costos') cargarCostos();
   if (tabId === 'tab-bod-rentab') cargarRentabilidadCostos();
   if (tabId === 'tab-bod-activos') cargarActivos();
+  if (tabId === 'tab-bod-registro') cargarRegistroProduccion();
   if (tabId === 'tab-bod-despachos') {
     llenarSelectAlmacenes();
     const addSel = document.getElementById('d-add-ref');
@@ -2775,6 +2819,225 @@ function renderCkAlertas(almRes, bodega) {
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gris-medio);margin-bottom:8px">Alertas operativas</div>
     ${top.length ? top.map(a => `<div style="font-size:12.5px;padding:5px 0;border-bottom:1px solid var(--border-light)">${a.t}</div>`).join('') + (al.length > 5 ? `<div style="font-size:11px;color:var(--brand-dark);margin-top:6px;cursor:pointer" onclick="showPage('bodega')">Ver todas (${al.length}) →</div>` : '') : '<div style="font-size:13px;color:var(--gris-medio);padding:6px 0">Sin alertas — todo en orden ✓</div>'}
   </div>`;
+}
+
+// ─── REGISTRO DE PRODUCCIÓN MENSUAL ───────────
+let _pmAño = new Date().getFullYear(), _pmMes = new Date().getMonth() + 1, _pmCache = [];
+const PM_TALLAS_TODAS = ['S','M','L','XL','2XL','3XL','U'];
+function pmPeriodo() { return `${_pmAño}-${String(_pmMes).padStart(2,'0')}`; }
+function cambiarMesProdMes(d) { _pmMes += d; if (_pmMes > 12) { _pmMes = 1; _pmAño++; } if (_pmMes < 1) { _pmMes = 12; _pmAño--; } cargarRegistroProduccion(); }
+function pmNum(v) { return parseFloat(String(v ?? '').replace(/\./g,'').replace(',','.')) || 0; }   // metros: acepta coma decimal
+// Costo fijo del mes = misma fuente que el Punto de Equilibrio (Costos Mensuales + depreciación)
+function costoFijoProduccionMes() {
+  const p = beParams();
+  return (p.costo_produccion_total||0) + (p.costo_comercial_total||0) + (p.otros_costos_fijos||0) + (_depreMensual||0);
+}
+
+async function cargarRegistroProduccion() {
+  if (esVendedora()) return;
+  const lista = document.getElementById('pm-lista'); if (!lista) return;
+  document.getElementById('pm-mes-label').textContent = mesNombre(pmPeriodo());
+  lista.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  if (!bodegaData.length) { try { const { data } = await sb.from('bodega').select('*').order('categoria').order('referencia'); bodegaData = data || []; } catch(e){} }
+  await cargarDepreMensual();
+  let regs = [];
+  try { const { data } = await sb.from('produccion_mensual').select('*').eq('periodo', pmPeriodo()).order('referencia_nombre'); regs = data || []; }
+  catch (e) { console.warn('produccion_mensual', e); }
+  _pmCache = regs;
+  const totalPrendas = regs.reduce((s,r)=>s+(r.total_prendas||0),0);
+  const costoMat = regs.reduce((s,r)=>s+(r.costo_materiales||0),0);
+  const fijo = costoFijoProduccionMes();
+  const costoTotal = costoMat + fijo;
+  const porPrenda = totalPrendas > 0 ? Math.round(costoTotal/totalPrendas) : 0;
+  document.getElementById('pm-resumen').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:10px">
+      <div style="border:1px solid var(--borde);border-radius:12px;padding:12px"><div style="font-size:11px;color:var(--gris-medio)">Total prendas</div><div style="font-size:18px;font-weight:800">${NUM(totalPrendas)}</div></div>
+      <div style="border:1px solid var(--borde);border-radius:12px;padding:12px"><div style="font-size:11px;color:var(--gris-medio)">Costo materiales</div><div style="font-size:18px;font-weight:800">${COP(costoMat)}</div></div>
+      <div style="border:1px solid var(--borde);border-radius:12px;padding:12px"><div style="font-size:11px;color:var(--gris-medio)">Costo fijo (Costos)</div><div style="font-size:18px;font-weight:800">${COP(fijo)}</div></div>
+    </div>
+    ${totalPrendas > 0 ? `<div style="border:1px solid var(--brand-dark);background:var(--brand-light,#e6f7fb);border-radius:12px;padding:12px 14px;display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
+      <span style="font-size:13px">Costo total mes: <strong>${COP(costoTotal)}</strong></span>
+      <span style="font-size:13px">Costo por prenda: <strong style="color:var(--brand-dark)">${COP(porPrenda)}</strong></span>
+    </div>` : ''}`;
+  if (!regs.length) {
+    lista.innerHTML = `<div class="empty"><p>No hay producción registrada para ${mesNombre(pmPeriodo())}.</p></div>`;
+    return;
+  }
+  lista.innerHTML = regs.map(r => {
+    const tll = Object.entries(r.tallas||{}).filter(([,v])=>v>0);
+    const tllTxt = ordenarTallas(tll.map(([k])=>k)).map(k => `<span style="background:var(--gris-claro);border-radius:6px;padding:2px 7px;font-size:11px;font-weight:600;margin-right:4px"><span style="opacity:.7">${k}</span> ${NUM((r.tallas||{})[k])}</span>`).join('');
+    return `<div style="border:1px solid var(--borde);border-radius:12px;padding:12px 14px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div style="font-size:14px;font-weight:700;min-width:0">${r.referencia_nombre}</div>
+        <div style="flex-shrink:0;display:flex;align-items:center;gap:6px">
+          <span style="font-size:13px;font-weight:700">${NUM(r.total_prendas)} prendas</span>
+          <button onclick="abrirModalProdMes('${r.id}')" style="background:none;border:1px solid var(--borde);border-radius:var(--radius-sm);color:var(--gris-medio);font-size:12px;padding:4px 8px;cursor:pointer">✏</button>
+        </div>
+      </div>
+      ${tllTxt ? `<div style="margin-top:6px">${tllTxt}</div>` : ''}
+      <div style="margin-top:6px;font-size:12px;color:var(--gris-medio)">Telas: ${COP(r.costo_telas||0)} · Insumos: ${COP(r.costo_insumos||0)} · <strong style="color:var(--carbon)">Total mat: ${COP(r.costo_materiales||0)}</strong>${r.total_prendas>0?` · ${COP(Math.round((r.costo_materiales||0)/r.total_prendas))}/prenda`:''}</div>
+      ${r.observaciones ? `<div style="margin-top:4px;font-size:11px;color:var(--gris-medio)">${r.observaciones}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function abrirModalProdMes(id) {
+  if (esVendedora()) { toast('Solo administración', 'err'); return; }
+  const $ = x => document.getElementById(x);
+  if (!Object.keys(_insumos||{}).length) { try { await loadCostosData(); } catch(e){} }
+  const r = id ? _pmCache.find(x => String(x.id) === String(id)) : null;
+  $('pm-title').textContent = r ? `Editar · ${r.referencia_nombre}` : `Registrar producción · ${mesNombre(pmPeriodo())}`;
+  $('pm-id').value = r ? r.id : '';
+  const refs = [...bodegaData].sort((a,b)=>a.referencia.localeCompare(b.referencia));
+  $('pm-ref').innerHTML = refs.map(p=>`<option value="${p.referencia.replace(/"/g,'&quot;')}">${p.referencia}</option>`).join('') + '<option value="__libre__">✏ Otra (escribir nombre)…</option>';
+  if (r) {
+    const enCat = refs.some(p=>p.referencia===r.referencia_nombre);
+    $('pm-ref').value = enCat ? r.referencia_nombre : '__libre__';
+    $('pm-ref-libre').style.display = enCat ? 'none' : 'block';
+    $('pm-ref-libre').value = enCat ? '' : r.referencia_nombre;
+  } else { $('pm-ref-libre').style.display = 'none'; $('pm-ref-libre').value = ''; }
+  $('pm-obs').value = r?.observaciones || '';
+  $('pm-del').style.display = r ? 'block' : 'none';
+  pmRenderTallas(r ? (r.tallas||{}) : {});
+  document.getElementById('pm-telas').innerHTML = '';
+  document.getElementById('pm-insumos').innerHTML = '';
+  if (r) {
+    (r.telas||[]).forEach(t => pmAddTela(t.nombre, t.metros, t.precio_metro));
+    (r.insumos||[]).forEach(i => pmAddInsumo(i.nombre, i.cantidad, i.unidad, i.precio_unitario));
+  } else {
+    pmPrefillDesdeCostos();
+  }
+  pmRecalc();
+  $('modal-prodmes').classList.add('open');
+}
+
+function pmRefActual() {
+  const v = document.getElementById('pm-ref').value;
+  return v === '__libre__' ? (document.getElementById('pm-ref-libre').value || '').trim() : v;
+}
+
+function pmRefChange() {
+  const $ = x => document.getElementById(x);
+  const libre = $('pm-ref').value === '__libre__';
+  $('pm-ref-libre').style.display = libre ? 'block' : 'none';
+  pmRenderTallas({});
+  if (!$('pm-id').value) { $('pm-telas').innerHTML = ''; $('pm-insumos').innerHTML = ''; pmPrefillDesdeCostos(); }
+  pmRecalc();
+}
+
+function pmRenderTallas(vals) {
+  const ref = pmRefActual();
+  const p = bodegaData.find(x => x.referencia === ref);
+  const tallas = (p && parseTallas(p.tallas).length) ? parseTallas(p.tallas) : PM_TALLAS_TODAS;
+  document.getElementById('pm-tallas').innerHTML = ordenarTallas([...new Set([...tallas, ...Object.keys(vals||{})])]).map(t =>
+    `<label style="display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;color:var(--gris-medio)">${t}
+      <input type="number" min="0" class="pm-talla" data-t="${t}" value="${(vals||{})[t]||''}" placeholder="0" style="width:58px;padding:7px 4px;text-align:center;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:14px" oninput="pmRecalc()">
+    </label>`).join('');
+}
+
+// Precarga nombres de telas/insumos desde el módulo de Costos (solo nombres — los precios varían mes a mes)
+function pmPrefillDesdeCostos() {
+  const ref = pmRefActual();
+  const items = _insumos[ref] || [];
+  const telas = items.filter(i => /tela/i.test(i.nombre||''));
+  const otros = items.filter(i => !/tela/i.test(i.nombre||''));
+  if (telas.length) telas.forEach(t => pmAddTela(t.nombre)); else pmAddTela('Tela');
+  if (otros.length) otros.forEach(i => pmAddInsumo(i.nombre)); else ['Etiqueta','Gancho','Plastiflecha'].forEach(n => pmAddInsumo(n));
+}
+
+function pmAddTela(nombre, metros, precio) {
+  document.getElementById('pm-telas').insertAdjacentHTML('beforeend', `
+    <div class="pm-tela-row" style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+      <input type="text" class="t-nom" value="${(nombre||'').replace(/"/g,'&quot;')}" placeholder="Tipo de tela" style="flex:2;min-width:0;padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px">
+      <input type="text" inputmode="decimal" class="t-mts" value="${metros ?? ''}" placeholder="mts" style="flex:1;min-width:0;padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;text-align:right" oninput="pmRecalc()">
+      <input type="text" inputmode="numeric" class="t-pre" value="${precio ? NUM(precio) : ''}" placeholder="$/metro" style="flex:1.2;min-width:0;padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;text-align:right" oninput="pmRecalc()">
+      <span class="t-tot" style="min-width:74px;text-align:right;font-size:12px;font-weight:700"></span>
+      <span onclick="this.parentElement.remove();pmRecalc()" style="cursor:pointer;color:var(--rojo);font-size:15px;padding:0 2px">🗑</span>
+    </div>`);
+}
+
+function pmAddInsumo(nombre, cantidad, unidad, precio) {
+  document.getElementById('pm-insumos').insertAdjacentHTML('beforeend', `
+    <div class="pm-ins-row" style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+      <input type="text" class="i-nom" value="${(nombre||'').replace(/"/g,'&quot;')}" placeholder="Insumo" style="flex:2;min-width:0;padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px">
+      <input type="text" inputmode="decimal" class="i-cant" value="${cantidad ?? ''}" placeholder="cant." style="flex:1;min-width:0;padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;text-align:right" oninput="pmRecalc()">
+      <input type="text" class="i-uni" value="${unidad || 'unidad'}" style="flex:1;min-width:0;padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:12px">
+      <input type="text" inputmode="numeric" class="i-pre" value="${precio ? NUM(precio) : ''}" placeholder="$/und" style="flex:1.2;min-width:0;padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;text-align:right" oninput="pmRecalc()">
+      <span class="i-tot" style="min-width:74px;text-align:right;font-size:12px;font-weight:700"></span>
+      <span onclick="this.parentElement.remove();pmRecalc()" style="cursor:pointer;color:var(--rojo);font-size:15px;padding:0 2px">🗑</span>
+    </div>`);
+}
+
+function pmLeerTelas() {
+  return [...document.querySelectorAll('#pm-telas .pm-tela-row')].map(row => {
+    const nombre = row.querySelector('.t-nom').value.trim();
+    const metros = pmNum(row.querySelector('.t-mts').value);
+    const precio_metro = pesos(row.querySelector('.t-pre').value);
+    const costo_total = Math.round(metros * precio_metro);
+    row.querySelector('.t-tot').textContent = costo_total ? COP(costo_total) : '';
+    return { nombre, metros, precio_metro, costo_total };
+  }).filter(t => t.nombre || t.costo_total);
+}
+
+function pmLeerInsumos() {
+  return [...document.querySelectorAll('#pm-insumos .pm-ins-row')].map(row => {
+    const nombre = row.querySelector('.i-nom').value.trim();
+    const cantidad = pmNum(row.querySelector('.i-cant').value);
+    const unidad = row.querySelector('.i-uni').value.trim() || 'unidad';
+    const precio_unitario = pesos(row.querySelector('.i-pre').value);
+    const costo_total = Math.round(cantidad * precio_unitario);
+    row.querySelector('.i-tot').textContent = costo_total ? COP(costo_total) : '';
+    return { nombre, cantidad, unidad, precio_unitario, costo_total };
+  }).filter(i => i.nombre || i.costo_total);
+}
+
+function pmRecalc() {
+  const total = [...document.querySelectorAll('.pm-talla')].reduce((s,i)=>s+(parseInt(i.value)||0),0);
+  document.getElementById('pm-total').textContent = NUM(total);
+  const telas = pmLeerTelas(), insumos = pmLeerInsumos();
+  const ct = telas.reduce((s,t)=>s+t.costo_total,0), ci = insumos.reduce((s,i)=>s+i.costo_total,0);
+  const tot = ct + ci;
+  document.getElementById('pm-costo-resumen').innerHTML = `
+    <div style="display:flex;justify-content:space-between"><span>Telas</span><span>${COP(ct)}</span></div>
+    <div style="display:flex;justify-content:space-between"><span>Insumos</span><span>${COP(ci)}</span></div>
+    <div style="display:flex;justify-content:space-between;border-top:1px solid var(--borde);margin-top:4px;padding-top:4px;font-weight:700"><span>Total materiales</span><span>${COP(tot)}</span></div>
+    ${total > 0 && tot > 0 ? `<div style="display:flex;justify-content:space-between;color:var(--brand-dark);font-weight:700"><span>Por prenda</span><span>${COP(Math.round(tot/total))}</span></div>` : ''}`;
+}
+
+async function guardarProdMes() {
+  if (esVendedora()) return;
+  const $ = x => document.getElementById(x);
+  const referencia_nombre = pmRefActual();
+  if (!referencia_nombre) { toast('Elige o escribe la referencia', 'err'); return; }
+  const tallas = {}; let total_prendas = 0;
+  [...document.querySelectorAll('.pm-talla')].forEach(i => { const v = parseInt(i.value)||0; if (v>0) { tallas[i.dataset.t] = v; total_prendas += v; } });
+  if (!total_prendas) { toast('Ingresa al menos 1 prenda producida', 'err'); return; }
+  const telas = pmLeerTelas(), insumos = pmLeerInsumos();
+  const costo_telas = telas.reduce((s,t)=>s+t.costo_total,0);
+  const costo_insumos = insumos.reduce((s,i)=>s+i.costo_total,0);
+  const p = bodegaData.find(x => x.referencia === referencia_nombre);
+  const row = {
+    periodo: pmPeriodo(), referencia_nombre, referencia_id: p?.id || null,
+    tallas, total_prendas, telas, insumos,
+    costo_telas, costo_insumos, costo_materiales: costo_telas + costo_insumos,
+    observaciones: $('pm-obs').value.trim() || null,
+    updated_at: new Date().toISOString()
+  };
+  const { error } = await sb.from('produccion_mensual').upsert(row, { onConflict: 'periodo,referencia_nombre' });
+  if (error) { toast('No se pudo guardar: ' + detalleError(error), 'err'); console.error('guardarProdMes', error); return; }
+  toast(`✓ ${referencia_nombre}: ${NUM(total_prendas)} prendas registradas`);
+  cerrarModal('modal-prodmes');
+  cargarRegistroProduccion();
+}
+
+async function eliminarProdMes() {
+  const id = document.getElementById('pm-id').value; if (!id) return;
+  if (!confirm('¿Eliminar este registro de producción?')) return;
+  const { error } = await sb.from('produccion_mensual').delete().eq('id', id);
+  if (error) { toast('No se pudo eliminar: ' + detalleError(error), 'err'); return; }
+  toast('Registro eliminado');
+  cerrarModal('modal-prodmes');
+  cargarRegistroProduccion();
 }
 
 // ─── ACTIVOS FIJOS Y DEPRECIACIÓN ─────────────
@@ -3306,6 +3569,26 @@ async function cargarCostos() {
   }
   await loadCostosData();
   renderCostos();
+  costosBannerProdReal();
+}
+
+// Paso 7 — costo real de materiales del mes (desde Registro de producción) en el módulo de Costos
+async function costosBannerProdReal() {
+  const el = document.getElementById('costos-real-banner'); if (!el) return;
+  const periodo = periodoActual();
+  let regs = [];
+  try { const { data } = await sb.from('produccion_mensual').select('total_prendas, costo_materiales').eq('periodo', periodo); regs = data || []; } catch (e) { el.innerHTML = ''; return; }
+  const prendas = regs.reduce((s,r)=>s+(r.total_prendas||0),0);
+  if (!prendas) { el.innerHTML = `<div style="font-size:11px;color:var(--gris-medio);margin-top:6px">💡 Registra la producción del mes (pestaña <strong>Registro</strong>) para ver el costo real de materiales.</div>`; return; }
+  await cargarDepreMensual();
+  const mat = regs.reduce((s,r)=>s+(r.costo_materiales||0),0);
+  const fijo = costoFijoProduccionMes();
+  const matPrenda = Math.round(mat/prendas), fijoPrenda = Math.round(fijo/prendas);
+  el.innerHTML = `<div style="margin-top:8px;border:1px solid var(--brand-dark);background:var(--brand-light,#e6f7fb);border-radius:10px;padding:10px 12px;font-size:12.5px">
+    <strong>Costo real ${mesNombre(periodo)}</strong> (${NUM(prendas)} prendas registradas):
+    fijo ${COP(fijoPrenda)}/prenda + materiales ${COP(matPrenda)}/prenda = <strong style="color:var(--brand-dark)">${COP(fijoPrenda+matPrenda)}/prenda</strong>
+    <span style="cursor:pointer;color:var(--brand-dark);text-decoration:underline" onclick="showTab('tab-bod-registro')">ver Registro →</span>
+  </div>`;
 }
 
 async function loadCostosData() {
