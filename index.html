@@ -1681,6 +1681,7 @@
       <div id="pm-tallas" style="display:flex;flex-wrap:wrap;gap:8px"></div>
       <div style="font-size:13px;font-weight:700;margin-top:6px">Total: <span id="pm-total">0</span> prendas</div>
     </div>
+    <div id="pm-sugerencia" style="font-size:11px;color:var(--brand-dark);margin:6px 0 2px"></div>
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gris-medio);margin:10px 0 6px">Telas utilizadas</div>
     <div id="pm-telas"></div>
     <button type="button" class="btn btn-sm btn-secondary" style="margin:4px 0 10px" onclick="pmAddTela()">+ Agregar tela</button>
@@ -2899,13 +2900,14 @@ async function abrirModalProdMes(id) {
   $('pm-obs').value = r?.observaciones || '';
   $('pm-del').style.display = r ? 'block' : 'none';
   pmRenderTallas(r ? (r.tallas||{}) : {});
+  document.getElementById('pm-sugerencia').innerHTML = '';
   document.getElementById('pm-telas').innerHTML = '';
   document.getElementById('pm-insumos').innerHTML = '';
   if (r) {
     (r.telas||[]).forEach(t => pmAddTela(t.nombre, t.metros, t.precio_metro));
     (r.insumos||[]).forEach(i => pmAddInsumo(i.nombre, i.cantidad, i.unidad, i.precio_unitario));
   } else {
-    pmPrefillDesdeCostos();
+    await pmPrefillDesdeCostos();
   }
   pmRecalc();
   $('modal-prodmes').classList.add('open');
@@ -2916,12 +2918,12 @@ function pmRefActual() {
   return v === '__libre__' ? (document.getElementById('pm-ref-libre').value || '').trim() : v;
 }
 
-function pmRefChange() {
+async function pmRefChange() {
   const $ = x => document.getElementById(x);
   const libre = $('pm-ref').value === '__libre__';
   $('pm-ref-libre').style.display = libre ? 'block' : 'none';
   pmRenderTallas({});
-  if (!$('pm-id').value) { $('pm-telas').innerHTML = ''; $('pm-insumos').innerHTML = ''; pmPrefillDesdeCostos(); }
+  if (!$('pm-id').value) { $('pm-telas').innerHTML = ''; $('pm-insumos').innerHTML = ''; await pmPrefillDesdeCostos(); }
   pmRecalc();
 }
 
@@ -2935,14 +2937,35 @@ function pmRenderTallas(vals) {
     </label>`).join('');
 }
 
-// Precarga nombres de telas/insumos desde el módulo de Costos (solo nombres — los precios varían mes a mes)
-function pmPrefillDesdeCostos() {
+// Precarga telas/insumos con PRECIO SUGERIDO (editable): 1º el último registro de
+// producción de esa referencia (precio real más reciente); 2º el módulo de Costos (precio_iva).
+async function pmPrefillDesdeCostos() {
   const ref = pmRefActual();
+  const nota = document.getElementById('pm-sugerencia');
+  // 1) Último registro de producción de esta referencia (cualquier mes anterior)
+  let prev = null;
+  if (ref) {
+    try {
+      const { data } = await sb.from('produccion_mensual').select('periodo, telas, insumos')
+        .eq('referencia_nombre', ref).neq('periodo', pmPeriodo())
+        .order('periodo', { ascending: false }).limit(1);
+      prev = (data || [])[0] || null;
+    } catch (e) {}
+  }
+  if (prev && ((prev.telas||[]).length || (prev.insumos||[]).length)) {
+    (prev.telas || []).forEach(t => pmAddTela(t.nombre, null, t.precio_metro || null));
+    (prev.insumos || []).forEach(i => pmAddInsumo(i.nombre, null, i.unidad, i.precio_unitario || null));
+    if (nota) nota.innerHTML = `💡 Precios sugeridos de tu registro de <strong>${mesNombre(prev.periodo)}</strong> — cámbialos si subieron. Cantidades en blanco.`;
+    return;
+  }
+  // 2) Módulo de Costos (referencia_insumos): nombre + precio con IVA como sugerencia
   const items = _insumos[ref] || [];
+  const precioDe = i => { let p = i.precio_iva; if ((!p || p === 0) && i.valor) p = Math.round((i.valor||0) * (1 + IVA_RATE)); return p || null; };
   const telas = items.filter(i => /tela/i.test(i.nombre||''));
   const otros = items.filter(i => !/tela/i.test(i.nombre||''));
-  if (telas.length) telas.forEach(t => pmAddTela(t.nombre)); else pmAddTela('Tela');
-  if (otros.length) otros.forEach(i => pmAddInsumo(i.nombre)); else ['Etiqueta','Gancho','Plastiflecha'].forEach(n => pmAddInsumo(n));
+  if (telas.length) telas.forEach(t => pmAddTela(t.nombre, null, precioDe(t))); else pmAddTela('Tela');
+  if (otros.length) otros.forEach(i => pmAddInsumo(i.nombre, null, null, precioDe(i))); else ['Etiqueta','Gancho','Plastiflecha'].forEach(n => pmAddInsumo(n));
+  if (nota) nota.innerHTML = items.length ? `💡 Precios sugeridos del módulo de <strong>Costos</strong> (con IVA) — cámbialos si subieron.` : '';
 }
 
 function pmAddTela(nombre, metros, precio) {
