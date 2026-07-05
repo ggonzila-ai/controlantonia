@@ -2828,6 +2828,21 @@ const PM_TALLAS_TODAS = ['S','M','L','XL','2XL','3XL','U'];
 function pmPeriodo() { return `${_pmAño}-${String(_pmMes).padStart(2,'0')}`; }
 function cambiarMesProdMes(d) { _pmMes += d; if (_pmMes > 12) { _pmMes = 1; _pmAño++; } if (_pmMes < 1) { _pmMes = 12; _pmAño--; } cargarRegistroProduccion(); }
 function pmNum(v) { return parseFloat(String(v ?? '').replace(/\./g,'').replace(',','.')) || 0; }   // metros: acepta coma decimal
+
+// ⌀ Promedio de varias telas/colores con precios distintos (ej. Tobago azul 12189, rosado 11580)
+function pedirPromedio(input, onDone) {
+  if (!input) return;
+  const s = prompt('Precios de cada tela/color, separados por coma:\n(ej: 12189, 11580)', input.dataset.precios || '');
+  if (s == null) return;
+  const nums = s.split(/[,;\n]+/).map(x => pesos(x)).filter(n => n > 0);
+  if (!nums.length) { toast('No leí ningún precio válido', 'err'); return; }
+  const avg = Math.round(nums.reduce((a, b) => a + b, 0) / nums.length);
+  input.value = (input.type === 'number') ? avg : NUM(avg);
+  input.dataset.precios = nums.join(', ');
+  input.title = '⌀ promedio de: ' + nums.map(n => NUM(n)).join(' · ');
+  toast(`⌀ ${COP(avg)} — promedio de ${nums.length} precios`);
+  if (typeof onDone === 'function') onDone();
+}
 // Costo fijo del mes = misma fuente que el Punto de Equilibrio (Costos Mensuales + depreciación)
 function costoFijoProduccionMes() {
   const p = beParams();
@@ -2904,7 +2919,7 @@ async function abrirModalProdMes(id) {
   document.getElementById('pm-telas').innerHTML = '';
   document.getElementById('pm-insumos').innerHTML = '';
   if (r) {
-    (r.telas||[]).forEach(t => pmAddTela(t.nombre, t.metros, t.precio_metro));
+    (r.telas||[]).forEach(t => pmAddTela(t.nombre, t.metros, t.precio_metro, t.precios));
     (r.insumos||[]).forEach(i => pmAddInsumo(i.nombre, i.cantidad, i.unidad, i.precio_unitario));
   } else {
     await pmPrefillDesdeCostos();
@@ -2953,7 +2968,7 @@ async function pmPrefillDesdeCostos() {
     } catch (e) {}
   }
   if (prev && ((prev.telas||[]).length || (prev.insumos||[]).length)) {
-    (prev.telas || []).forEach(t => pmAddTela(t.nombre, null, t.precio_metro || null));
+    (prev.telas || []).forEach(t => pmAddTela(t.nombre, null, t.precio_metro || null, t.precios));
     (prev.insumos || []).forEach(i => pmAddInsumo(i.nombre, null, i.unidad, i.precio_unitario || null));
     if (nota) nota.innerHTML = `💡 Precios sugeridos de tu registro de <strong>${mesNombre(prev.periodo)}</strong> — cámbialos si subieron. Cantidades en blanco.`;
     return;
@@ -2968,15 +2983,22 @@ async function pmPrefillDesdeCostos() {
   if (nota) nota.innerHTML = items.length ? `💡 Precios sugeridos del módulo de <strong>Costos</strong> (con IVA) — cámbialos si subieron.` : '';
 }
 
-function pmAddTela(nombre, metros, precio) {
+function pmAddTela(nombre, metros, precio, precios) {
   document.getElementById('pm-telas').insertAdjacentHTML('beforeend', `
     <div class="pm-tela-row" style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
       <input type="text" class="t-nom" value="${(nombre||'').replace(/"/g,'&quot;')}" placeholder="Tipo de tela" style="flex:2;min-width:0;padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px">
       <input type="text" inputmode="decimal" class="t-mts" value="${metros ?? ''}" placeholder="mts" style="flex:1;min-width:0;padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;text-align:right" oninput="pmRecalc()">
       <input type="text" inputmode="numeric" class="t-pre" value="${precio ? NUM(precio) : ''}" placeholder="$/metro" style="flex:1.2;min-width:0;padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;text-align:right" oninput="pmRecalc()">
+      <span onclick="pedirPromedio(this.parentElement.querySelector('.t-pre'), pmRecalc)" title="Promediar varios colores/precios" style="cursor:pointer;color:var(--brand-dark);font-size:14px;font-weight:800;padding:0 2px">⌀</span>
       <span class="t-tot" style="min-width:74px;text-align:right;font-size:12px;font-weight:700"></span>
       <span onclick="this.parentElement.remove();pmRecalc()" style="cursor:pointer;color:var(--rojo);font-size:15px;padding:0 2px">🗑</span>
     </div>`);
+  if (precios && precios.length > 1) {
+    const rows = document.querySelectorAll('#pm-telas .pm-tela-row');
+    const inp = rows[rows.length - 1].querySelector('.t-pre');
+    inp.dataset.precios = precios.join(', ');
+    inp.title = '⌀ promedio de: ' + precios.map(n => NUM(n)).join(' · ');
+  }
 }
 
 function pmAddInsumo(nombre, cantidad, unidad, precio) {
@@ -2995,10 +3017,14 @@ function pmLeerTelas() {
   return [...document.querySelectorAll('#pm-telas .pm-tela-row')].map(row => {
     const nombre = row.querySelector('.t-nom').value.trim();
     const metros = pmNum(row.querySelector('.t-mts').value);
-    const precio_metro = pesos(row.querySelector('.t-pre').value);
+    const pre = row.querySelector('.t-pre');
+    const precio_metro = pesos(pre.value);
     const costo_total = Math.round(metros * precio_metro);
     row.querySelector('.t-tot').textContent = costo_total ? COP(costo_total) : '';
-    return { nombre, metros, precio_metro, costo_total };
+    const t = { nombre, metros, precio_metro, costo_total };
+    const det = (pre.dataset.precios || '').split(',').map(x => pesos(x)).filter(n => n > 0);
+    if (det.length > 1) t.precios = det;   // desglose por color (para auditoría y sugerencia futura)
+    return t;
   }).filter(t => t.nombre || t.costo_total);
 }
 
@@ -3846,7 +3872,7 @@ function renderInsumoRows() {
       </div>
       <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
         <div style="flex:1;min-width:92px">
-          <div style="font-size:10px;color:var(--gris-medio);margin-bottom:2px">Precio compra c/IVA</div>
+          <div style="font-size:10px;color:var(--gris-medio);margin-bottom:2px">Precio compra c/IVA <span onclick="pedirPromedio(this.parentElement.parentElement.querySelector('.ci-precio'), recalcCostos)" title="Promediar varios colores/precios (ej: 12189, 11580)" style="cursor:pointer;color:var(--brand-dark);font-weight:800">⌀</span></div>
           <input type="number" class="ci-precio" value="${i.precio_iva||''}" placeholder="12000" oninput="recalcCostos()" style="width:100%;padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;text-align:right">
         </div>
         <div style="flex:1;min-width:74px">
