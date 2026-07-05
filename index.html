@@ -2693,19 +2693,7 @@ async function cargarCockpit() {
     sb.from('consignaciones_cierre').select('*').eq('estado', 'pendiente').order('fecha_esperada_consignacion', { ascending: true }).limit(1),
     sb.from('bodega').select('referencia, stock, stock_minimo')
   ]);
-  // Último día CON DATOS del mes (el Excel de Feria se importa cada ~15 días) → para el ritmo real
-  let ultimoDia = new Date().getDate();
-  try {
-    const ini = periodo + '-01';
-    const [yy, mmn] = periodo.split('-').map(Number);
-    const finEx = mmn >= 12 ? `${yy + 1}-01-01` : `${yy}-${String(mmn + 1).padStart(2, '0')}-01`;  // 1er día del mes siguiente (evita fechas inválidas como -31)
-    const [f1, f2] = await Promise.all([
-      sb.from('ventas_feria_detalle').select('fecha').gte('fecha', ini).lt('fecha', finEx).order('fecha', { ascending: false }).limit(1),
-      sb.from('ventas').select('fecha').eq('periodo', periodo).order('fecha', { ascending: false }).limit(1)
-    ]);
-    const ds = [f1.data?.[0]?.fecha, f2.data?.[0]?.fecha].filter(Boolean).map(d => new Date(d + 'T00:00:00').getDate());
-    if (ds.length) ultimoDia = Math.max(...ds);
-  } catch (e) {}
+  const ultimoDia = await ultimoDiaConDatos(periodo);
   await cargarDepreMensual();
   const alm = ckAlmacenes(ventasRows, mRes.data || [], ultimoDia);
   renderCkAlmacenes(alm, ultimoDia);
@@ -5948,6 +5936,24 @@ function notaFeriaHTML(feria) {
 // las ventas manuales para los meses sin reporte Feria — sin doble conteo.
 // periodo = "2026-06" (un mes) o "" (todos los meses).
 // Retorna { rows, feria } donde `feria` es el reporte del mes (solo si periodo es un mes único).
+// Último día del mes CON ventas registradas (el Excel de Feria llega cada ~15 días).
+// Divide ritmos/proyecciones por este día, no por el día de hoy.
+async function ultimoDiaConDatos(periodo) {
+  let dia = (periodo === periodoActual()) ? new Date().getDate() : null;
+  try {
+    const ini = periodo + '-01';
+    const [yy, mmn] = periodo.split('-').map(Number);
+    const finEx = mmn >= 12 ? `${yy + 1}-01-01` : `${yy}-${String(mmn + 1).padStart(2, '0')}-01`;  // 1er día del mes siguiente (evita fechas inválidas -31)
+    const [f1, f2] = await Promise.all([
+      sb.from('ventas_feria_detalle').select('fecha').gte('fecha', ini).lt('fecha', finEx).order('fecha', { ascending: false }).limit(1),
+      sb.from('ventas').select('fecha').eq('periodo', periodo).order('fecha', { ascending: false }).limit(1)
+    ]);
+    const ds = [f1.data?.[0]?.fecha, f2.data?.[0]?.fecha].filter(Boolean).map(d => new Date(d + 'T00:00:00').getDate());
+    if (ds.length) dia = Math.max(...ds);
+  } catch (e) {}
+  return dia || new Date().getDate();
+}
+
 async function ventasShapedDelPeriodo(periodo, opts) {
   const soloDefinitivo = !!(opts && opts.soloDefinitivo);   // comparativo histórico: excluir parciales
   let reps = [];
@@ -7119,7 +7125,7 @@ async function cargarFlujoCaja() {
   const esMesActual = (hoy.getFullYear() === año && hoy.getMonth() + 1 === mes);
   let conIvaAct = 0; try { const r = await ventasShapedDelPeriodo(periodo); conIvaAct = (r.rows || []).reduce((s, v) => s + ventaTotal(v), 0); } catch (e) {}
   const diasMes = new Date(año, mes, 0).getDate();
-  const diasDatos = esMesActual ? hoy.getDate() : diasMes;
+  const diasDatos = esMesActual ? Math.min(await ultimoDiaConDatos(periodo), diasMes) : diasMes;   // último día CON datos, no el día de hoy
   const conIvaProy = diasDatos > 0 ? Math.round(conIvaAct / diasDatos * diasMes) : conIvaAct;
   const ingProy = conIvaProy > 0 ? conIvaProy - comisionDe(conIvaProy) : 0;
   const egrProy = salarios + temporal + totalPila + gastosTotal;
@@ -7129,7 +7135,7 @@ async function cargarFlujoCaja() {
 
   const colorLibre = libre > 0 ? (pctLibre >= 30 ? '#1E8A3A' : '#D97706') : '#A32D2D';
   const barW = Math.min(100, Math.max(0, Math.round(pctLibre)));
-  const notaParcial = esMesActual ? ` · datos al ${hoy.getDate()}/${mm}` : '';
+  const notaParcial = esMesActual ? ` · datos al ${diasDatos}/${mm}` : '';
 
   wrap.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
