@@ -5030,6 +5030,7 @@ async function confirmarImport() {
     const { error } = await sb.from('ventas').insert(ventas.slice(i, i+200));
     if (error) { toast('Error al importar (lote ' + (i/200+1) + ')', 'err'); return; }
   }
+  invCache = null;   // el inventario depende de las ventas
   const totUds = ventas.reduce((a,v)=>a+v.cantidad,0);
   const totCOP = ventas.reduce((a,v)=>a+v.cantidad*v.precio_unitario,0);
   document.getElementById('vc-preview').innerHTML = `<div class="alert alert-ok"><svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg><div><strong>✓ ${NUM(ventas.length)} ventas importadas</strong> — ${NUM(totUds)} uds · ${COP(totCOP)}</div></div>`;
@@ -5049,6 +5050,7 @@ async function registrarVentaManual() {
   if (!almId || !ref || cant < 1 || !fecha) { toast('Completa todos los campos', 'err'); return; }
   const { error } = await sb.from('ventas').insert({ fecha, almacen_id: almId, almacen_nombre: almNombre, referencia: ref, categoria: cat, cantidad: cant, precio_unitario: precio, periodo: per });
   if (error) { toast('Error al guardar venta', 'err'); return; }
+  invCache = null;   // el inventario depende de las ventas
   toast(`✓ Venta registrada: ${NUM(cant)} uds de ${ref}`);
   document.getElementById('vm-cant').value = 1;
   document.getElementById('vm-precio').value = '';
@@ -5080,6 +5082,7 @@ async function deleteVenta(id) {
   if (!confirm('¿Borrar esta venta?')) return;
   const { error } = await sb.from('ventas').delete().eq('id', id);
   if (error) { toast('Error al borrar', 'err'); return; }
+  invCache = null;
   toast('✓ Venta borrada');
   cargarHistVentas();
 }
@@ -5089,10 +5092,12 @@ async function renderConciliacion() {
   const fAlm = document.querySelector('#conc-alm option:checked')?.dataset?.nombre || '';
   const fCat = document.getElementById('conc-cat').value;
 
-  const [{ data: despItems }, { data: ventData }] = await Promise.all([
+  const [{ data: despItems }, shaped] = await Promise.all([
     sb.from('despacho_items').select('cantidad, referencia, categoria, despachos(almacen_nombre, fecha)'),
-    sb.from('ventas').select('cantidad, referencia, categoria, almacen_nombre')
+    ventasShapedDelPeriodo(null)   // ventas + Feria unificadas (la tabla 'ventas' sola dejaba junio+ sin descontar)
   ]);
+  const _concCatRef = {}; (bodegaData || []).forEach(b => { _concCatRef[b.referencia] = b.categoria; });
+  const ventData = (shaped.rows || []).map(v => ({ ...v, categoria: v.categoria || _concCatRef[v.referencia] || '' }));
 
   const despMap = {}, vendMap = {};
   (despItems || []).forEach(i => {
@@ -5460,22 +5465,26 @@ function periodoPrev(p) { let [y,m] = p.split('-').map(Number); m--; if (m<1){m=
 
 async function loadInvCache(force) {
   if (invCache && !force) return invCache;
-  const [aper, ajus, desp, vent, cont, bod, remaj] = await Promise.all([
+  const [aper, ajus, desp, ventShaped, cont, bod, remaj] = await Promise.all([
     sb.from('inventario_apertura').select('almacen_id, referencia, categoria, periodo, unidades'),
     sb.from('inventario_ajustes').select('almacen_id, referencia, periodo, unidades'),
     selectAll('despacho_items', 'referencia, categoria, cantidad, despachos!inner(almacen_id, fecha)'),
-    selectAll('ventas', 'almacen_id, referencia, categoria, cantidad, precio_unitario, periodo, fecha'),
+    ventasShapedDelPeriodo(null),   // ventas + reportes de Feria unificados (sin doble conteo)
     sb.from('conteos_fisicos').select('id, almacen_id, fecha, conteo_items(referencia, cantidad_fisica)'),
     bodegaData.length ? Promise.resolve({ data: bodegaData }) : sb.from('bodega').select('*'),
     sb.from('remisiones_ajuste').select('almacen_id, referencia, periodo, unidades')
   ]);
   bodegaData = bod.data || bodegaData;
+  // Las filas de Feria vienen con nombre de almacén (no id) y sin categoría → resolver aquí
+  if (!almacenes.length) { try { const { data: alms } = await sb.from('almacenes').select('*').order('nombre'); almacenes = (alms || []).sort(cmpAlmObj); } catch (e) {} }
+  const _idByNom = {}; (almacenes || []).forEach(a => { _idByNom[a.nombre] = a.id; });
+  const _catByRef = {}; (bodegaData || []).forEach(b => { _catByRef[b.referencia] = b.categoria; });
   invCache = {
     aperturas: aper.data || [],
     ajustes: ajus.data || [],
     remAjuste: remaj.data || [],
     despItems: (desp || []).map(d => ({ almacen_id: d.despachos && d.despachos.almacen_id, periodo: periodoDe(d.despachos && d.despachos.fecha), referencia: d.referencia, categoria: d.categoria, cantidad: d.cantidad })).filter(d => d.almacen_id),
-    ventas: (vent || []).map(v => ({ almacen_id: v.almacen_id, periodo: v.periodo || periodoDe(v.fecha), referencia: v.referencia, categoria: v.categoria, cantidad: v.cantidad, precio: v.precio_unitario })),
+    ventas: (ventShaped.rows || []).map(v => ({ almacen_id: v.almacen_id || _idByNom[v.almacen_nombre] || null, periodo: v.periodo, referencia: v.referencia, categoria: v.categoria || _catByRef[v.referencia] || '', cantidad: v.cantidad, precio: v.precio_unitario })).filter(v => v.almacen_id),
     conteos: (cont.data || []).map(c => ({ almacen_id: c.almacen_id, periodo: periodoDe(c.fecha), fecha: c.fecha, items: c.conteo_items || [] }))
   };
   return invCache;
@@ -8882,6 +8891,7 @@ async function vfGuardar(){
   const detalle=P.data.map(r=>{ const pr=vfParseRef(r[4]||''); const af=r[3]||''; return { reporte_id:rep.id, fecha:new Date(r[1]).toISOString().slice(0,10), almacen_feria:af, almacen:VF_ALMACENES[String(af).toUpperCase().trim()]||af, referencia_codigo:r[4]||null, referencia_base:pr.base||null, talla:pr.talla, desc_item:r[6]||null, cantidad:parseInt(r[7])||0, valor_sin_iva:num(r[8]), valor_con_iva:num(r[11]), valor_descuentos:num(r[9]), vendedor:r[12]||null, es_oferta:String(r[14]||'').includes('6002') }; });
   for(let i=0;i<detalle.length;i+=100){ const { error:e2 }=await sb.from('ventas_feria_detalle').insert(detalle.slice(i,i+100)); if(e2){ btn.disabled=false; btn.textContent=prev; toast('Error guardando detalle: '+detalleError(e2),'err'); console.error(e2); return; } }
   btn.disabled=false; btn.textContent=prev;
+  invCache = null;   // el inventario también descuenta las ventas de Feria
   cerrarModal('modal-vf'); toast(`✓ ${NUM(P.totalUds)} unidades importadas`);
   _vfPending=null; cargarVentasFeria();
 }
