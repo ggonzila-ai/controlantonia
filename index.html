@@ -4719,7 +4719,7 @@ async function procesarExcel() {
     // localizar fila de encabezados (busca 'C.O.' y 'Referencia')
     let hi = raw.findIndex(r => r && r.some(c => String(c).trim() === 'C.O.'));
     if (hi < 0) hi = 0;
-    const head = raw[hi].map(c => String(c).trim().toUpperCase());
+    const head = Array.from(raw[hi] || [], c => String(c ?? '').trim().toUpperCase());   // Array.from rellena huecos de filas dispersas
     const col = name => head.findIndex(h => h === name);
     const colAny = (...names) => { for (const n of names) { const i = col(n); if (i >= 0) return i; } return -1; };
     const colPre = (...names) => { for (const n of names) { const i = head.findIndex(h => h.startsWith(n)); if (i >= 0) return i; } return -1; };
@@ -8783,7 +8783,7 @@ async function vfImport(file){
       data=rows.slice(1).filter(r=>r[1]);   // formato clásico: columnas en posición fija
     } else {
       // Formato nuevo: mapear columnas POR NOMBRE y normalizar a la forma clásica
-      const hdr=rows[hr].map(h=>String(h||'').trim().toLowerCase());
+      const hdr=Array.from(rows[hr]||[], h=>String(h||'').trim().toLowerCase());   // Array.from rellena los huecos de filas dispersas
       const gi=(...names)=>{ for(const n of names){ const i=hdr.findIndex(h=>h.startsWith(n)); if(i>=0) return i; } return -1; };
       const cFecha=gi('fecha'), cAlm=gi('desc. c.o','desc c.o'), cRef=gi('referencia'), cDesc=gi('desc. item','desc item'),
             cCant=gi('cantidad'), cSub=gi('valor subtotal'), cDto=gi('valor descuentos'), cNeto=gi('valor neto'),
