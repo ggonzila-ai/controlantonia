@@ -8789,16 +8789,21 @@ async function vfImport(file){
             cCant=gi('cantidad'), cSub=gi('valor subtotal'), cDto=gi('valor descuentos'), cNeto=gi('valor neto'),
             cVend=gi('nombre vendedor'), cPort=gi('portafolio');
       if(cFecha<0||cCant<0||cSub<0){ toast('No reconozco las columnas de este reporte (falta Fecha/Cantidad/Valor subtotal).','err'); return; }
-      // Fecha: puede venir como texto, como Date o como serial de Excel (ej. 46168) → Date local a medianoche
-      const aFecha=v=>{ if(v instanceof Date) return new Date(v.getFullYear(),v.getMonth(),v.getDate());
+      // Releer CRUDO: con raw:false las fechas llegan como texto "d/m/yy" (formato colombiano)
+      // y JS las lee como mes/día → meses corridos. Crudo llegan como Date o serial de Excel.
+      const rowsD=XLSX.utils.sheet_to_json(ws,{header:1,raw:true});
+      const aFecha=v=>{
+        if(v instanceof Date) return (v.getUTCHours()===0) ? new Date(v.getUTCFullYear(),v.getUTCMonth(),v.getUTCDate()) : new Date(v.getFullYear(),v.getMonth(),v.getDate());
+        if(typeof v==='number' || /^\d{4,6}$/.test(String(v||'').trim())){ const d=new Date(Date.UTC(1899,11,30)+(+v)*86400000); return new Date(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate()); }
         const s=String(v||'').trim();
-        if(/^\d{4,6}$/.test(s)){ const d=new Date(Date.UTC(1899,11,30)+(+s)*86400000); return new Date(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate()); }
+        const m=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);   // texto suelto → asumir día/mes/año (CO)
+        if(m){ let y=+m[3]; if(y<100) y+=2000; return new Date(y, +m[2]-1, +m[1]); }
         return new Date(s); };
-      data=rows.slice(hr+1)
-        .filter(r=>r && String(r[cAlm]||'').trim() && r[cFecha] && String(r[cCant]||'').trim())   // salta la fila de totales (sin almacén) y filas vacías
-        .map(r=>{ const n=[]; n[1]=aFecha(r[cFecha]); n[3]=String(r[cAlm]||'').trim(); n[4]=String(r[cRef]||'').trim();
-          n[6]=String(r[cDesc]||'').trim(); n[7]=r[cCant]; n[8]=r[cSub]; n[9]=cDto>=0?r[cDto]:0; n[11]=cNeto>=0?r[cNeto]:0;
-          n[12]=cVend>=0?String(r[cVend]||'').trim():null; n[14]=cPort>=0?r[cPort]:''; return n; })
+      data=rowsD.slice(hr+1)
+        .filter(r=>r && String(r[cAlm]??'').trim() && r[cFecha]!=null && String(r[cCant]??'').trim())   // salta la fila de totales (sin almacén) y filas vacías
+        .map(r=>{ const n=[]; n[1]=aFecha(r[cFecha]); n[3]=String(r[cAlm]??'').trim(); n[4]=String(r[cRef]??'').trim();
+          n[6]=String(r[cDesc]??'').trim(); n[7]=r[cCant]; n[8]=r[cSub]; n[9]=cDto>=0?(r[cDto]??0):0; n[11]=cNeto>=0?(r[cNeto]??0):0;
+          n[12]=cVend>=0?String(r[cVend]??'').trim():null; n[14]=cPort>=0?(r[cPort]??''):''; return n; })
         .filter(r=>!isNaN(r[1]));
     }
     if(!data.length){ toast('El archivo no tiene filas de ventas.','err'); return; }
