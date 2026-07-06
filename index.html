@@ -4706,15 +4706,26 @@ async function procesarExcel() {
     const ws = wb.Sheets[wb.SheetNames[0]];
     const raw = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true });
 
+    // ¿Es el reporte de LIQUIDACIÓN de Feria (formato MARROCAR)? → ese va en Reportes Feria
+    const esLiquidacion = raw.slice(0, 8).some(r => (r || []).some(c => /liquidaci[oó]n\s+contraprestaci/i.test(String(c || ''))));
+    if (esLiquidacion) {
+      prev.innerHTML = `<div class="alert alert-info">Este archivo es la <strong>liquidación de Feria del Brasier</strong> — se importa en la pestaña <strong>Reportes Feria</strong>. Te lo abro allá…</div>`;
+      document.getElementById('xlsx-file').value = '';
+      showTab('tab-ventas-feria');
+      vfImport(f);
+      return;
+    }
+
     // localizar fila de encabezados (busca 'C.O.' y 'Referencia')
     let hi = raw.findIndex(r => r && r.some(c => String(c).trim() === 'C.O.'));
     if (hi < 0) hi = 0;
     const head = raw[hi].map(c => String(c).trim().toUpperCase());
     const col = name => head.findIndex(h => h === name);
     const colAny = (...names) => { for (const n of names) { const i = col(n); if (i >= 0) return i; } return -1; };
+    const colPre = (...names) => { for (const n of names) { const i = head.findIndex(h => h.startsWith(n)); if (i >= 0) return i; } return -1; };
     const cCO = col('C.O.'), cFecha = col('FECHA'), cRef = col('REFERENCIA'),
-          cDesc = col('DESC. ITEM'), cCant = colAny('CANTIDAD', 'CANTIDAD INV.'),
-          cNeto = colAny('VALOR NETO'), cDescto = colAny('VALOR DESCUENTOS', 'VALOR DESCUENTO');
+          cDesc = colPre('DESC. ITEM', 'DESC ITEM'), cCant = colPre('CANTIDAD'),
+          cNeto = colPre('VALOR NETO'), cDescto = colPre('VALOR DESCUENTO');
     if (cCO < 0 || cRef < 0 || cCant < 0) {
       prev.innerHTML = `<div class="alert alert-err">No reconozco las columnas. Esperaba C.O., Referencia, Cantidad, Valor neto. ¿Es el Excel de Feria del Brasier?</div>`;
       return;
