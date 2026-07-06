@@ -8623,7 +8623,9 @@ async function guardarCierreDesdeDoc(docId){
 // ─── REPORTES DE VENTAS FERIA DEL BRASIER ───
 const VF_ALMACENES = { 'FERIA DEL BRASIER MALCA 2':'Malca 2','FERIA DEL BRASIER OUTLET INTIMO CRA 1':'Outlet Íntimo Cra 1','FERIA DEL BRASIER UNICO 5':'Único 5','FERIA DEL BRASIER VALLE DEL LILI':'Valle del Lili','FERIA DEL BRASIER CRA 8':'Cra 8','FERIA DEL BRASIER UNICENTRO CALI':'Unicentro','FERIA DEL BRASIER COSMOCENTRO 3':'Cosmocentro','FERIA DEL BRASIER CALLE 13':'Calle 13' };
 function vfParseRef(codigo){
-  let s=String(codigo||'').toUpperCase().replace(/^ANT/,'').replace(/2600$/,'');
+  let s=String(codigo||'').toUpperCase().trim().replace(/^ANT/,'');
+  s=s.replace(/(U|3XL|2XL|XL|L|M|S)\d{4}$/,'$1');   // sufijo de lista de precios tras la talla (2600, 1200, …)
+  s=s.replace(/2600$/,'');                           // legado: sufijo sin talla
   const m=s.match(/(U|3XL|2XL|XL|L|M|S)$/);
   if(m) return { base:s.slice(0,-m[1].length), talla:m[1] };
   return { base:s, talla:null };
@@ -8760,9 +8762,34 @@ async function vfImport(file){
     const wb=XLSX.read(buf,{type:'array',cellDates:true});
     const ws=wb.Sheets[wb.SheetNames[0]];
     const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false});
-    const header=(rows[0]||[]).map(h=>String(h||''));
-    if(!header.some(h=>/cantidad/i.test(h))||!header.some(h=>/valor subtotal/i.test(h))){ toast('Este archivo no tiene el formato del reporte de Feria.','err'); return; }
-    const data=rows.slice(1).filter(r=>r[1]);
+    // El encabezado puede estar en la fila 1 (formato clásico) o más abajo
+    // (formato "Liquidación Contraprestación" de MARROCAR: título en filas 1-5, encabezado en la 7)
+    const esHdr=r=>{ const hs=(r||[]).map(h=>String(h||'')); return hs.some(h=>/cantidad/i.test(h)) && hs.some(h=>/valor subtotal/i.test(h)); };
+    let hr=-1; for(let i=0;i<Math.min(rows.length,15);i++){ if(esHdr(rows[i])){ hr=i; break; } }
+    if(hr<0){ toast('Este archivo no tiene el formato del reporte de Feria.','err'); return; }
+    let data;
+    if(hr===0){
+      data=rows.slice(1).filter(r=>r[1]);   // formato clásico: columnas en posición fija
+    } else {
+      // Formato nuevo: mapear columnas POR NOMBRE y normalizar a la forma clásica
+      const hdr=rows[hr].map(h=>String(h||'').trim().toLowerCase());
+      const gi=(...names)=>{ for(const n of names){ const i=hdr.findIndex(h=>h.startsWith(n)); if(i>=0) return i; } return -1; };
+      const cFecha=gi('fecha'), cAlm=gi('desc. c.o','desc c.o'), cRef=gi('referencia'), cDesc=gi('desc. item','desc item'),
+            cCant=gi('cantidad'), cSub=gi('valor subtotal'), cDto=gi('valor descuentos'), cNeto=gi('valor neto'),
+            cVend=gi('nombre vendedor'), cPort=gi('portafolio');
+      if(cFecha<0||cCant<0||cSub<0){ toast('No reconozco las columnas de este reporte (falta Fecha/Cantidad/Valor subtotal).','err'); return; }
+      // Fecha: puede venir como texto, como Date o como serial de Excel (ej. 46168) → Date local a medianoche
+      const aFecha=v=>{ if(v instanceof Date) return new Date(v.getFullYear(),v.getMonth(),v.getDate());
+        const s=String(v||'').trim();
+        if(/^\d{4,6}$/.test(s)){ const d=new Date(Date.UTC(1899,11,30)+(+s)*86400000); return new Date(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate()); }
+        return new Date(s); };
+      data=rows.slice(hr+1)
+        .filter(r=>r && String(r[cAlm]||'').trim() && r[cFecha] && String(r[cCant]||'').trim())   // salta la fila de totales (sin almacén) y filas vacías
+        .map(r=>{ const n=[]; n[1]=aFecha(r[cFecha]); n[3]=String(r[cAlm]||'').trim(); n[4]=String(r[cRef]||'').trim();
+          n[6]=String(r[cDesc]||'').trim(); n[7]=r[cCant]; n[8]=r[cSub]; n[9]=cDto>=0?r[cDto]:0; n[11]=cNeto>=0?r[cNeto]:0;
+          n[12]=cVend>=0?String(r[cVend]||'').trim():null; n[14]=cPort>=0?r[cPort]:''; return n; })
+        .filter(r=>!isNaN(r[1]));
+    }
     if(!data.length){ toast('El archivo no tiene filas de ventas.','err'); return; }
     // Agrupar por MES REAL de cada venta: un archivo que cruza meses (ej. 26 may–25 jun)
     // se separa en un reporte por mes, en vez de encasillarlo todo en el mes de la primera fecha.
