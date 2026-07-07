@@ -608,7 +608,6 @@
       <div class="tab active" id="tab-ventas-rank" onclick="showTab('tab-ventas-rank')">Visión General</div>
       <div class="tab" id="tab-ventas-poralmacen" onclick="showTab('tab-ventas-poralmacen')">Ventas por Almacén</div>
       <div class="tab" id="tab-ventas-feria" onclick="showTab('tab-ventas-feria')">📊 Reportes Feria</div>
-      <div class="tab" id="tab-ventas-cargar" onclick="showTab('tab-ventas-cargar')">Cargar informe</div>
       <div class="tab" id="tab-ventas-descuentos" onclick="showTab('tab-ventas-descuentos')">Descuentos</div>
       <div class="tab" id="tab-ventas-historico" onclick="showTab('tab-ventas-historico')">Comparativo histórico</div>
       <div class="tab" id="tab-ventas-manual" onclick="showTab('tab-ventas-manual')">Manual</div>
@@ -617,21 +616,6 @@
       <div id="tab-content-ventas-feria" style="display:none">
         <input type="file" accept=".xlsx,.xls" id="vf-file" style="display:none" onchange="vfImport(this.files&&this.files[0]); this.value='';">
         <div id="vf-panel"><div class="loader"><div class="spinner"></div></div></div>
-      </div>
-      <div id="tab-content-ventas-cargar" style="display:none">
-        <div class="form-section">
-          <div class="alert alert-info">
-            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-            El sistema lee el Excel de Feria del Brasier: columnas C.O., Referencia, Desc. item, Cantidad (o Cantidad inv.), Valor neto y Valor descuentos.
-          </div>
-          <div style="border:2px dashed var(--borde);border-radius:var(--radius);padding:28px;text-align:center;cursor:pointer;color:var(--gris-medio)" onclick="document.getElementById('xlsx-file').click()">
-            <svg width="36" height="36" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="margin:0 auto 10px;display:block;opacity:.5"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/></svg>
-            <div style="font-size:14px;font-weight:600;margin-bottom:4px">Subir Excel de ventas</div>
-            <div style="font-size:12px">VENTA_01_AL_31.xlsx de Feria del Brasier</div>
-          </div>
-          <input type="file" id="xlsx-file" accept=".csv,.xlsx" style="display:none" onchange="procesarExcel()">
-          <div id="vc-preview" style="margin-top:12px"></div>
-        </div>
       </div>
       <div id="tab-content-ventas-manual" style="display:none">
         <div class="form-section">
@@ -2226,7 +2210,7 @@ function filtrarUIporRol() {
   });
 
   // Ventas: dejar solo "Ventas y Metas"
-  ['tab-ventas-rank', 'tab-ventas-descuentos', 'tab-ventas-historico', 'tab-ventas-abc', 'tab-ventas-cargar', 'tab-ventas-manual'].forEach(id => {
+  ['tab-ventas-rank', 'tab-ventas-descuentos', 'tab-ventas-historico', 'tab-ventas-abc', 'tab-ventas-manual'].forEach(id => {
     const el = document.getElementById(id); if (el) el.style.display = 'none';
   });
   const tabPA = document.getElementById('tab-ventas-poralmacen'); if (tabPA) tabPA.textContent = 'Ventas y Metas';
@@ -4423,10 +4407,10 @@ async function llenarSelectAlmacenes() {
     const { data } = await sb.from('almacenes').select('*').order('nombre');
     almacenes = (data || []).sort(cmpAlmObj);
   }
-  ['d-almacen','vc-almacen','vm-almacen','fv-almacen','conc-alm','if-almacen','invc-almacen','rank-almacen'].forEach(id => {
+  ['d-almacen','vm-almacen','fv-almacen','conc-alm','if-almacen','invc-almacen','rank-almacen'].forEach(id => {
     const s = document.getElementById(id); if (!s) return;
     const prev = s.value;
-    const blank = (id === 'fv-almacen' || id === 'conc-alm' || id === 'vc-almacen' || id === 'rank-almacen') ? 'Todos' : 'Seleccionar…';
+    const blank = (id === 'fv-almacen' || id === 'conc-alm' || id === 'rank-almacen') ? 'Todos' : 'Seleccionar…';
     s.innerHTML = `<option value="">${blank}</option>` + almacenes.map(a => `<option value="${a.id}" data-nombre="${a.nombre}">${a.nombre}</option>`).join('');
     if (prev) s.value = prev;
   });
@@ -4691,178 +4675,9 @@ function parseSku(sku) {
   return { base: m[1], talla: m[2] };
 }
 
-let _importRows = [];   // filas parseadas del Excel
 
-async function procesarExcel() {
-  const f = document.getElementById('xlsx-file').files[0];
-  if (!f) return;
-  const prev = document.getElementById('vc-preview');
-  prev.innerHTML = '<div class="loader"><div class="spinner"></div> Leyendo archivo…</div>';
-  await Promise.all([cargarCodigos(), llenarSelectAlmacenes(), (bodegaData.length?Promise.resolve():cargarBodega())]);
 
-  try {
-    const buf = await f.arrayBuffer();
-    const wb = XLSX.read(buf, { type: 'array', cellDates: true });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const raw = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true });
 
-    // ¿Es el reporte de LIQUIDACIÓN de Feria (formato MARROCAR)? → ese va en Reportes Feria
-    const esLiquidacion = raw.slice(0, 8).some(r => (r || []).some(c => /liquidaci[oó]n\s+contraprestaci/i.test(String(c || ''))));
-    if (esLiquidacion) {
-      prev.innerHTML = `<div class="alert alert-info">Este archivo es la <strong>liquidación de Feria del Brasier</strong> — se importa en la pestaña <strong>Reportes Feria</strong>. Te lo abro allá…</div>`;
-      document.getElementById('xlsx-file').value = '';
-      showTab('tab-ventas-feria');
-      vfImport(f);
-      return;
-    }
-
-    // localizar fila de encabezados (busca 'C.O.' y 'Referencia')
-    let hi = raw.findIndex(r => r && r.some(c => String(c).trim() === 'C.O.'));
-    if (hi < 0) hi = 0;
-    const head = Array.from(raw[hi] || [], c => String(c ?? '').trim().toUpperCase());   // Array.from rellena huecos de filas dispersas
-    const col = name => head.findIndex(h => h === name);
-    const colAny = (...names) => { for (const n of names) { const i = col(n); if (i >= 0) return i; } return -1; };
-    const colPre = (...names) => { for (const n of names) { const i = head.findIndex(h => h.startsWith(n)); if (i >= 0) return i; } return -1; };
-    const cCO = col('C.O.'), cFecha = col('FECHA'), cRef = col('REFERENCIA'),
-          cDesc = colPre('DESC. ITEM', 'DESC ITEM'), cCant = colPre('CANTIDAD'),
-          cNeto = colPre('VALOR NETO'), cDescto = colPre('VALOR DESCUENTO');
-    if (cCO < 0 || cRef < 0 || cCant < 0) {
-      prev.innerHTML = `<div class="alert alert-err">No reconozco las columnas. Esperaba C.O., Referencia, Cantidad, Valor neto. ¿Es el Excel de Feria del Brasier?</div>`;
-      return;
-    }
-
-    const fmtFecha = v => {
-      if (v instanceof Date) return v.toISOString().slice(0,10);
-      const d = new Date(v); return isNaN(d) ? '' : d.toISOString().slice(0,10);
-    };
-    _importRows = [];
-    for (let i = hi+1; i < raw.length; i++) {
-      const r = raw[i]; if (!r || r[cCO] == null || r[cRef] == null) continue;
-      const co = String(r[cCO]).trim().padStart(3,'0');
-      const cant = parseInt(r[cCant]) || 0; if (!cant) continue;   // incluye devoluciones (cantidad negativa); solo salta filas en 0/ inválidas
-      const neto = Math.round(Number(r[cNeto]) || 0);
-      const descto = cDescto>=0 ? Math.round(Number(r[cDescto]) || 0) : 0;
-      const { base, talla } = parseSku(r[cRef]);
-      _importRows.push({
-        co, fecha: cFecha>=0 ? fmtFecha(r[cFecha]) : '', sku: String(r[cRef]).trim(),
-        base, talla, desc: cDesc>=0 ? String(r[cDesc]||'').trim() : '',
-        cant, neto, descto, precio: cant ? Math.round(neto/cant) : neto
-      });
-    }
-    analizarImport();
-  } catch (e) {
-    prev.innerHTML = `<div class="alert alert-err">Error al leer el archivo: ${e.message}</div>`;
-  }
-}
-
-function analizarImport() {
-  const prev = document.getElementById('vc-preview');
-  const rows = _importRows;
-  if (!rows.length) { prev.innerHTML = '<div class="alert alert-warn">El archivo no tiene filas de ventas válidas.</div>'; return; }
-
-  const codMap = {}; codigosSku.forEach(c => { codMap[c.codigo] = c; });
-  const almMap = {}; almacenes.forEach(a => { almMap[a.codigo] = a; });
-
-  const totUds = rows.reduce((a,r)=>a+r.cant,0);
-  const totCOP = rows.reduce((a,r)=>a+r.neto,0);
-  const totDesc = rows.reduce((a,r)=>a+(r.descto||0),0);
-  const meses = [...new Set(rows.map(r=>r.fecha.slice(0,7)).filter(Boolean))].sort();
-  const cosSinAlm = [...new Set(rows.filter(r=>!almMap[r.co]).map(r=>r.co))];
-
-  // códigos sin mapear (agrupados con su desc y uds)
-  const sinMap = {};
-  rows.forEach(r => { if (!codMap[r.base]) { (sinMap[r.base] = sinMap[r.base] || {desc:r.desc, uds:0}).uds += r.cant; } });
-  const sinMapList = Object.entries(sinMap).sort((a,b)=>b[1].uds-a[1].uds);
-  const udsMapeadas = rows.filter(r=>codMap[r.base]).reduce((a,r)=>a+r.cant,0);
-
-  const optsProd = '<option value="">— elegir producto —</option>' +
-    bodegaData.map(p=>`<option value="${p.referencia}|${p.categoria}">${p.referencia}</option>`).join('') +
-    '<option value="__IGNORAR__">⨯ Ignorar este código</option>';
-
-  prev.innerHTML = `
-    <div class="metrics" style="margin-bottom:12px">
-      <div class="metric-card accent"><div class="m-label">Total en archivo</div><div class="m-val">${COP(totCOP)}</div><div class="m-sub">${NUM(totUds)} unidades</div></div>
-      <div class="metric-card"><div class="m-label">Listas para importar</div><div class="m-val">${NUM(udsMapeadas)}</div><div class="m-sub">uds con código mapeado</div></div>
-    </div>
-    <div class="alert alert-info" style="margin-bottom:12px">
-      <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-      <div>${NUM(rows.length)} líneas · período: <strong>${meses.join(', ')||'?'}</strong>${totDesc>0?` · descuentos: <strong>${COP(totDesc)}</strong>`:''}${cosSinAlm.length?`<br>⚠️ C.O. sin almacén configurado: ${cosSinAlm.join(', ')}`:''}</div>
-    </div>
-    ${sinMapList.length ? `
-      <div class="section-card" style="margin-bottom:12px">
-        <div class="section-header"><div class="section-title">⚠️ ${sinMapList.length} código(s) sin producto — asígnalos</div></div>
-        <div style="padding:4px 0">
-          ${sinMapList.map(([cod,info])=>`
-            <div style="display:grid;grid-template-columns:1fr 1.2fr;gap:8px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--borde)">
-              <div><div style="font-weight:700;font-size:13px">${cod}</div><div style="font-size:11px;color:var(--gris-medio)">${info.desc||''} · ${NUM(info.uds)} uds</div></div>
-              <select class="map-sel" data-cod="${cod}" data-desc="${(info.desc||'').replace(/"/g,'')}" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)">${optsProd}</select>
-            </div>`).join('')}
-        </div>
-      </div>` : '<div class="alert alert-ok" style="margin-bottom:12px">✓ Todos los códigos están mapeados.</div>'}
-    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:12px;cursor:pointer">
-      <input type="checkbox" id="vc-reemplazar" style="width:18px;height:18px"> Borrar e importar de nuevo las ventas de ${meses.join(', ')||'estos meses'} (evita duplicados)
-    </label>
-    <button class="btn btn-primary btn-full" onclick="confirmarImport()">Importar ventas</button>`;
-}
-
-async function confirmarImport() {
-  const codMap = {}; codigosSku.forEach(c => { codMap[c.codigo] = c; });
-  const almMap = {}; almacenes.forEach(a => { almMap[a.codigo] = a; });
-  const catMap = {}; bodegaData.forEach(p => { catMap[p.referencia] = p.categoria; });
-
-  // 1) guardar los mapeos que la dueña asignó en la vista previa
-  const nuevos = [], ignorar = new Set();
-  document.querySelectorAll('.map-sel').forEach(s => {
-    const cod = s.dataset.cod, val = s.value;
-    if (val === '__IGNORAR__') { ignorar.add(cod); }
-    else if (val) {
-      const [ref, cat] = val.split('|');
-      nuevos.push({ codigo: cod, referencia: ref, descripcion: s.dataset.desc || '', categoria: cat });
-      codMap[cod] = { referencia: ref, categoria: cat };
-    }
-  });
-  const faltan = document.querySelectorAll('.map-sel').length - nuevos.length - ignorar.size;
-  if (faltan > 0 && !confirm(`Quedan ${faltan} código(s) sin asignar. Sus ventas NO se importarán. ¿Continuar?`)) return;
-
-  if (nuevos.length) {
-    const { error } = await sb.from('codigos_sku').upsert(nuevos);
-    if (error) { toast('Error al guardar mapeos', 'err'); return; }
-    await cargarCodigos(); codigosSku.forEach(c => codMap[c.codigo] = c);
-  }
-
-  // 2) armar ventas
-  const ventas = [];
-  for (const r of _importRows) {
-    const c = codMap[r.base]; const alm = almMap[r.co];
-    if (!c || ignorar.has(r.base) || !alm || !r.fecha) continue;
-    ventas.push({
-      fecha: r.fecha, almacen_id: alm.id, almacen_nombre: alm.nombre,
-      referencia: c.referencia, categoria: c.categoria || catMap[c.referencia] || '',
-      cantidad: r.cant, precio_unitario: r.precio, periodo: r.fecha.slice(0,7),
-      talla: r.talla, codigo: r.base, descuento: r.descto || 0
-    });
-  }
-  if (!ventas.length) { toast('No hay ventas para importar', 'err'); return; }
-
-  // 3) reemplazo opcional (borra ventas de los meses presentes)
-  if (document.getElementById('vc-reemplazar')?.checked) {
-    const meses = [...new Set(ventas.map(v=>v.periodo))];
-    for (const m of meses) await sb.from('ventas').delete().eq('periodo', m);
-  }
-
-  // 4) insertar por lotes
-  toast('Importando…');
-  for (let i = 0; i < ventas.length; i += 200) {
-    const { error } = await sb.from('ventas').insert(ventas.slice(i, i+200));
-    if (error) { toast('Error al importar (lote ' + (i/200+1) + ')', 'err'); return; }
-  }
-  invCache = null;   // el inventario depende de las ventas
-  const totUds = ventas.reduce((a,v)=>a+v.cantidad,0);
-  const totCOP = ventas.reduce((a,v)=>a+v.cantidad*v.precio_unitario,0);
-  document.getElementById('vc-preview').innerHTML = `<div class="alert alert-ok"><svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg><div><strong>✓ ${NUM(ventas.length)} ventas importadas</strong> — ${NUM(totUds)} uds · ${COP(totCOP)}</div></div>`;
-  document.getElementById('xlsx-file').value = '';
-  _importRows = [];
-}
 
 async function registrarVentaManual() {
   const almId = document.getElementById('vm-almacen').value;
