@@ -791,6 +791,7 @@
           <div class="metrics" id="vd-insights" style="margin:12px 16px"></div>
           <div style="padding:0 16px 4px;font-size:11px;font-weight:700;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Promedio por día de semana</div>
           <div id="vd-patron" style="display:flex;gap:4px;padding:0 16px 14px"></div>
+          <div id="vd-vendedora" style="border-top:1px solid var(--borde);margin:0 16px;padding:14px 0"></div>
         </div>
       </div>
 
@@ -4691,7 +4692,7 @@ async function registrarVentaManual() {
   if (!almId || !ref || cant < 1 || !fecha) { toast('Completa todos los campos', 'err'); return; }
   const { error } = await sb.from('ventas').insert({ fecha, almacen_id: almId, almacen_nombre: almNombre, referencia: ref, categoria: cat, cantidad: cant, precio_unitario: precio, periodo: per });
   if (error) { toast('Error al guardar venta', 'err'); return; }
-  invCache = null;   // el inventario depende de las ventas
+  invCache = null; _hmRows = null;   // el inventario y el análisis semanal dependen de las ventas
   toast(`✓ Venta registrada: ${NUM(cant)} uds de ${ref}`);
   document.getElementById('vm-cant').value = 1;
   document.getElementById('vm-precio').value = '';
@@ -4723,7 +4724,7 @@ async function deleteVenta(id) {
   if (!confirm('¿Borrar esta venta?')) return;
   const { error } = await sb.from('ventas').delete().eq('id', id);
   if (error) { toast('Error al borrar', 'err'); return; }
-  invCache = null;
+  invCache = null; _hmRows = null;
   toast('✓ Venta borrada');
   cargarHistVentas();
 }
@@ -6319,6 +6320,103 @@ async function renderGraficaVentasDiarias(mes, almacen){
   });
   renderInsightsDiarios(porDia, fechas, metrica);
   renderPatronSemana(porDia, fechas, metrica);
+  renderAnalisisVendedora();   // usa TODOS los meses (cache), no solo el mes en pantalla
+}
+
+// ─── ¿DÓNDE Y QUÉ DÍAS CONVIENE UNA VENDEDORA? ───
+// Promedios por almacén × día de semana sobre TODOS los meses con datos
+// (un solo mes engaña: un sábado feriado o una quincena mueven todo).
+let _hmRows = null;
+async function cargarDatosSemanaTodos(){
+  if (_hmRows) return _hmRows;
+  let reps=[]; try{ const {data}=await sb.from('reportes_ventas_feria').select('id, mes').eq('estado','activo'); reps=data||[]; }catch(e){}
+  const mesesF=new Set(reps.map(r=>r.mes));
+  let det=[]; if(reps.length){ try{ det=await selectAll('ventas_feria_detalle','fecha, almacen, cantidad, valor_sin_iva', q=>q.in('reporte_id', reps.map(r=>r.id))); }catch(e){} }
+  let vent=[]; try{ vent=await selectAll('ventas','fecha, periodo, almacen_nombre, cantidad, precio_unitario'); }catch(e){}
+  const rows=[];
+  (det||[]).forEach(d=>{ if(d.fecha) rows.push({ fecha:d.fecha, alm:feriaAlmacenLargo(d.almacen), uds:d.cantidad||0, val:d.valor_sin_iva||0 }); });
+  (vent||[]).forEach(v=>{ if(v.fecha && !mesesF.has(v.periodo)) rows.push({ fecha:v.fecha, alm:v.almacen_nombre||'—', uds:v.cantidad||0, val:baseSinIva((v.cantidad||0)*(v.precio_unitario||0)) }); });
+  _hmRows=rows; return rows;
+}
+function _dowIdx(f){ const raw=diaDeSemana(f); return raw===0?6:raw-1; }   // 0=Lun … 6=Dom
+function _cuentaDows(desde, hasta){
+  const c=[0,0,0,0,0,0,0];
+  const d=new Date(desde+'T00:00:00'), h=new Date(hasta+'T00:00:00');
+  for(let x=new Date(d); x<=h; x.setDate(x.getDate()+1)){ const raw=x.getDay(); c[raw===0?6:raw-1]++; }
+  return c;
+}
+async function renderAnalisisVendedora(){
+  const el=document.getElementById('vd-vendedora'); if(!el) return;
+  if(!el.innerHTML) el.innerHTML='<div class="loader"><div class="spinner"></div></div>';
+  const rows=await cargarDatosSemanaTodos();
+  if(!rows.length){ el.innerHTML=''; return; }
+  const metrica=window._metricaVentasDiarias||'uds';
+  const DIAS=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+  // acumular por almacén × día de semana + rango de fechas por almacén
+  const A={};
+  rows.forEach(r=>{
+    const a=(A[r.alm]=A[r.alm]||{ uds:[0,0,0,0,0,0,0], val:[0,0,0,0,0,0,0], min:r.fecha, max:r.fecha, totU:0, totV:0 });
+    const i=_dowIdx(r.fecha); a.uds[i]+=r.uds; a.val[i]+=r.val; a.totU+=r.uds; a.totV+=r.val;
+    if(r.fecha<a.min) a.min=r.fecha; if(r.fecha>a.max) a.max=r.fecha;
+  });
+  const minG=rows.reduce((m,r)=>r.fecha<m?r.fecha:m, rows[0].fecha), maxG=rows.reduce((m,r)=>r.fecha>m?r.fecha:m, rows[0].fecha);
+  // promedios por ocurrencia real del día de semana en el rango de CADA almacén
+  const almacenesOrd=Object.keys(A).sort((x,y)=>A[y].totU-A[x].totU);
+  const avg={};   // avg[alm][i] = {u,v}
+  almacenesOrd.forEach(al=>{
+    const a=A[al], occ=_cuentaDows(a.min, a.max);
+    avg[al]=DIAS.map((_,i)=> occ[i]>0 ? { u:a.uds[i]/occ[i], v:a.val[i]/occ[i] } : { u:0, v:0 });
+  });
+  const cell=(al,i)=> metrica==='uds' ? avg[al][i].u : avg[al][i].v;
+  const maxCell=Math.max(1,...almacenesOrd.flatMap(al=>DIAS.map((_,i)=>cell(al,i))));
+  const fmtC=x=> metrica==='uds' ? (x>=10?Math.round(x):x.toFixed(1)) : (x>=1e6?'$'+(x/1e6).toFixed(1)+'M':'$'+Math.round(x/1000)+'K');
+  // heatmap
+  const filas=almacenesOrd.map(al=>{
+    const vals=DIAS.map((_,i)=>cell(al,i)); const best=Math.max(...vals);
+    return `<tr><td style="font-weight:600;white-space:nowrap">${limpiarAlm(al)}</td>${DIAS.map((_,i)=>{
+      const x=vals[i], alfa=(x/maxCell*0.85+((x>0)?0.06:0)).toFixed(2);
+      const esBest=x===best&&x>0;
+      return `<td title="${limpiarAlm(al)} · ${DIAS[i]}: ${avg[al][i].u.toFixed(1)} uds/día · ${COP(Math.round(avg[al][i].v))}/día" style="text-align:center;background:rgba(2,171,213,${alfa});${esBest?'font-weight:800;outline:2px solid var(--brand-dark);outline-offset:-2px;':''}${x/maxCell>0.55?'color:#fff;':''}border-radius:4px">${x>0?fmtC(x):'·'}</td>`;
+    }).join('')}</tr>`;
+  }).join('');
+  // top combinaciones (por unidades: tráfico = donde una vendedora ayuda)
+  const combos=[]; almacenesOrd.forEach(al=>DIAS.forEach((d,i)=>{ if(avg[al][i].u>0) combos.push({al,d,u:avg[al][i].u,v:avg[al][i].v}); }));
+  combos.sort((x,y)=>y.u-x.u);
+  const top=combos.slice(0,5).map((c,ix)=>`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border-light);font-size:12.5px">
+    <span>${ix+1}. <strong>${limpiarAlm(c.al)}</strong> · ${c.d==='Sáb'?'<span style="color:#EF9F27;font-weight:700">Sáb</span>':c.d==='Dom'?'<span style="color:#7F77DD;font-weight:700">Dom</span>':c.d}</span>
+    <span><strong>${c.u.toFixed(1)} uds/día</strong> <span style="color:var(--gris-medio)">· ${COP(Math.round(c.v))}</span></span></div>`).join('');
+  // recomendación por almacén: top-2 días + qué tan marcado es el pico vs su mediana
+  const recs=almacenesOrd.map(al=>{
+    const arr=DIAS.map((d,i)=>({d,u:avg[al][i].u})).sort((x,y)=>y.u-x.u);
+    const con=arr.filter(x=>x.u>0); if(con.length<3) return null;
+    const med=[...con].sort((x,y)=>x.u-y.u)[Math.floor(con.length/2)].u || 1;
+    const ratio=arr[0].u/med;
+    const tag = ratio>=1.8 ? '<span class="badge badge-warn">pico claro</span>' : ratio>=1.3 ? '<span class="badge badge-info">pico moderado</span>' : '<span class="badge badge-gray">parejo</span>';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border-light);font-size:12.5px">
+      <span style="font-weight:600">${limpiarAlm(al)}</span>
+      <span style="text-align:right"><strong>${arr[0].d}</strong> (${arr[0].u.toFixed(1)}) y <strong>${arr[1].d}</strong> (${arr[1].u.toFixed(1)}) uds/día ${tag}</span></div>`;
+  }).filter(Boolean).join('');
+  // efecto quincena (uds/día en días 15-17 y 30-2 vs el resto)
+  const q={u:0,n:0}, nq={u:0,n:0}, diasVistos={};
+  rows.forEach(r=>{ diasVistos[r.fecha]=(diasVistos[r.fecha]||0)+r.uds; });
+  Object.keys(diasVistos).forEach(f=>{ const dd=+f.slice(8,10); const esQ=(dd>=15&&dd<=17)||dd>=30||dd<=2;
+    if(esQ){ q.u+=diasVistos[f]; q.n++; } else { nq.u+=diasVistos[f]; nq.n++; } });
+  const qAvg=q.n?q.u/q.n:0, nqAvg=nq.n?nq.u/nq.n:0;
+  const qPct=nqAvg>0?Math.round((qAvg/nqAvg-1)*100):0;
+  el.innerHTML=`
+    <div style="font-size:12px;font-weight:700;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">🧍‍♀️ ¿Dónde y qué días conviene una vendedora?</div>
+    <div style="font-size:11px;color:var(--gris-medio);margin-bottom:10px">Promedio por día de semana con TODOS los datos (${_fechaLargaVF(minG)} → ${_fechaLargaVF(maxG)}), no solo el mes en pantalla. Los días sin venta cuentan como 0.</div>
+    <div class="tabla-wrap"><table style="font-size:11.5px;border-spacing:2px;border-collapse:separate">
+      <thead><tr><th></th>${DIAS.map((d,i)=>`<th style="text-align:center;color:${i===5?'#EF9F27':i===6?'#7F77DD':'var(--gris-medio)'}">${d}</th>`).join('')}</tr></thead>
+      <tbody>${filas}</tbody></table></div>
+    <div style="font-size:10px;color:var(--gris-medio);margin:4px 0 12px">Más oscuro = más ${metrica==='uds'?'unidades':'ventas'} en promedio ese día. El recuadro marca el mejor día de cada almacén. (cifras por día: ${metrica==='uds'?'unidades':'$ sin IVA'})</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">
+      <div><div style="font-size:11px;font-weight:700;color:var(--gris-medio);text-transform:uppercase;margin-bottom:4px">Top 5 · almacén + día (por unidades)</div>${top}</div>
+      <div><div style="font-size:11px;font-weight:700;color:var(--gris-medio);text-transform:uppercase;margin-bottom:4px">Mejores 2 días por almacén</div>${recs}</div>
+    </div>
+    <div style="margin-top:12px;background:var(--gris-claro);border-radius:10px;padding:10px 12px;font-size:12.5px">
+      💰 <strong>Efecto quincena:</strong> en los días de pago (15–17 y 30–2) se venden en promedio <strong>${qAvg.toFixed(0)} uds/día</strong> vs ${nqAvg.toFixed(0)} el resto del mes — <strong style="color:${qPct>=0?'#1E8A3A':'#A32D2D'}">${qPct>=0?'+':''}${qPct}%</strong>. Si vas a enviar vendedora, prioriza <strong>sábados de quincena</strong>.
+    </div>`;
 }
 function renderInsightsDiarios(porDia, fechas, metrica){
   const el=document.getElementById('vd-insights'); if(!el) return;
@@ -8682,7 +8780,7 @@ async function vfGuardar(){
     for(let i=0;i<detalle.length;i+=100){ const { error:e2 }=await sb.from('ventas_feria_detalle').insert(detalle.slice(i,i+100)); if(e2){ btn.disabled=false; btn.textContent=prev; toast(`Error guardando detalle de ${mesNombre(M.mes)}: `+detalleError(e2),'err'); console.error(e2); return; } }
   }
   btn.disabled=false; btn.textContent=prev;
-  invCache = null;   // el inventario también descuenta las ventas de Feria
+  invCache = null; _hmRows = null;   // el inventario y el análisis semanal también usan las ventas de Feria
   cerrarModal('modal-vf');
   toast('✓ Importado: ' + partes.map(M=>`${mesNombre(M.mes)} (${NUM(M.uds)} uds)`).join(' · '));
   _vfPending=null; cargarVentasFeria();
