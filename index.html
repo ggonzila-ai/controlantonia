@@ -6333,18 +6333,26 @@ async function cargarDatosSemanaTodos(){
   const mesesF=new Set(reps.map(r=>r.mes));
   let det=[]; if(reps.length){ try{ det=await selectAll('ventas_feria_detalle','fecha, almacen, cantidad, valor_sin_iva', q=>q.in('reporte_id', reps.map(r=>r.id))); }catch(e){} }
   let vent=[]; try{ vent=await selectAll('ventas','fecha, periodo, almacen_nombre, cantidad, precio_unitario'); }catch(e){}
-  const rows=[];
-  (det||[]).forEach(d=>{ if(d.fecha) rows.push({ fecha:d.fecha, alm:feriaAlmacenLargo(d.almacen), uds:d.cantidad||0, val:d.valor_sin_iva||0 }); });
-  (vent||[]).forEach(v=>{ if(v.fecha && !mesesF.has(v.periodo)) rows.push({ fecha:v.fecha, alm:v.almacen_nombre||'—', uds:v.cantidad||0, val:baseSinIva((v.cantidad||0)*(v.precio_unitario||0)) }); });
+  // Solo almacenes abiertos: uno cerrado (p.ej. La Ermita) no puede recibir vendedora.
+  let abiertos=null;
+  try{ const {data}=await sb.from('almacenes').select('nombre, activo');
+       if(data&&data.length) abiertos=new Set(data.filter(a=>a.activo!==false).map(a=>a.nombre)); }catch(e){}
+  const abierto = n => !abiertos || abiertos.has(n);
+  let rows=[];
+  (det||[]).forEach(d=>{ const a=feriaAlmacenLargo(d.almacen);
+    if(d.fecha && abierto(a)) rows.push({ fecha:d.fecha, alm:a, uds:d.cantidad||0, val:d.valor_sin_iva||0 }); });
+  (vent||[]).forEach(v=>{ const a=v.almacen_nombre||'—';
+    if(v.fecha && !mesesF.has(v.periodo) && abierto(a)) rows.push({ fecha:v.fecha, alm:a, uds:v.cantidad||0, val:baseSinIva((v.cantidad||0)*(v.precio_unitario||0)) }); });
+  // Descartar meses cargados de forma agregada (el mes entero volcado a una o dos
+  // fechas, como el histórico de enero). Sus fechas no son reales y le atribuirían
+  // la venta de todo el mes a un solo día de la semana.
+  const fechasPorMes={};
+  rows.forEach(r=>{ const m=r.fecha.slice(0,7); (fechasPorMes[m]=fechasPorMes[m]||new Set()).add(r.fecha); });
+  const mesesOk=new Set(Object.keys(fechasPorMes).filter(m=>fechasPorMes[m].size>=5));
+  rows=rows.filter(r=>mesesOk.has(r.fecha.slice(0,7)));
   _hmRows=rows; return rows;
 }
 function _dowIdx(f){ const raw=diaDeSemana(f); return raw===0?6:raw-1; }   // 0=Lun … 6=Dom
-function _cuentaDows(desde, hasta){
-  const c=[0,0,0,0,0,0,0];
-  const d=new Date(desde+'T00:00:00'), h=new Date(hasta+'T00:00:00');
-  for(let x=new Date(d); x<=h; x.setDate(x.getDate()+1)){ const raw=x.getDay(); c[raw===0?6:raw-1]++; }
-  return c;
-}
 async function renderAnalisisVendedora(){
   const el=document.getElementById('vd-vendedora'); if(!el) return;
   if(!el.innerHTML) el.innerHTML='<div class="loader"><div class="spinner"></div></div>';
@@ -6360,11 +6368,16 @@ async function renderAnalisisVendedora(){
     if(r.fecha<a.min) a.min=r.fecha; if(r.fecha>a.max) a.max=r.fecha;
   });
   const minG=rows.reduce((m,r)=>r.fecha<m?r.fecha:m, rows[0].fecha), maxG=rows.reduce((m,r)=>r.fecha>m?r.fecha:m, rows[0].fecha);
-  // promedios por ocurrencia real del día de semana en el rango de CADA almacén
+  // Denominador común: cuántas veces aparece cada día de semana entre las fechas
+  // realmente cubiertas por los datos. Antes se usaba el rango propio de cada
+  // almacén, lo que disparaba a los que tienen pocos días cargados (un almacén con
+  // un solo jueves registrado mostraba ese día completo como si fuera su promedio).
+  const occ=[0,0,0,0,0,0,0];
+  new Set(rows.map(r=>r.fecha)).forEach(f=>{ occ[_dowIdx(f)]++; });
   const almacenesOrd=Object.keys(A).sort((x,y)=>A[y].totU-A[x].totU);
   const avg={};   // avg[alm][i] = {u,v}
   almacenesOrd.forEach(al=>{
-    const a=A[al], occ=_cuentaDows(a.min, a.max);
+    const a=A[al];
     avg[al]=DIAS.map((_,i)=> occ[i]>0 ? { u:a.uds[i]/occ[i], v:a.val[i]/occ[i] } : { u:0, v:0 });
   });
   const cell=(al,i)=> metrica==='uds' ? avg[al][i].u : avg[al][i].v;
@@ -6405,7 +6418,7 @@ async function renderAnalisisVendedora(){
   const qPct=nqAvg>0?Math.round((qAvg/nqAvg-1)*100):0;
   el.innerHTML=`
     <div style="font-size:12px;font-weight:700;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">🧍‍♀️ ¿Dónde y qué días conviene una vendedora?</div>
-    <div style="font-size:11px;color:var(--gris-medio);margin-bottom:10px">Promedio por día de semana con TODOS los datos (${_fechaLargaVF(minG)} → ${_fechaLargaVF(maxG)}), no solo el mes en pantalla. Los días sin venta cuentan como 0.</div>
+    <div style="font-size:11px;color:var(--gris-medio);margin-bottom:10px">Promedio por día de semana con el histórico completo (${_fechaLargaVF(minG)} → ${_fechaLargaVF(maxG)}), no solo el mes en pantalla. Solo almacenes abiertos; los días sin venta cuentan como 0. Se excluyen los meses cargados en bloque, cuyas fechas no son reales.</div>
     <div class="tabla-wrap"><table style="font-size:11.5px;border-spacing:2px;border-collapse:separate">
       <thead><tr><th></th>${DIAS.map((d,i)=>`<th style="text-align:center;color:${i===5?'#EF9F27':i===6?'#7F77DD':'var(--gris-medio)'}">${d}</th>`).join('')}</tr></thead>
       <tbody>${filas}</tbody></table></div>
