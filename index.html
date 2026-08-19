@@ -3314,9 +3314,11 @@ function renderDashRank() {
 async function cargarBodega() {
   const [{ data }] = await Promise.all([
     sb.from('bodega').select('*').order('categoria').order('referencia'),
-    cargarTallas(), cargarCodigos()
+    cargarTallas(), cargarCodigos(), cargarAliasRef()
   ]);
-  bodegaData = data || [];
+  // Fuera los nombres viejos: un producto unificado no debe seguir apareciendo
+  // como si fuera otro distinto (ver referencia_alias).
+  bodegaData = (data || []).filter(p => !esAliasRef(p.referencia));
   renderBodega(bodegaData);
   mostrarAlertasStock();
 }
@@ -5105,8 +5107,27 @@ function periodoActual() { const d = new Date(); return `${d.getFullYear()}-${St
 function periodoNext(p) { let [y,m] = p.split('-').map(Number); m++; if (m>12){m=1;y++;} return `${y}-${String(m).padStart(2,'0')}`; }
 function periodoPrev(p) { let [y,m] = p.split('-').map(Number); m--; if (m<1){m=12;y--;} return `${y}-${String(m).padStart(2,'0')}`; }
 
+// ─── UNIFICACIÓN DE REFERENCIAS ───────────────
+// El sistema de Feria del Brasier usa nombres propios que cambian cuando cambia el
+// código o el precio ("JOGGER EN LICRA ALGODÓN" es nuestro "JOGGER"). La tabla
+// referencia_alias traduce esos nombres al real; aquí se resuelven al leer, para
+// que un mismo producto no aparezca partido en dos.
+let _aliasRef = null;
+async function cargarAliasRef(force) {
+  if (_aliasRef && !force) return _aliasRef;
+  const m = {};
+  try {
+    const { data } = await sb.from('referencia_alias').select('alias, referencia');
+    (data || []).forEach(a => { m[a.alias] = a.referencia; });
+  } catch (e) { /* si falla, se sigue con los nombres tal cual */ }
+  _aliasRef = m; return m;
+}
+function refCanon(r) { return (_aliasRef && _aliasRef[r]) || r; }
+function esAliasRef(r) { return !!(_aliasRef && _aliasRef[r]); }
+
 async function loadInvCache(force) {
   if (invCache && !force) return invCache;
+  await cargarAliasRef(force);
   const [aper, ajus, desp, ventShaped, cont, bod, remaj] = await Promise.all([
     sb.from('inventario_apertura').select('almacen_id, referencia, categoria, periodo, unidades'),
     sb.from('inventario_ajustes').select('almacen_id, referencia, periodo, unidades'),
@@ -5122,12 +5143,12 @@ async function loadInvCache(force) {
   const _idByNom = {}; (almacenes || []).forEach(a => { _idByNom[a.nombre] = a.id; });
   const _catByRef = {}; (bodegaData || []).forEach(b => { _catByRef[b.referencia] = b.categoria; });
   invCache = {
-    aperturas: aper.data || [],
-    ajustes: ajus.data || [],
-    remAjuste: remaj.data || [],
-    despItems: (desp || []).map(d => ({ almacen_id: d.despachos && d.despachos.almacen_id, periodo: periodoDe(d.despachos && d.despachos.fecha), referencia: d.referencia, categoria: d.categoria, cantidad: d.cantidad })).filter(d => d.almacen_id),
-    ventas: (ventShaped.rows || []).map(v => ({ almacen_id: v.almacen_id || _idByNom[v.almacen_nombre] || null, periodo: v.periodo, referencia: v.referencia, categoria: v.categoria || _catByRef[v.referencia] || '', cantidad: v.cantidad, precio: v.precio_unitario })).filter(v => v.almacen_id),
-    conteos: (cont.data || []).map(c => ({ almacen_id: c.almacen_id, periodo: periodoDe(c.fecha), fecha: c.fecha, items: c.conteo_items || [] }))
+    aperturas: (aper.data || []).map(a => ({ ...a, referencia: refCanon(a.referencia) })),
+    ajustes:   (ajus.data || []).map(a => ({ ...a, referencia: refCanon(a.referencia) })),
+    remAjuste: (remaj.data || []).map(a => ({ ...a, referencia: refCanon(a.referencia) })),
+    despItems: (desp || []).map(d => ({ almacen_id: d.despachos && d.despachos.almacen_id, periodo: periodoDe(d.despachos && d.despachos.fecha), referencia: refCanon(d.referencia), categoria: d.categoria, cantidad: d.cantidad })).filter(d => d.almacen_id),
+    ventas: (ventShaped.rows || []).map(v => ({ almacen_id: v.almacen_id || _idByNom[v.almacen_nombre] || null, periodo: v.periodo, referencia: refCanon(v.referencia), categoria: v.categoria || _catByRef[refCanon(v.referencia)] || '', cantidad: v.cantidad, precio: v.precio_unitario })).filter(v => v.almacen_id),
+    conteos: (cont.data || []).map(c => ({ almacen_id: c.almacen_id, periodo: periodoDe(c.fecha), fecha: c.fecha, items: (c.conteo_items || []).map(i => ({ ...i, referencia: refCanon(i.referencia) })) }))
   };
   return invCache;
 }
@@ -5609,6 +5630,7 @@ async function ultimoDiaConDatos(periodo) {
 }
 
 async function ventasShapedDelPeriodo(periodo, opts) {
+  await cargarAliasRef();
   const soloDefinitivo = !!(opts && opts.soloDefinitivo);   // comparativo histórico: excluir parciales
   let reps = [];
   try {
@@ -5637,7 +5659,7 @@ async function ventasShapedDelPeriodo(periodo, opts) {
       const real = codeMap['ANT' + String(d.referencia_base || '').toUpperCase().trim()];
       return {
         almacen_nombre: feriaAlmacenLargo(d.almacen),
-        referencia: real || d.desc_item || d.referencia_base || '—',
+        referencia: refCanon(real || d.desc_item || d.referencia_base || '—'),
         categoria: null,
         cantidad: uds,
         precio_unitario: uds ? (d.valor_con_iva || 0) / uds : 0, // con IVA por unidad → ventaTotal = valor_con_iva
