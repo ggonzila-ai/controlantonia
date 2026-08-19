@@ -4883,7 +4883,7 @@ async function enviarConteo() {
   if (inicial) {
     const periodo = periodoDe(fecha);
     if (!confirm(`Inventario INICIAL de ${limpiarAlm(almNombre)} (${mesNombre(periodo)}): se registrará el inventario de ${counted.length} referencia(s) desde cero y reemplazará el inicial existente de ese mes.${faltan ? ` ${faltan} referencia(s) sin contar quedan sin inicial.` : ''}\n\n¿Confirmar?`)) return;
-    const rows = counted.map(x => ({ almacen_id: almId, almacen_nombre: almNombre, referencia: x.it.ref, categoria: x.it.cat || '', periodo, unidades: x.v }));
+    const rows = counted.map(x => ({ almacen_id: almId, almacen_nombre: almNombre, referencia: refCanon(x.it.ref), categoria: x.it.cat || '', periodo, unidades: x.v }));
     const { error } = await sb.from('inventario_apertura').upsert(rows, { onConflict: 'almacen_id,referencia,periodo' });
     if (error) { toast('Error al guardar inventario inicial: ' + detalleError(error), 'err'); console.error(error); return; }
     toast(`✓ Inventario inicial guardado — ${counted.length} referencia(s)`);
@@ -4894,11 +4894,25 @@ async function enviarConteo() {
 
   // Conteo físico normal: registra físico vs sistema (diferencias)
   if (faltan > 0 && !confirm(`Se registrarán ${counted.length} referencia(s) contadas. ${faltan} sin contar no se modifican.\n\n¿Enviar?`)) return;
-  const items = counted.map(x => ({ referencia: x.it.ref, categoria: x.it.cat || '', cantidad_sistema: x.it.esperado, cantidad_fisica: x.v, diferencia: x.v - x.it.esperado }));
+  // `diferencia` la calcula Postgres (columna generada): mandarla hace fallar el INSERT entero.
+  // Se unifican los nombres viejos y, si dos caen en la misma referencia, se suman.
+  const porRef = {};
+  counted.forEach(x => {
+    const ref = refCanon(x.it.ref);
+    if (porRef[ref]) { porRef[ref].cantidad_fisica += x.v; porRef[ref].cantidad_sistema += x.it.esperado; }
+    else porRef[ref] = { referencia: ref, categoria: x.it.cat || '', cantidad_sistema: x.it.esperado, cantidad_fisica: x.v };
+  });
+  const items = Object.values(porRef);
   const { data: conteo, error } = await sb.from('conteos_fisicos').insert({ fecha, almacen_id: almId, almacen_nombre: almNombre, contado_por: quien }).select().single();
-  if (error) { toast('Error al guardar conteo', 'err'); return; }
-  await sb.from('conteo_items').insert(items.map(i => ({ ...i, conteo_id: conteo.id })));
-  const diffs = items.filter(i => i.diferencia !== 0).length;
+  if (error) { toast('Error al guardar conteo: ' + detalleError(error), 'err'); console.error(error); return; }
+  const { error: errItems } = await sb.from('conteo_items').insert(items.map(i => ({ ...i, conteo_id: conteo.id })));
+  if (errItems) {
+    // No dejar el encabezado sin líneas: eso hacía parecer que el conteo se había guardado.
+    await sb.from('conteos_fisicos').delete().eq('id', conteo.id);
+    toast('No se pudo guardar el conteo: ' + detalleError(errItems), 'err');
+    console.error('conteo_items insert', errItems, items); return;
+  }
+  const diffs = items.filter(i => i.cantidad_fisica !== i.cantidad_sistema).length;
   toast(`✓ Conteo enviado — ${diffs} diferencia(s)`);
   await loadInvCache(true);
   showTab('tab-if-res');
