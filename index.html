@@ -4789,8 +4789,18 @@ async function renderConciliacion() {
 
 // ─── INVENTARIO FÍSICO ────────────────────────
 let _conteoItems = [], _conteoFisico = {};
+let _conteoAlmacenActual = null;   // para poder deshacer el cambio de almacén
 async function cargarItemsConteo() {
   const almId = document.getElementById('if-almacen').value;
+  // Si hay cantidades digitadas sin enviar, avisar antes de perderlas.
+  const pendientes = Object.values(_conteoFisico || {}).filter(v => v != null && v !== '').length;
+  if (pendientes && !confirm(`Tienes ${pendientes} referencia(s) con cantidades sin enviar.\n\n`
+      + `Si cambias de almacén se pierden. ¿Continuar?`)) {
+    const sel = document.getElementById('if-almacen');
+    if (sel && _conteoAlmacenActual) sel.value = _conteoAlmacenActual;   // deshacer el cambio
+    return;
+  }
+  _conteoAlmacenActual = almId;
   const wrap = document.getElementById('if-items-wrap'), empty = document.getElementById('if-empty');
   if (!almId) { wrap.style.display = 'none'; if (empty) empty.style.display = 'none'; return; }
   await loadInvCache();
@@ -4918,6 +4928,46 @@ async function enviarConteo() {
   showTab('tab-if-res');
 }
 
+// Convierte un conteo físico en el inventario INICIAL del mes de su fecha:
+// lo contado pasa a ser el punto de partida y el saldo se recalcula desde ahí.
+async function aplicarConteoComoInicial(conteoId) {
+  if (esVendedora()) return;
+  const { data: c, error: e0 } = await sb.from('conteos_fisicos')
+    .select('*, conteo_items(referencia, categoria, cantidad_fisica)').eq('id', conteoId).single();
+  if (e0 || !c) { toast('No se pudo leer el conteo', 'err'); return; }
+  const items = c.conteo_items || [];
+  if (!items.length) { toast('Ese conteo no tiene referencias guardadas', 'err'); return; }
+  const periodo = periodoDe(c.fecha);
+  const uds = items.reduce((a, i) => a + (i.cantidad_fisica || 0), 0);
+  if (!confirm(`Usar el conteo del ${c.fecha} como inventario INICIAL de ${limpiarAlm(c.almacen_nombre)} `
+    + `en ${mesNombre(periodo)}.\n\n${items.length} referencia(s), ${NUM(uds)} unidades.\n\n`
+    + `Reemplaza el inicial que tenga ese mes y el saldo se recalcula desde este conteo. ¿Continuar?`)) return;
+
+  // Se agrupa por referencia unificada: dos nombres viejos del mismo producto se suman.
+  const porRef = {};
+  items.forEach(i => {
+    const ref = refCanon(i.referencia);
+    if (porRef[ref]) porRef[ref].unidades += (i.cantidad_fisica || 0);
+    else porRef[ref] = { almacen_id: c.almacen_id, almacen_nombre: c.almacen_nombre, referencia: ref,
+                         categoria: i.categoria || '', periodo, unidades: i.cantidad_fisica || 0 };
+  });
+  const { error } = await sb.from('inventario_apertura')
+    .upsert(Object.values(porRef), { onConflict: 'almacen_id,referencia,periodo' });
+  if (error) { toast('Error al aplicar el conteo: ' + detalleError(error), 'err'); console.error(error); return; }
+  toast(`✓ Inventario inicial de ${mesNombre(periodo)} actualizado — ${Object.keys(porRef).length} referencia(s)`);
+  await loadInvCache(true);
+  cargarResultadosConteo();
+}
+
+async function borrarConteoVacio(conteoId) {
+  if (esVendedora()) return;
+  if (!confirm('¿Eliminar este conteo vacío? No se pierde nada: no tiene ninguna referencia guardada.')) return;
+  const { error } = await sb.from('conteos_fisicos').delete().eq('id', conteoId);
+  if (error) { toast('No se pudo eliminar: ' + detalleError(error), 'err'); return; }
+  toast('✓ Conteo vacío eliminado');
+  cargarResultadosConteo();
+}
+
 async function cargarResultadosConteo() {
   const { data: conteos } = await sb.from('conteos_fisicos').select('*, conteo_items(*)').order('created_at', { ascending: false }).limit(20);
   const wrap = document.getElementById('if-res-list');
@@ -4930,16 +4980,32 @@ async function cargarResultadosConteo() {
     const falt = items.filter(i => i.diferencia < 0);
     const sobr = items.filter(i => i.diferencia > 0);
     const ok = items.filter(i => i.diferencia === 0);
+    // Un conteo sin líneas NO es un inventario cuadrado: es un conteo que no se guardó.
+    if (!items.length) return `<div class="section-card" style="margin:12px;border-color:var(--rojo)">
+      <div style="padding:14px 16px">
+        <div style="font-weight:700;font-size:14px">${c.almacen_nombre.replace('Feria del Brasier ','')}</div>
+        <div style="font-size:12px;color:var(--gris-medio);margin-bottom:8px">${c.fecha}${c.contado_por ? ' · ' + c.contado_por : ''}</div>
+        <div class="alert alert-err" style="margin:0">
+          <strong>Este conteo no tiene ninguna referencia guardada.</strong><br>
+          No es un inventario cuadrado: las líneas no llegaron a grabarse. Hay que volver a ingresarlo.
+          <div style="margin-top:8px"><button class="btn btn-secondary" style="padding:6px 12px;font-size:12px"
+            onclick="borrarConteoVacio('${c.id}')">Eliminar este conteo vacío</button></div>
+        </div>
+      </div></div>`;
     return `<div class="section-card" style="margin:12px">
       <div style="padding:14px 16px;border-bottom:1px solid var(--borde);display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap">
         <div>
           <div style="font-weight:700;font-size:14px">${c.almacen_nombre.replace('Feria del Brasier ','')}</div>
           <div style="font-size:12px;color:var(--gris-medio)">${c.fecha}${c.contado_por ? ' · ' + c.contado_por : ''}</div>
         </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           ${ok.length ? `<span class="badge badge-ok">${ok.length} OK</span>` : ''}
           ${sobr.length ? `<span class="badge badge-info">+${sobr.length} sobrante(s)</span>` : ''}
           ${falt.length ? `<span class="badge badge-err">${falt.length} faltante(s)</span>` : ''}
+          ${esVendedora() ? '' : `<button class="btn btn-secondary" style="padding:6px 12px;font-size:12px"
+            onclick="aplicarConteoComoInicial('${c.id}')"
+            title="Toma lo contado como el inventario inicial del mes: pasa a ser el punto de partida">
+            Usar como inventario inicial</button>`}
         </div>
       </div>
       ${items.filter(i => i.diferencia !== 0).length === 0
@@ -5170,11 +5236,16 @@ async function loadInvCache(force) {
 function costoDe(ref) { const p = bodegaData.find(b => b.referencia === ref); return p ? (p.costo || 0) : 0; }
 
 function fisicoDe(almId, periodo) {
-  const cs = (invCache.conteos || []).filter(c => c.almacen_id === almId && c.periodo === periodo).sort((a,b) => (a.fecha||'').localeCompare(b.fecha||''));
+  // Se combinan TODOS los conteos del mes, del más viejo al más nuevo: si el mes se
+  // contó en varias tandas (media tienda un día y el resto otro), antes solo valía la
+  // última y el resto de referencias aparecía como faltante completo.
+  // Si una referencia se contó dos veces, manda el conteo más reciente.
+  const cs = (invCache.conteos || []).filter(c => c.almacen_id === almId && c.periodo === periodo)
+    .sort((a,b) => (a.fecha||'').localeCompare(b.fecha||''));
   if (!cs.length) return null;
   const o = {};
-  cs[cs.length-1].items.forEach(it => { o[it.referencia] = (o[it.referencia]||0) + (it.cantidad_fisica||0); });
-  return o;
+  cs.forEach(c => (c.items || []).forEach(it => { o[it.referencia] = it.cantidad_fisica || 0; }));
+  return Object.keys(o).length ? o : null;
 }
 
 function inventarioMensual(almId, periodo) {
