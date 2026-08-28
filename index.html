@@ -930,7 +930,8 @@
             </div>
           </div>
         </div>
-        <div id="if-items-wrap" style="display:none">
+        <div id="if-borrador" style="display:none"></div>
+      <div id="if-items-wrap" style="display:none">
           <div id="if-controls" style="padding:10px 16px;border-bottom:1px solid var(--borde);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             <input type="text" id="if-buscar" placeholder="🔍 Buscar referencia…" oninput="renderConteoItems()" style="flex:1;min-width:150px;padding:8px 12px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:14px;font-family:inherit">
             <select id="if-cat" onchange="renderConteoItems()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"><option value="">Todas las categorías</option></select>
@@ -2076,6 +2077,43 @@ const SUPABASE_URL = 'https://ptdmrbwapyxhigcwhati.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB0ZG1yYndhcHl4aGlnY3doYXRpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwNDQ0NzcsImV4cCI6MjA5NjYyMDQ3N30.eTEVFZWLfQBQYqFuZS1PkJmuOkG1deDt461vTJ4nvLU';
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ─── RED DE SEGURIDAD: NINGUNA ESCRITURA FALLA EN SILENCIO ──────────────────
+// Dos veces se perdieron datos porque una escritura fue rechazada y el código
+// que la llamó no miraba el error: la app decía "guardado" y no había nada.
+// Esto envuelve toda insert/update/upsert/delete; si el servidor la rechaza,
+// se avisa en pantalla y queda en consola, aunque quien la llamó no lo revise.
+window._erroresEscritura = [];
+(function () {
+  const _from = sb.from.bind(sb);
+  const OPS = ['insert', 'update', 'upsert', 'delete'];
+  sb.from = function (tabla) {
+    const q = _from(tabla);
+    OPS.forEach(op => {
+      const orig = q[op];
+      if (typeof orig !== 'function') return;
+      q[op] = function (...args) {
+        let b;
+        try { b = orig.apply(q, args); } catch (e) { throw e; }
+        if (!b || typeof b.then !== 'function') return b;
+        const origThen = b.then.bind(b);
+        b.then = function (onOk, onErr) {
+          return origThen(res => {
+            if (res && res.error) {
+              const msg = res.error.message || res.error.details || String(res.error);
+              window._erroresEscritura.push({ tabla, op, error: msg, cuando: new Date().toISOString() });
+              console.error('[ESCRITURA RECHAZADA]', tabla + '.' + op, res.error, args[0]);
+              try { toast('⚠ No se guardó en ' + tabla + ': ' + msg, 'err'); } catch (e) {}
+            }
+            return onOk ? onOk(res) : res;
+          }, onErr);
+        };
+        return b;
+      };
+    });
+    return q;
+  };
+})();
 
 // ─── AUTENTICACIÓN ───────────────────────
 let _usuarioActual = null;  // { email, nombre, rol }
@@ -4878,17 +4916,51 @@ async function renderConciliacion() {
 
 // ─── INVENTARIO FÍSICO ────────────────────────
 let _conteoItems = [], _conteoFisico = {};
+
+// ─── BORRADOR DEL CONTEO (queda en este navegador) ─────────────────────────
+// Digitar un conteo largo (p. ej. desde notas de voz) y perderlo por un cierre
+// accidental o un fallo de guardado no puede volver a pasar: cada cantidad que
+// se escribe queda en el equipo hasta que el conteo se guarda y se verifica.
+function claveBorrador(almId) { return 'antonia.conteo.' + almId; }
+function guardarBorradorConteo(almId) {
+  if (!almId) return;
+  try {
+    const hay = Object.entries(_conteoFisico).filter(([k, v]) => v != null && v !== '');
+    if (!hay.length) { localStorage.removeItem(claveBorrador(almId)); return; }
+    localStorage.setItem(claveBorrador(almId), JSON.stringify({
+      guardadoEn: new Date().toISOString(), datos: Object.fromEntries(hay) }));
+  } catch (e) { /* navegador sin almacenamiento: se sigue igual */ }
+}
+function leerBorradorConteo(almId) {
+  try { const raw = localStorage.getItem(claveBorrador(almId)); return raw ? JSON.parse(raw) : null; }
+  catch (e) { return null; }
+}
+function borrarBorradorConteo(almId) {
+  try { localStorage.removeItem(claveBorrador(almId)); } catch (e) {}
+  const b = document.getElementById('if-borrador'); if (b) b.style.display = 'none';
+}
+function avisarBorrador(almId, info) {
+  const b = document.getElementById('if-borrador'); if (!b) return;
+  if (!info) { b.style.display = 'none'; return; }
+  const n = Object.keys(info.datos || {}).length;
+  const cuando = new Date(info.guardadoEn).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
+  b.style.display = 'block';
+  b.innerHTML = `<div class="alert alert-info" style="margin:0 0 12px">
+    Se recuperaron <strong>${n} cantidad(es)</strong> que habías digitado el ${cuando} y no llegaste a enviar.
+    Están cargadas abajo. <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px;margin-left:8px"
+      onclick="descartarBorradorConteo('${almId}')">Descartar y empezar de cero</button></div>`;
+}
+function descartarBorradorConteo(almId) {
+  if (!confirm('¿Descartar lo digitado y empezar de cero?')) return;
+  borrarBorradorConteo(almId); _conteoFisico = {}; renderConteoItems();
+  toast('Borrador descartado');
+}
 let _conteoAlmacenActual = null;   // para poder deshacer el cambio de almacén
 async function cargarItemsConteo() {
   const almId = document.getElementById('if-almacen').value;
-  // Si hay cantidades digitadas sin enviar, avisar antes de perderlas.
-  const pendientes = Object.values(_conteoFisico || {}).filter(v => v != null && v !== '').length;
-  if (pendientes && !confirm(`Tienes ${pendientes} referencia(s) con cantidades sin enviar.\n\n`
-      + `Si cambias de almacén se pierden. ¿Continuar?`)) {
-    const sel = document.getElementById('if-almacen');
-    if (sel && _conteoAlmacenActual) sel.value = _conteoAlmacenActual;   // deshacer el cambio
-    return;
-  }
+  // Lo digitado del almacén anterior queda guardado en el borrador de ESE almacén,
+  // así que cambiar de tienda ya no pierde nada: al volver, reaparece.
+  if (_conteoAlmacenActual && _conteoAlmacenActual !== almId) guardarBorradorConteo(_conteoAlmacenActual);
   _conteoAlmacenActual = almId;
   const wrap = document.getElementById('if-items-wrap'), empty = document.getElementById('if-empty');
   if (!almId) { wrap.style.display = 'none'; if (empty) empty.style.display = 'none'; return; }
@@ -4909,7 +4981,10 @@ async function cargarItemsConteo() {
   }
   // con stock primero; luego por categoría y referencia (las de stock 0 quedan al final)
   items.sort((a, b) => (a.esperado > 0 ? 0 : 1) - (b.esperado > 0 ? 0 : 1) || (a.cat || '').localeCompare(b.cat || '') || a.ref.localeCompare(b.ref));
-  _conteoItems = items; _conteoFisico = {};
+  _conteoItems = items;
+  const borr = leerBorradorConteo(almId);
+  _conteoFisico = (borr && borr.datos) ? { ...borr.datos } : {};
+  avisarBorrador(almId, borr);
   if (!items.length) { wrap.style.display = 'none'; if (empty) empty.style.display = 'block'; return; }
   if (empty) empty.style.display = 'none';
   wrap.style.display = 'block';
@@ -4953,6 +5028,7 @@ function renderConteoItems() {
 function onConteoInput(el) {
   const ref = el.dataset.ref;
   _conteoFisico[ref] = el.value;
+  guardarBorradorConteo(document.getElementById('if-almacen')?.value);   // nada se pierde
   const row = el.closest('.conteo-row');
   const cell = row?.querySelector('.if-d');
   if (!cell) return;
@@ -4985,7 +5061,17 @@ async function enviarConteo() {
     const rows = counted.map(x => ({ almacen_id: almId, almacen_nombre: almNombre, referencia: refCanon(x.it.ref), categoria: x.it.cat || '', periodo, unidades: x.v }));
     const { error } = await sb.from('inventario_apertura').upsert(rows, { onConflict: 'almacen_id,referencia,periodo' });
     if (error) { toast('Error al guardar inventario inicial: ' + detalleError(error), 'err'); console.error(error); return; }
-    toast(`✓ Inventario inicial guardado — ${counted.length} referencia(s)`);
+    // Confirmar contra la base antes de dar por bueno el guardado
+    const { data: chk } = await sb.from('inventario_apertura')
+      .select('referencia').eq('almacen_id', almId).eq('periodo', periodo);
+    if ((chk || []).length < rows.length) {
+      toast(`El inicial NO quedó completo (${(chk||[]).length} de ${rows.length}). `
+        + `Lo que digitaste sigue en pantalla.`, 'err');
+      return;
+    }
+    toast(`✓ Inventario inicial guardado y verificado — ${rows.length} referencia(s)`);
+    borrarBorradorConteo(almId);
+    _conteoFisico = {};
     await loadInvCache(true);
     cargarItemsConteo();
     return;
@@ -5011,8 +5097,26 @@ async function enviarConteo() {
     toast('No se pudo guardar el conteo: ' + detalleError(errItems), 'err');
     console.error('conteo_items insert', errItems, items); return;
   }
+  // Verificación: releer lo que quedó en la base. No basta con que el INSERT no
+  // devuelva error; se confirma que las líneas están y coinciden con lo enviado.
+  const { data: guardado, error: errChk } = await sb.from('conteo_items')
+    .select('referencia, cantidad_fisica').eq('conteo_id', conteo.id);
+  const nGuardadas = (guardado || []).length;
+  const sumaEnviada = items.reduce((a, i) => a + i.cantidad_fisica, 0);
+  const sumaGuardada = (guardado || []).reduce((a, i) => a + (i.cantidad_fisica || 0), 0);
+  if (errChk || nGuardadas !== items.length || sumaGuardada !== sumaEnviada) {
+    await sb.from('conteo_items').delete().eq('conteo_id', conteo.id);
+    await sb.from('conteos_fisicos').delete().eq('id', conteo.id);
+    toast(`El conteo NO quedó guardado (se enviaron ${items.length} referencias y `
+      + `se grabaron ${nGuardadas}). No se perdió lo que digitaste: sigue en pantalla.`, 'err');
+    console.error('verificacion conteo', { enviadas: items.length, guardadas: nGuardadas, errChk });
+    return;   // se conserva _conteoFisico para reintentar
+  }
+
   const diffs = items.filter(i => i.cantidad_fisica !== i.cantidad_sistema).length;
-  toast(`✓ Conteo enviado — ${diffs} diferencia(s)`);
+  toast(`✓ Conteo guardado y verificado — ${nGuardadas} referencias, ${NUM(sumaGuardada)} unidades, ${diffs} diferencia(s)`);
+  borrarBorradorConteo(almId);
+  _conteoFisico = {};
   await loadInvCache(true);
   showTab('tab-if-res');
 }
