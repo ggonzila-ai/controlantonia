@@ -4623,66 +4623,62 @@ function llenarDropdownDespacho() {
 function agregarReferenciaDespacho(ref) {
   if (!ref || despachoActual[ref]) return;
   const p = bodegaData.find(x => x.referencia === ref); if (!p) return;
-  const { tallas } = despStockRef(ref);
-  const t = {};
-  if (Object.keys(tallas).length) {
-    Object.entries(tallas).forEach(([talla, dispo]) => { t[talla] = { disponible: dispo, cantidad: 0 }; });
-  } else if (_controlBodega) {
+  if (_controlBodega && despStockRef(ref).total <= 0) {
     toast(`${ref} no tiene stock en bodega, así que no se puede despachar. `
       + `Si la mercancía existe, registra primero su entrada en Bodega → Registro.`, 'err');
     return;
-  } else {
-    // Sin control de bodega: se ofrecen las tallas del producto (o el juego
-    // completo) para poder registrar el envío aunque la bodega esté en cero.
-    const suyas = parseTallas(p.tallas);
-    const cuales = suyas.length ? suyas : ['S','M','L','XL','2XL','3XL','U'];
-    cuales.forEach(talla => { t[talla] = { disponible: 0, cantidad: 0, sinRespaldo: true }; });
   }
-  despachoActual[ref] = { categoria: p.categoria || '', tallas: t };
+  // Solo referencia y unidades: los almacenes llevan el inventario por
+  // referencia, y el reparto entre tallas de bodega lo resuelve el servidor.
+  despachoActual[ref] = { categoria: p.categoria || '', cantidad: 0 };
   const cont = document.getElementById('despacho-refs');
   const div = document.createElement('div'); div.innerHTML = renderTarjetaDespacho(ref);
   cont.appendChild(div.firstElementChild);
+  const inp = cont.querySelector(`.tarjeta-desp[data-refcard="${String(ref).replace(/"/g,'&quot;')}"] input`);
+  if (inp) inp.focus();
   llenarDropdownDespacho();
+  actualizarTotalGlobal();
+}
+
+function actualizarCantidadRef(input) {
+  const ref = input.dataset.ref;
+  const d = despachoActual[ref]; if (!d) return;
+  const limpio = String(input.value || '').replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
+  if (limpio !== input.value) input.value = limpio;
+  let val = parseInt(input.value) || 0; if (val < 0) val = 0;
+  if (_controlBodega) {
+    const tope = despStockRef(ref).total;
+    if (val > tope) { val = tope; input.value = val;
+      input.style.borderColor = 'var(--rojo)'; setTimeout(() => { input.style.borderColor = ''; }, 1500);
+      toast(`En bodega solo hay ${NUM(tope)} de ${ref}`, 'err'); }
+  }
+  d.cantidad = val;
   actualizarTotalGlobal();
 }
 
 function renderTarjetaDespacho(ref) {
   const ea = s => String(s).replace(/"/g, '&quot;');
   const data = despachoActual[ref];
-  const cols = ordenarTallas(Object.keys(data.tallas)).map(t => {
-    const d = data.tallas[t];
-    return `<div style="text-align:center;min-width:50px">
-      <div style="font-size:11px;font-weight:700">${t}</div>
-      <div style="font-size:10px;color:${d.sinRespaldo ? 'var(--rojo)' : 'var(--gris-medio)'};margin-bottom:3px"
-        title="${d.sinRespaldo ? 'Bodega no tiene esta talla registrada; se enviará sin descontar' : 'Disponible en bodega'}">${d.sinRespaldo ? 'sin reg.' : '(' + NUM(d.disponible) + ')'}</div>
-      <input type="text" inputmode="numeric" value="${d.cantidad || ''}" placeholder="0" data-ref="${ea(ref)}" data-talla="${ea(t)}" oninput="actualizarCantidadTalla(this)" onkeydown="bloquearFlechas(event)" autocomplete="off" style="width:46px;text-align:center;padding:6px 2px;font-size:14px;border:1.5px solid var(--borde);border-radius:8px;font-family:inherit">
-    </div>`;
-  }).join('');
-  return `<div class="tarjeta-desp" data-refcard="${ea(ref)}" style="border:1px solid var(--borde);border-radius:10px;padding:12px;margin-bottom:10px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px">
-      <span style="font-size:14px;font-weight:700">${ref}</span>
-      <button onclick="quitarReferenciaDespacho(this)" data-ref="${ea(ref)}" style="font-size:12px;color:var(--rojo);background:none;border:none;cursor:pointer;padding:2px 6px;white-space:nowrap">✕ Quitar</button>
+  const disp = _controlBodega ? despStockRef(ref).total : null;
+  return `<div class="tarjeta-desp" data-refcard="${ea(ref)}" style="border:1px solid var(--borde);border-radius:10px;padding:12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+    <div style="min-width:0;flex:1">
+      <div style="font-size:14px;font-weight:700">${ref}</div>
+      <div style="font-size:11px;color:var(--gris-medio)">${data.categoria || '—'}${
+        disp != null ? ` · ${NUM(disp)} en bodega` : ''}</div>
     </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">${cols}</div>
-    <div style="margin-top:8px;font-size:12px;color:var(--gris-medio);border-top:1px solid var(--borde);padding-top:6px">Total: <strong class="tot-desp" style="color:var(--carbon)">0</strong> uds</div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <input type="text" inputmode="numeric" value="${data.cantidad || ''}" placeholder="0"
+        data-ref="${ea(ref)}" oninput="actualizarCantidadRef(this)" onkeydown="bloquearFlechas(event)"
+        autocomplete="off" aria-label="Unidades de ${ea(ref)}"
+        style="width:78px;text-align:center;padding:9px 6px;font-size:16px;font-weight:600;border:1.5px solid var(--borde);border-radius:8px;font-family:inherit">
+      <span style="font-size:12px;color:var(--gris-medio)">uds</span>
+      <button onclick="quitarReferenciaDespacho(this)" data-ref="${ea(ref)}"
+        style="font-size:13px;color:var(--rojo);background:none;border:none;cursor:pointer;padding:4px 6px"
+        title="Quitar del despacho">✕</button>
+    </div>
   </div>`;
 }
 
-function actualizarCantidadTalla(input) {
-  const ref = input.dataset.ref, talla = input.dataset.talla;
-  const d = despachoActual[ref] && despachoActual[ref].tallas[talla]; if (!d) return;
-  // Solo dígitos (el campo ya no es type=number)
-  const limpio = String(input.value || '').replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
-  if (limpio !== input.value) input.value = limpio;
-  let val = parseInt(input.value) || 0; if (val < 0) val = 0;
-  if (_controlBodega && val > d.disponible) { val = d.disponible; input.value = val; input.style.borderColor = 'var(--rojo)'; setTimeout(() => { input.style.borderColor = ''; }, 1500); }
-  else input.style.borderColor = '';
-  d.cantidad = val;
-  const card = input.closest('.tarjeta-desp');
-  const totRef = Object.values(despachoActual[ref].tallas).reduce((s, x) => s + x.cantidad, 0);
-  const ts = card && card.querySelector('.tot-desp'); if (ts) ts.textContent = NUM(totRef);
-  actualizarTotalGlobal();
-}
 
 function quitarReferenciaDespacho(btn) {
   const ref = btn.dataset.ref;
@@ -4694,7 +4690,7 @@ function quitarReferenciaDespacho(btn) {
 
 function actualizarTotalGlobal() {
   let total = 0;
-  Object.values(despachoActual).forEach(r => Object.values(r.tallas).forEach(d => { total += d.cantidad; }));
+  Object.values(despachoActual).forEach(r => { total += (r.cantidad || 0); });
   const el = document.getElementById('total-despacho'); if (el) el.textContent = NUM(total);
   const btn = document.getElementById('btn-confirmar-despacho'); if (btn) btn.disabled = total === 0;
 }
@@ -4747,9 +4743,9 @@ async function confirmarDespacho() {
 
   const items = [];
   Object.entries(despachoActual).forEach(([ref, r]) => {
-    Object.entries(r.tallas).forEach(([talla, d]) => { if (d.cantidad > 0) items.push({ referencia: ref, categoria: r.categoria || '', talla, cantidad: d.cantidad }); });
+    if (r.cantidad > 0) items.push({ referencia: ref, categoria: r.categoria || '', talla: '—', cantidad: r.cantidad });
   });
-  if (!items.length) { toast('Agrega al menos una prenda', 'err'); return; }
+  if (!items.length) { toast('Escribe las unidades de al menos una referencia', 'err'); return; }
 
   const totalUnd = items.reduce((a, i) => a + i.cantidad, 0);
   const btnC = document.getElementById('btn-confirmar-despacho'); if (btnC) btnC.disabled = true;
@@ -4884,7 +4880,9 @@ async function imprimirRemision(id) {
     }
   } catch (e) { /* despacho antiguo: se imprime igual */ }
   const logoUrl = location.origin + '/antonia-sorev-logo.png';
-  const filas = its.map((i, n) => `<tr><td class="n">${n + 1}</td><td>${esc(i.referencia)}</td><td class="ce">${esc(i.categoria || '')}</td><td class="ce b">${esc(i.talla || '—')}</td><td class="ce b">${i.cantidad}</td></tr>`).join('');
+  // Las remisiones nuevas van por referencia; solo se muestra la talla si la traen
+  const hayTallas = its.some(i => i.talla && i.talla !== '—');
+  const filas = its.map((i, n) => `<tr><td class="n">${n + 1}</td><td>${esc(i.referencia)}</td><td class="ce">${esc(i.categoria || '')}</td>${hayTallas ? `<td class="ce b">${esc(i.talla || '—')}</td>` : ''}<td class="ce b">${i.cantidad}</td></tr>`).join('');
   const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Remisión ${esc(d.remision)}</title>
 <style>
   *{box-sizing:border-box}@page{size:A4;margin:14mm}
@@ -4926,9 +4924,9 @@ async function imprimirRemision(id) {
     <div><div class="k">Total unidades</div><div class="v">${totUds}</div></div>
   </div>
   <table>
-    <thead><tr><th class="ce">#</th><th>Referencia</th><th>Categoría</th><th class="ce">Talla</th><th class="ce">Cant.</th></tr></thead>
+    <thead><tr><th class="ce">#</th><th>Referencia</th><th>Categoría</th>${hayTallas ? '<th class="ce">Talla</th>' : ''}<th class="ce">Cant.</th></tr></thead>
     <tbody>${filas || '<tr><td colspan="5" style="text-align:center;color:#999;padding:18px">Sin prendas registradas</td></tr>'}</tbody>
-    <tfoot><tr><td colspan="4" class="tot">TOTAL UNIDADES</td><td class="ce">${totUds}</td></tr></tfoot>
+    <tfoot><tr><td colspan="${hayTallas ? 4 : 3}" class="tot">TOTAL UNIDADES</td><td class="ce">${totUds}</td></tr></tfoot>
   </table>
   <div class="firmas">
     <div>Entregado por</div>
