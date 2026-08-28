@@ -4809,7 +4809,27 @@ async function confirmarDespacho() {
   }
 }
 
+// Corregir la fecha de un envío ya registrado. No mueve stock: solo cambia
+// cuándo ocurrió, que es lo que decide en qué mes y columna aparece.
+async function editarFechaDespacho(despachoId, remision, fechaActual) {
+  if (esVendedora()) return;
+  const nueva = prompt(`Fecha del envío ${remision}\n\nActual: ${fechaActual}\n`
+    + `Escribe la fecha correcta (AAAA-MM-DD):`, fechaActual);
+  if (!nueva) return;
+  const f = nueva.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) { toast('Formato de fecha no válido. Usa AAAA-MM-DD, por ejemplo 2026-08-10', 'err'); return; }
+  if (f === fechaActual) return;
+  const { data: res, error } = await sb.rpc('editar_fecha_remision',
+    { p_despacho_id: despachoId, p_nueva_fecha: f, p_usuario: _usuarioActual?.nombre || 'app' });
+  if (error) { toast('No se pudo cambiar la fecha: ' + detalleError(error), 'err'); return; }
+  if (res && res.sin_cambios) { toast('La fecha ya era esa'); return; }
+  toast(`✓ ${remision}: ${res.fecha_anterior} → ${res.fecha_nueva}`);
+  await loadInvCache(true);
+  cargarHistDespachos();
+}
+
 async function cargarHistDespachos() {
+  const ea = s => String(s == null ? '' : s).replace(/'/g, "\\'").replace(/"/g, '&quot;');
   const { data } = await sb.from('despachos').select('*').order('fecha', { ascending: false }).limit(50);
   document.getElementById('despacho-hist-tbody').innerHTML = (data || []).map(d => `
     <tr>
@@ -4818,8 +4838,9 @@ async function cargarHistDespachos() {
       <td style="font-size:12px">${d.almacen_nombre.replace('Feria del Brasier ','')}</td>
       <td>${NUM(d.total_unidades)}</td>
       <td style="white-space:nowrap">
+        ${esVendedora() ? '' : `<button onclick="editarFechaDespacho('${d.id}','${ea(d.remision)}','${d.fecha}')" title="Corregir la fecha del envío" style="background:none;border:none;color:var(--brand-mid);cursor:pointer;font-size:15px;padding:2px 6px">📅</button>`}
         <button onclick="imprimirRemision('${d.id}')" title="Generar remisión imprimible / PDF" style="background:none;border:none;color:var(--rosa-oscuro);cursor:pointer;font-size:15px;padding:2px 6px">🖨</button>
-        <button onclick="deleteDespacho('${d.id}','${d.remision}')" title="Anular despacho y devolver stock" style="background:none;border:none;color:var(--rojo);cursor:pointer;font-size:15px;padding:2px 6px">✕</button>
+        ${esVendedora() ? '' : `<button onclick="deleteDespacho('${d.id}','${ea(d.remision)}')" title="Anular despacho y devolver stock" style="background:none;border:none;color:var(--rojo);cursor:pointer;font-size:15px;padding:2px 6px">✕</button>`}
       </td>
     </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--gris-medio)">Sin despachos registrados.</td></tr>';
 }
@@ -5302,6 +5323,31 @@ async function enviarConteo() {
 
 // Convierte un conteo físico en el inventario INICIAL del mes de su fecha:
 // lo contado pasa a ser el punto de partida y el saldo se recalcula desde ahí.
+// Corrige el día del conteo. Si con eso cambia de mes y ya se había usado como
+// inventario inicial, la apertura se mueve al mes correcto.
+async function editarFechaConteo(conteoId, fechaActual) {
+  if (esVendedora()) return;
+  const nueva = prompt(`¿Qué día se hizo realmente este conteo?\n\nActual: ${fechaActual}\n`
+    + `Escribe la fecha correcta (AAAA-MM-DD):`, fechaActual);
+  if (!nueva) return;
+  const f = nueva.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) { toast('Formato no válido. Usa AAAA-MM-DD, por ejemplo 2026-08-04', 'err'); return; }
+  if (f === fechaActual) return;
+  if (f.slice(0,7) !== fechaActual.slice(0,7) &&
+      !confirm(`Cambias el conteo de ${mesNombre(fechaActual.slice(0,7))} a ${mesNombre(f.slice(0,7))}.\n\n`
+        + `Si lo habías usado como inventario inicial, la apertura se mueve al mes nuevo.\n\n¿Continuar?`)) return;
+  const { data: res, error } = await sb.rpc('editar_fecha_conteo',
+    { p_conteo_id: conteoId, p_nueva_fecha: f, p_usuario: _usuarioActual?.nombre || 'app' });
+  if (error) { toast('No se pudo cambiar la fecha: ' + detalleError(error), 'err'); return; }
+  if (res && res.sin_cambios) { toast('La fecha ya era esa'); return; }
+  let msg = `✓ Conteo de ${limpiarAlm(res.almacen)}: ${res.fecha_anterior} → ${res.fecha_nueva}`;
+  if (res.cambio_de_mes && res.refs_movidas)
+    msg += ` · ${res.refs_movidas} referencia(s) movidas al inicial de ${mesNombre(res.periodo_nuevo)}`;
+  toast(msg);
+  await loadInvCache(true);
+  cargarResultadosConteo();
+}
+
 async function aplicarConteoComoInicial(conteoId) {
   if (esVendedora()) return;
   const { data: c, error: e0 } = await sb.from('conteos_fisicos')
@@ -5375,6 +5421,9 @@ async function cargarResultadosConteo() {
           ${sobr.length ? `<span class="badge badge-info">+${sobr.length} sobrante(s)</span>` : ''}
           ${falt.length ? `<span class="badge badge-err">${falt.length} faltante(s)</span>` : ''}
           ${esVendedora() ? '' : `<button class="btn btn-secondary" style="padding:6px 12px;font-size:12px"
+            onclick="editarFechaConteo('${c.id}','${c.fecha}')"
+            title="Corregir el día en que se hizo el conteo">📅 Cambiar fecha</button>
+          <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px"
             onclick="aplicarConteoComoInicial('${c.id}')"
             title="Toma lo contado como el inventario inicial del mes: pasa a ser el punto de partida">
             Usar como inventario inicial</button>`}
