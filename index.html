@@ -212,6 +212,13 @@
   }
 
   /* LOGIN SCREEN */
+  /* Los campos de cantidad no llevan flechas ni responden a la rueda del trackpad:
+     al desplazar la página cambiaban los números sin que nadie los tocara. */
+  input.if-c::-webkit-outer-spin-button, input.if-c::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner-spin-button {
+    -webkit-appearance: none; margin: 0; }
+  input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+  input.if-c { text-align: center; }
   .login-screen { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--gris-claro); display: flex; align-items: center; justify-content: center; z-index: 999; }
   .login-container { background: var(--blanco); border-radius: 12px; padding: 32px 24px; width: 90%; max-width: 380px; box-shadow: 0 10px 40px rgba(0,0,0,0.08); }
   .login-logo { font-size: 28px; font-weight: 700; color: var(--carbon); margin-bottom: 28px; text-align: center; }
@@ -2075,6 +2082,14 @@
 // ═══════════════════════════════════════════════
 const SUPABASE_URL = 'https://ptdmrbwapyxhigcwhati.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB0ZG1yYndhcHl4aGlnY3doYXRpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwNDQ0NzcsImV4cCI6MjA5NjYyMDQ3N30.eTEVFZWLfQBQYqFuZS1PkJmuOkG1deDt461vTJ4nvLU';
+
+// Con el cursor sobre un campo numérico, desplazar la página le cambiaba el valor.
+document.addEventListener('wheel', function (ev) {
+  const el = ev.target;
+  if (el && el.tagName === 'INPUT' && (el.type === 'number' || el.classList.contains('if-c'))) {
+    el.blur();   // se suelta el campo y la página se desplaza normal
+  }
+}, { passive: true });
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -4966,18 +4981,23 @@ async function cargarItemsConteo() {
   if (!almId) { wrap.style.display = 'none'; if (empty) empty.style.display = 'none'; return; }
   await loadInvCache();
   const admin = !esVendedora();
+  await cargarAliasRef();                                  // para no listar nombres viejos
   const invRows = inventarioActual(almId).rows;            // motor: inicial + remisiones − ventas + ajustes
   const sysMap = {}; invRows.forEach(r => { sysMap[r.ref] = r.final; });
   let items;
   if (admin) {
     // ADMIN: TODAS las referencias del catálogo (bodega) + cualquiera con movimiento, con su stock de sistema (0 si no hay)
     const m = new Map();
-    (bodegaData || []).forEach(p => { if (p && p.referencia) m.set(p.referencia, { ref: p.referencia, cat: p.categoria || '', esperado: sysMap[p.referencia] || 0 }); });
-    invRows.forEach(r => { if (!m.has(r.ref)) m.set(r.ref, { ref: r.ref, cat: r.cat || '', esperado: r.final }); });
+    // Se omiten los nombres viejos: aparecerían como un producto aparte y al guardar
+    // chocarían con su referencia real.
+    (bodegaData || []).forEach(p => { if (p && p.referencia && !esAliasRef(p.referencia))
+      m.set(p.referencia, { ref: p.referencia, cat: p.categoria || '', esperado: sysMap[p.referencia] || 0 }); });
+    invRows.forEach(r => { if (!m.has(r.ref) && !esAliasRef(r.ref))
+      m.set(r.ref, { ref: r.ref, cat: r.cat || '', esperado: r.final }); });
     items = [...m.values()];
   } else {
     // VENDEDORA: solo referencias con stock en su almacén (sin cambios)
-    items = invRows.filter(r => r.final > 0).map(r => ({ ref: r.ref, cat: r.cat || '', esperado: r.final }));
+    items = invRows.filter(r => r.final > 0 && !esAliasRef(r.ref)).map(r => ({ ref: r.ref, cat: r.cat || '', esperado: r.final }));
   }
   // con stock primero; luego por categoría y referencia (las de stock 0 quedan al final)
   items.sort((a, b) => (a.esperado > 0 ? 0 : 1) - (b.esperado > 0 ? 0 : 1) || (a.cat || '').localeCompare(b.cat || '') || a.ref.localeCompare(b.ref));
@@ -5015,7 +5035,7 @@ function renderConteoItems() {
         <div style="font-size:11px;color:var(--gris-medio)">${it.cat || '—'}${it.esperado === 0 ? ' · sin stock' : ''}</div>
       </div>
       <div style="text-align:center;font-weight:600;color:var(--gris-medio)">${inicial ? '—' : NUM(it.esperado)}</div>
-      <input type="number" class="if-c" data-ref="${ea(it.ref)}" min="0" placeholder="0" value="${has ? ea(raw) : ''}" oninput="onConteoInput(this)">
+      <input type="text" inputmode="numeric" pattern="[0-9]*" class="if-c" data-ref="${ea(it.ref)}" placeholder="0" value="${has ? ea(raw) : ''}" oninput="onConteoInput(this)" onkeydown="bloquearFlechas(event)" autocomplete="off">
       <div class="${diffCls}" data-ref="${ea(it.ref)}" style="text-align:center;font-size:13px">${diffText}</div>
     </div>`;
   }).join('') : '<div style="padding:16px;text-align:center;color:var(--gris-medio);font-size:13px">Sin referencias para el filtro.</div>';
@@ -5025,8 +5045,17 @@ function renderConteoItems() {
   if (nota) nota.textContent = `${contados} de ${total} referencias con conteo${(q || cat) ? ` · mostrando ${list.length}` : ''}`;
 }
 
+// Las flechas ↑↓ cambiaban la cantidad sin querer al navegar con el teclado.
+function bloquearFlechas(ev) {
+  if (ev.key === 'ArrowUp' || ev.key === 'ArrowDown') ev.preventDefault();
+}
+
 function onConteoInput(el) {
   const ref = el.dataset.ref;
+  // Solo dígitos: nada de letras, signos ni decimales por accidente.
+  const limpio = String(el.value || '').replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
+  if (limpio !== el.value) { const p = el.selectionStart; el.value = limpio;
+    try { el.setSelectionRange(Math.max(0, p - 1), Math.max(0, p - 1)); } catch (e) {} }
   _conteoFisico[ref] = el.value;
   guardarBorradorConteo(document.getElementById('if-almacen')?.value);   // nada se pierde
   const row = el.closest('.conteo-row');
@@ -5058,7 +5087,20 @@ async function enviarConteo() {
   if (inicial) {
     const periodo = periodoDe(fecha);
     if (!confirm(`Inventario INICIAL de ${limpiarAlm(almNombre)} (${mesNombre(periodo)}): se registrará el inventario de ${counted.length} referencia(s) desde cero y reemplazará el inicial existente de ese mes.${faltan ? ` ${faltan} referencia(s) sin contar quedan sin inicial.` : ''}\n\n¿Confirmar?`)) return;
-    const rows = counted.map(x => ({ almacen_id: almId, almacen_nombre: almNombre, referencia: refCanon(x.it.ref), categoria: x.it.cat || '', periodo, unidades: x.v }));
+    // Dos nombres viejos del mismo producto (p. ej. PIJAMA SHORT MIA y PIJAMA MÍA
+    // PLUS DE SHORT) se convierten en la misma referencia: hay que SUMARLOS antes
+    // de guardar. Si van como dos filas, la base rechaza el comando completo.
+    const porRefIni = {};
+    counted.forEach(x => {
+      const ref = refCanon(x.it.ref);
+      if (porRefIni[ref]) porRefIni[ref].unidades += x.v;
+      else porRefIni[ref] = { almacen_id: almId, almacen_nombre: almNombre, referencia: ref,
+                              categoria: x.it.cat || '', periodo, unidades: x.v };
+    });
+    const rows = Object.values(porRefIni);
+    const fusionadas = counted.length - rows.length;
+    if (fusionadas > 0 && !confirm(`${fusionadas} referencia(s) que contaste son el mismo producto con `
+        + `otro nombre y se van a sumar.\n\nQuedan ${rows.length} referencias. ¿Continuar?`)) return;
     const { error } = await sb.from('inventario_apertura').upsert(rows, { onConflict: 'almacen_id,referencia,periodo' });
     if (error) { toast('Error al guardar inventario inicial: ' + detalleError(error), 'err'); console.error(error); return; }
     // Confirmar contra la base antes de dar por bueno el guardado
@@ -5069,7 +5111,7 @@ async function enviarConteo() {
         + `Lo que digitaste sigue en pantalla.`, 'err');
       return;
     }
-    toast(`✓ Inventario inicial guardado y verificado — ${rows.length} referencia(s)`);
+    toast(`✓ Inventario inicial guardado y verificado — ${rows.length} referencia(s), ${NUM(rows.reduce((a,r)=>a+r.unidades,0))} unidades`);
     borrarBorradorConteo(almId);
     _conteoFisico = {};
     await loadInvCache(true);
@@ -5582,7 +5624,7 @@ async function cargarControlMensual() {
     const iniMarca = `<span title="${iniOrigen.tt}" style="color:${iniOrigen.col};font-size:11px;margin-right:4px">${iniOrigen.pt}</span>`;
     const iniCell = soloLectura
       ? `<td style="text-align:right;font-weight:600">${iniMarca}${NUM(r.inicial)}</td>`
-      : `<td style="text-align:right;white-space:nowrap">${iniMarca}<input type="number" ${da} value="${r.inicial}" onchange="guardarInicialManual(this)" title="${iniOrigen.tt}" style="width:58px;padding:5px;text-align:right;font-size:13px;border:1px solid ${r.inicialCargado ? 'var(--verde)' : 'var(--borde)'};border-radius:6px;background:var(--blanco)"></td>`;
+      : `<td style="text-align:right;white-space:nowrap">${iniMarca}<input type="text" inputmode="numeric" ${da} value="${r.inicial}" onchange="guardarInicialManual(this)" onkeydown="bloquearFlechas(event)" autocomplete="off" title="${iniOrigen.tt}" style="width:58px;padding:5px;text-align:right;font-size:13px;border:1px solid ${r.inicialCargado ? 'var(--verde)' : 'var(--borde)'};border-radius:6px;background:var(--blanco)"></td>`;
     const novCell = soloLectura
       ? `<td style="text-align:right;white-space:nowrap"><span style="color:${novColor}">${novTxt||'—'}</span></td>`
       : `<td style="text-align:right;white-space:nowrap"><span style="color:${novColor}">${novTxt||'—'}</span> <button ${da} onclick="abrirModalNovedad(this)" title="Registrar novedad" style="background:none;border:1px solid var(--borde);border-radius:6px;color:var(--rosa-oscuro);cursor:pointer;font-size:12px;padding:2px 6px">✎</button></td>`;
