@@ -4520,11 +4520,40 @@ async function llenarSelectRefs() {
   };
 }
 
+// ─── UBICACIONES Y VARIANTES (modelo de inventario por ubicación) ──────────
+let _ubicaciones = null;
+async function cargarUbicaciones(force) {
+  if (_ubicaciones && !force) return _ubicaciones;
+  const { data } = await sb.from('ubicaciones').select('id, tipo, almacen_id, nombre, activo');
+  _ubicaciones = data || [];
+  return _ubicaciones;
+}
+async function ubicacionBodega() {
+  const u = await cargarUbicaciones();
+  return (u.find(x => x.tipo === 'bodega') || {}).id || null;
+}
+async function ubicacionDeAlmacen(almacenId) {
+  const u = await cargarUbicaciones();
+  return (u.find(x => x.almacen_id === almacenId) || {}).id || null;
+}
+// Devuelve el id de la variante (referencia, talla), creándola si hace falta.
+async function varianteId(referencia, talla) {
+  const ref = refCanon(referencia), t = talla || '—';
+  const { data } = await sb.from('variantes').select('id').eq('referencia', ref).eq('talla', t).maybeSingle();
+  if (data) return data.id;
+  const { data: nueva, error } = await sb.from('variantes').insert({ referencia: ref, talla: t }).select('id').single();
+  if (error) throw new Error('No se pudo registrar la variante ' + ref + ' talla ' + t + ': ' + detalleError(error));
+  return nueva.id;
+}
+
+// Confirma la remisión con la RPC atómica: valida el stock, descuenta de bodega,
+// suma al almacén, deja el movimiento asentado y sincroniza el modelo anterior,
+// todo en una sola transacción. Si algo falla, no se mueve nada.
 async function confirmarDespacho() {
   const almId = document.getElementById('d-almacen').value;
   const almNombre = document.querySelector('#d-almacen option:checked')?.dataset?.nombre || '';
   const fecha = document.getElementById('d-fecha').value;
-  const remision = document.getElementById('d-remision').value || ('REM-' + Date.now().toString().slice(-4));
+  const remisionManual = document.getElementById('d-remision').value.trim();
   if (!almId || !fecha) { toast('Selecciona almacén y fecha', 'err'); return; }
 
   const items = [];
@@ -4532,36 +4561,63 @@ async function confirmarDespacho() {
     Object.entries(r.tallas).forEach(([talla, d]) => { if (d.cantidad > 0) items.push({ referencia: ref, categoria: r.categoria || '', talla, cantidad: d.cantidad }); });
   });
   if (!items.length) { toast('Agrega al menos una prenda', 'err'); return; }
-  // Revalidar contra el disponible actual (por si cambió)
-  for (const it of items) {
-    const disp = stockPorTallaDe(it.referencia)[it.talla] || 0;
-    if (disp < it.cantidad) { toast(`Stock insuficiente: ${it.referencia} talla ${it.talla} (${disp} disp.)`, 'err'); return; }
-  }
 
   const totalUnd = items.reduce((a, i) => a + i.cantidad, 0);
   const btnC = document.getElementById('btn-confirmar-despacho'); if (btnC) btnC.disabled = true;
-  const { data: desp, error } = await sb.from('despachos').insert({ remision, fecha, almacen_id: almId, almacen_nombre: almNombre, total_unidades: totalUnd }).select().single();
-  if (error) { toast('Error al guardar despacho', 'err'); if (btnC) btnC.disabled = false; return; }
+  const fin = (msg, tipo) => { if (btnC) btnC.disabled = false; if (msg) toast(msg, tipo || 'err'); };
 
-  await sb.from('despacho_items').insert(items.map(i => ({ ...i, despacho_id: desp.id })));
-  // Descontar del stock_por_talla (misma fuente que las entradas y Existencias), agregando por referencia
-  const porRef = {};
-  items.forEach(i => { (porRef[i.referencia] = porRef[i.referencia] || {})[i.talla] = (porRef[i.referencia][i.talla] || 0) + i.cantidad; });
-  for (const ref of Object.keys(porRef)) {
-    const { data: cur } = await sb.from('bodega').select('id, stock_por_talla').eq('referencia', ref).maybeSingle();
-    if (!cur) continue;
-    const spt = (cur.stock_por_talla && Object.keys(cur.stock_por_talla).length) ? { ...cur.stock_por_talla } : stockPorTallaDe(ref);
-    Object.entries(porRef[ref]).forEach(([t, c]) => { spt[t] = Math.max(0, (+spt[t] || 0) - c); });
-    const tot = Object.values(spt).reduce((s, v) => s + (+v || 0), 0);
-    await sb.from('bodega').update({ stock: tot, stock_por_talla: spt }).eq('id', cur.id);
+  let remId = null;
+  try {
+    const [uBod, uAlm] = await Promise.all([ubicacionBodega(), ubicacionDeAlmacen(almId)]);
+    if (!uBod) { fin('No hay una bodega registrada como ubicación'); return; }
+    if (!uAlm) { fin('Ese almacén no está registrado como ubicación de inventario'); return; }
+
+    // 1) borrador
+    const cab = { ubicacion_origen: uBod, ubicacion_destino: uAlm, fecha,
+                  responsable: _usuarioActual?.nombre || null, creada_por: _usuarioActual?.email || 'app' };
+    if (remisionManual) cab.numero = remisionManual;
+    const { data: rem, error: e1 } = await sb.from('remisiones').insert(cab).select().single();
+    if (e1) { fin('No se pudo crear la remisión: ' + detalleError(e1)); return; }
+    remId = rem.id;
+
+    // 2) prendas (una fila por variante; si la misma se repite, se suma)
+    const porVar = {};
+    for (const it of items) {
+      const vid = await varianteId(it.referencia, it.talla);
+      porVar[vid] = (porVar[vid] || 0) + it.cantidad;
+    }
+    const filas = Object.entries(porVar).map(([variante_id, cantidad]) => ({ remision_id: remId, variante_id, cantidad }));
+    const { error: e2 } = await sb.from('remision_items').insert(filas);
+    if (e2) {
+      await sb.from('remisiones').delete().eq('id', remId);   // borrador sin prendas: no dejarlo
+      fin('No se pudieron guardar las prendas: ' + detalleError(e2)); return;
+    }
+
+    // 3) confirmación atómica
+    const { data: res, error: e3 } = await sb.rpc('confirmar_remision',
+      { p_remision_id: remId, p_usuario: _usuarioActual?.nombre || _usuarioActual?.email || 'app' });
+    if (e3) {
+      // La RPC no movió nada: se descarta el borrador para no dejar basura.
+      await sb.from('remision_items').delete().eq('remision_id', remId);
+      await sb.from('remisiones').delete().eq('id', remId);
+      fin(detalleError(e3)); return;
+    }
+
+    const numero = (res && res.numero) || rem.numero;
+    toast(`✓ ${numero} — ${NUM(totalUnd)} uds despachadas`);
+    document.getElementById('d-remision').value = '';
+    await cargarBodega();
+    await llenarSelectDespachoRef();
+    await loadInvCache(true);
+    cargarHistDespachos();
+    if (btnC) btnC.disabled = false;
+    if (res && res.despacho_id && confirm(`Remisión ${numero} confirmada. ¿Generar el PDF?`)) imprimirRemision(res.despacho_id);
+  } catch (err) {
+    if (remId) { try { await sb.from('remision_items').delete().eq('remision_id', remId);
+                       await sb.from('remisiones').delete().eq('id', remId); } catch (e) {} }
+    fin('Error al despachar: ' + (err && err.message ? err.message : err));
+    console.error('confirmarDespacho', err);
   }
-
-  toast(`✓ ${remision} — ${NUM(totalUnd)} uds despachadas`);
-  document.getElementById('d-remision').value = '';
-  await cargarBodega();              // refresca bodegaData con el stock descontado
-  await llenarSelectDespachoRef();   // resetea tarjetas y dropdown con el stock nuevo
-  cargarHistDespachos();
-  if (confirm(`Despacho ${remision} guardado. ¿Generar la remisión imprimible (PDF)?`)) imprimirRemision(desp.id);
 }
 
 async function cargarHistDespachos() {
@@ -4580,15 +4636,27 @@ async function cargarHistDespachos() {
 }
 
 async function deleteDespacho(id, remision) {
-  if (!confirm(`¿Anular el despacho ${remision}? Se devolverá el stock a bodega por talla.`)) return;
-  const { data: items } = await sb.from('despacho_items').select('referencia, talla, cantidad').eq('despacho_id', id);
-  for (const it of (items || [])) {
-    if (it.talla) await sb.rpc('mov_bodega_talla', { p_ref: it.referencia, p_talla: it.talla, p_delta: it.cantidad });
+  if (!confirm(`¿Anular la remisión ${remision}? Se devolverá el stock a bodega por talla.`)) return;
+  // Si nació del flujo nuevo, se anula con la RPC: revierte stock, bodega y despacho
+  // en una sola transacción y deja el movimiento asentado.
+  const { data: rem } = await sb.from('remisiones').select('id, numero').eq('despacho_id', id).maybeSingle();
+  if (rem) {
+    const { data: res, error } = await sb.rpc('anular_remision',
+      { p_remision_id: rem.id, p_usuario: _usuarioActual?.nombre || 'app', p_motivo: 'Anulada desde despachos' });
+    if (error) { toast('No se pudo anular: ' + detalleError(error), 'err'); return; }
+    toast(`✓ ${rem.numero} anulada — ${NUM((res && res.unidades) || 0)} uds devueltas a bodega`);
+  } else {
+    // Despacho antiguo (anterior al modelo de remisiones): se revierte como antes.
+    const { data: items } = await sb.from('despacho_items').select('referencia, talla, cantidad').eq('despacho_id', id);
+    for (const it of (items || [])) {
+      if (it.talla) await sb.rpc('mov_bodega_talla', { p_ref: it.referencia, p_talla: it.talla, p_delta: it.cantidad });
+    }
+    await sb.from('despacho_items').delete().eq('despacho_id', id);
+    const { error } = await sb.from('despachos').delete().eq('id', id);
+    if (error) { toast('Error al anular despacho: ' + detalleError(error), 'err'); return; }
+    toast(`✓ ${remision} anulado, stock devuelto`);
   }
-  await sb.from('despacho_items').delete().eq('despacho_id', id);
-  const { error } = await sb.from('despachos').delete().eq('id', id);
-  if (error) { toast('Error al anular despacho', 'err'); return; }
-  toast(`✓ ${remision} anulado, stock devuelto`);
+  await loadInvCache(true);
   cargarHistDespachos();
   cargarBodega();
 }
@@ -4610,6 +4678,19 @@ async function imprimirRemision(id) {
   const fechaFmt = new Date(d.fecha + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' });
   const genFmt = new Date().toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
   const esc = s => String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  // Datos de la remisión (origen y responsable) si el despacho nació del flujo nuevo
+  let origenNom = 'Bodega Central', responsable = '';
+  try {
+    const { data: rr } = await sb.from('remisiones')
+      .select('responsable, confirmada_por, ubicacion_origen').eq('despacho_id', id).maybeSingle();
+    if (rr) {
+      responsable = rr.responsable || rr.confirmada_por || '';
+      const us = await cargarUbicaciones();
+      const uo = us.find(u => u.id === rr.ubicacion_origen);
+      if (uo && uo.nombre) origenNom = uo.nombre;
+    }
+  } catch (e) { /* despacho antiguo: se imprime igual */ }
+  const logoUrl = location.origin + '/antonia-sorev-logo.png';
   const filas = its.map((i, n) => `<tr><td class="n">${n + 1}</td><td>${esc(i.referencia)}</td><td class="ce">${esc(i.categoria || '')}</td><td class="ce b">${esc(i.talla || '—')}</td><td class="ce b">${i.cantidad}</td></tr>`).join('');
   const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Remisión ${esc(d.remision)}</title>
 <style>
@@ -4636,14 +4717,18 @@ async function imprimirRemision(id) {
   .bar{text-align:center;margin-top:22px}
   .bar button{background:#014A5E;color:#fff;border:0;padding:11px 24px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin:0 4px}
   .bar button.alt{background:#eee;color:#333}
-  @media print{body{padding:0}.bar{display:none}}
+  .logo{height:52px;width:auto;display:block;margin-bottom:4px}
+  @media print{body{padding:0}.bar{display:none}.logo{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 </style></head><body>
   <div class="top">
-    <div class="brand">ANTON<b>IA</b><span class="sub">FERIA DEL BRASIER</span></div>
+    <div class="brand"><img src="${logoUrl}" alt="ANTONIA" class="logo"
+         onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><span class="brandTxt" style="display:none">ANTON<b>IA</b></span><span class="sub">FERIA DEL BRASIER</span></div>
     <div class="doc"><div class="t">REMISIÓN DE DESPACHO</div><div class="rem">${esc(d.remision)}</div><div class="f">${fechaFmt}</div></div>
   </div>
   <div class="meta">
+    <div><div class="k">Bodega origen</div><div class="v">${esc(origenNom)}</div></div>
     <div><div class="k">Almacén destino</div><div class="v">${esc(d.almacen_nombre)}</div></div>
+    ${responsable ? `<div><div class="k">Responsable</div><div class="v">${esc(responsable)}</div></div>` : ''}
     <div><div class="k">Referencias</div><div class="v">${totRefs}</div></div>
     <div><div class="k">Total unidades</div><div class="v">${totUds}</div></div>
   </div>
@@ -4652,7 +4737,10 @@ async function imprimirRemision(id) {
     <tbody>${filas || '<tr><td colspan="5" style="text-align:center;color:#999;padding:18px">Sin prendas registradas</td></tr>'}</tbody>
     <tfoot><tr><td colspan="4" class="tot">TOTAL UNIDADES</td><td class="ce">${totUds}</td></tr></tfoot>
   </table>
-  <div class="firmas"><div>Entregado por</div><div>Recibido por</div></div>
+  <div class="firmas">
+    <div>Entregado por</div>
+    <div>Recibido conforme<div style="font-size:9px;color:#999;margin-top:2px">Nombre, cédula y fecha</div></div>
+  </div>
   <div class="pie">Generado por Antonia — Gestión de Inventario · ${genFmt}</div>
   <div class="bar"><button onclick="window.print()">Imprimir / Guardar PDF</button><button class="alt" onclick="window.close()">Cerrar</button></div>
   <script>window.addEventListener('load',function(){setTimeout(function(){try{window.focus();window.print();}catch(e){}},300);});<\/script>
