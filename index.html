@@ -894,7 +894,7 @@
       <div class="metrics" id="invc-kpis" style="margin-bottom:14px"></div>
       <div class="section-card">
         <div class="tabla-wrap"><table>
-          <thead><tr>
+          <thead id="invc-thead"><tr>
             <th>Referencia</th>
             <th style="text-align:right">Inicial</th>
             <th style="text-align:right">Remis.</th>
@@ -5444,9 +5444,9 @@ async function loadInvCache(force) {
   if (invCache && !force) return invCache;
   await cargarAliasRef(force);
   const [aper, ajus, desp, ventShaped, cont, bod, remaj] = await Promise.all([
-    sb.from('inventario_apertura').select('almacen_id, referencia, categoria, periodo, unidades'),
+    sb.from('inventario_apertura').select('almacen_id, referencia, categoria, periodo, unidades, created_at'),
     sb.from('inventario_ajustes').select('almacen_id, referencia, periodo, unidades'),
-    selectAll('despacho_items', 'referencia, categoria, cantidad, despachos!inner(almacen_id, fecha)'),
+    selectAll('despacho_items', 'referencia, categoria, cantidad, despachos!inner(almacen_id, fecha, remision)'),
     ventasShapedDelPeriodo(null),   // ventas + reportes de Feria unificados (sin doble conteo)
     sb.from('conteos_fisicos').select('id, almacen_id, fecha, conteo_items(referencia, cantidad_fisica)'),
     bodegaData.length ? Promise.resolve({ data: bodegaData }) : sb.from('bodega').select('*'),
@@ -5461,8 +5461,8 @@ async function loadInvCache(force) {
     aperturas: (aper.data || []).map(a => ({ ...a, referencia: refCanon(a.referencia) })),
     ajustes:   (ajus.data || []).map(a => ({ ...a, referencia: refCanon(a.referencia) })),
     remAjuste: (remaj.data || []).map(a => ({ ...a, referencia: refCanon(a.referencia) })),
-    despItems: (desp || []).map(d => ({ almacen_id: d.despachos && d.despachos.almacen_id, periodo: periodoDe(d.despachos && d.despachos.fecha), referencia: refCanon(d.referencia), categoria: d.categoria, cantidad: d.cantidad })).filter(d => d.almacen_id),
-    ventas: (ventShaped.rows || []).map(v => ({ almacen_id: v.almacen_id || _idByNom[v.almacen_nombre] || null, periodo: v.periodo, referencia: refCanon(v.referencia), categoria: v.categoria || _catByRef[refCanon(v.referencia)] || '', cantidad: v.cantidad, precio: v.precio_unitario })).filter(v => v.almacen_id),
+    despItems: (desp || []).map(d => ({ almacen_id: d.despachos && d.despachos.almacen_id, periodo: periodoDe(d.despachos && d.despachos.fecha), fecha: (d.despachos && d.despachos.fecha) || null, remision: (d.despachos && d.despachos.remision) || '', referencia: refCanon(d.referencia), categoria: d.categoria, cantidad: d.cantidad })).filter(d => d.almacen_id),
+    ventas: (ventShaped.rows || []).map(v => ({ almacen_id: v.almacen_id || _idByNom[v.almacen_nombre] || null, periodo: v.periodo, fecha: v.fecha || null, referencia: refCanon(v.referencia), categoria: v.categoria || _catByRef[refCanon(v.referencia)] || '', cantidad: v.cantidad, precio: v.precio_unitario })).filter(v => v.almacen_id),
     conteos: (cont.data || []).map(c => ({ almacen_id: c.almacen_id, periodo: periodoDe(c.fecha), fecha: c.fecha, items: (c.conteo_items || []).map(i => ({ ...i, referencia: refCanon(i.referencia) })) }))
   };
   return invCache;
@@ -5483,13 +5483,36 @@ function fisicoDe(almId, periodo) {
   return Object.keys(o).length ? o : null;
 }
 
+// Cuándo se cargó el inventario inicial de ese mes (si vino de un conteo, su fecha).
+function fechaInicialDe(almId, periodo) {
+  const cs = (invCache.conteos || []).filter(c => c.almacen_id === almId && c.periodo === periodo
+                                             && (c.items || []).length)
+    .sort((a,b) => (a.fecha||'').localeCompare(b.fecha||''));
+  if (cs.length) return cs[0].fecha;
+  const ap = (invCache.aperturas || []).find(a => a.almacen_id === almId && a.periodo === periodo);
+  return ap && ap.created_at ? String(ap.created_at).slice(0,10) : null;
+}
+
+// Fecha del conteo físico más reciente del mes (para comparar contra ese día).
+function fechaConteoDe(almId, periodo) {
+  const cs = (invCache.conteos || []).filter(c => c.almacen_id === almId && c.periodo === periodo
+                                             && (c.items || []).length)
+    .sort((a,b) => (a.fecha||'').localeCompare(b.fecha||''));
+  return cs.length ? cs[cs.length-1].fecha : null;
+}
+
 function inventarioMensual(almId, periodo) {
   const c = invCache; if (!c) return [];
   const aperPR = {}, remPR = {}, remAjPR = {}, vtaPR = {}, ajPR = {}, catOf = {};
   c.aperturas.filter(a => a.almacen_id === almId).forEach(a => { (aperPR[a.periodo] = aperPR[a.periodo]||{})[a.referencia] = { u:a.unidades, cat:a.categoria }; if (a.categoria) catOf[a.referencia]=a.categoria; });
-  c.despItems.filter(d => d.almacen_id === almId).forEach(d => { const m = remPR[d.periodo] = remPR[d.periodo]||{}; m[d.referencia]=(m[d.referencia]||0)+d.cantidad; if (d.categoria) catOf[d.referencia]=d.categoria; });
+  const remFechas = {};   // fecha -> { remision, refs: { ref: uds } }  (solo del período pedido)
+  c.despItems.filter(d => d.almacen_id === almId).forEach(d => { const m = remPR[d.periodo] = remPR[d.periodo]||{}; m[d.referencia]=(m[d.referencia]||0)+d.cantidad; if (d.categoria) catOf[d.referencia]=d.categoria;
+    if (d.periodo === periodo && d.fecha) { const f = remFechas[d.fecha] = remFechas[d.fecha] || { remisiones: new Set(), refs: {} };
+      if (d.remision) f.remisiones.add(d.remision); f.refs[d.referencia] = (f.refs[d.referencia]||0) + d.cantidad; } });
   (c.remAjuste||[]).filter(r => r.almacen_id === almId).forEach(r => { const m = remAjPR[r.periodo] = remAjPR[r.periodo]||{}; m[r.referencia]=(m[r.referencia]||0)+r.unidades; });
-  c.ventas.filter(v => v.almacen_id === almId).forEach(v => { const m = vtaPR[v.periodo] = vtaPR[v.periodo]||{}; m[v.referencia]=(m[v.referencia]||0)+v.cantidad; if (v.categoria) catOf[v.referencia]=v.categoria; });
+  const vtaFechas = {};   // ref -> { fecha: uds }  del período pedido, para poder cortar a una fecha
+  c.ventas.filter(v => v.almacen_id === almId).forEach(v => { const m = vtaPR[v.periodo] = vtaPR[v.periodo]||{}; m[v.referencia]=(m[v.referencia]||0)+v.cantidad; if (v.categoria) catOf[v.referencia]=v.categoria;
+    if (v.periodo === periodo && v.fecha) { (vtaFechas[v.referencia] = vtaFechas[v.referencia] || {})[v.fecha] = (vtaFechas[v.referencia][v.fecha]||0) + v.cantidad; } });
   c.ajustes.filter(a => a.almacen_id === almId).forEach(a => { const m = ajPR[a.periodo] = ajPR[a.periodo]||{}; m[a.referencia]=(m[a.referencia]||0)+a.unidades; });
   const aperPeriodos = Object.keys(aperPR).sort();
   const dataPeriodos = [...new Set([...Object.keys(aperPR), ...Object.keys(remPR), ...Object.keys(remAjPR), ...Object.keys(vtaPR), ...Object.keys(ajPR)])].sort();
@@ -5505,8 +5528,11 @@ function inventarioMensual(almId, periodo) {
       const remDesp = (remPR[p]&&remPR[p][ref])||0, remAj = (remAjPR[p]&&remAjPR[p][ref])||0, rem = remDesp + remAj;
       const vta = (vtaPR[p]&&vtaPR[p][ref])||0, aj = (ajPR[p]&&ajPR[p][ref])||0;
       const fin = inicial + rem - vta + aj;
+      const remXF = {};
+      if (p === periodo) Object.keys(remFechas).forEach(f => { const q = remFechas[f].refs[ref]; if (q) remXF[f] = q; });
       rows.push({ ref, cat: (aper&&aper.cat)||catOf[ref]||'', inicial, remisiones: rem, remDespacho: remDesp, remAjuste: remAj, ventas: vta, ajustes: aj, final: fin,
-                  inicialCargado: !!aper });   // true = viene de un conteo/inicial cargado; false = arrastre
+                  inicialCargado: !!aper,      // true = viene de un conteo/inicial cargado; false = arrastre
+                  remPorFecha: remXF, ventasPorFecha: (p === periodo ? (vtaFechas[ref] || {}) : {}) });
       next[ref] = fin;
     });
     carry = next;
@@ -5515,7 +5541,25 @@ function inventarioMensual(almId, periodo) {
     if (p > periodo) { out = []; break; }
   }
   const fis = fisicoDe(almId, periodo);
-  out.forEach(r => { r.fisico = (fis && (r.ref in fis)) ? fis[r.ref] : null; r.dif = (r.fisico==null) ? null : r.fisico - r.final; });
+  const fechaFis = fechaConteoDe(almId, periodo);
+  // El conteo es de un día concreto. Compararlo con el saldo del cierre de mes
+  // hacía aparecer como "sobrante" todo lo vendido después de contar.
+  out.forEach(r => {
+    r.fisico = (fis && (r.ref in fis)) ? fis[r.ref] : null;
+    r.fechaFisico = fechaFis;
+    if (r.fisico == null) { r.dif = null; r.finalAlConteo = null; return; }
+    if (fechaFis) {
+      let saldo = r.inicial;
+      Object.keys(r.remPorFecha || {}).forEach(f => { if (f <= fechaFis) saldo += r.remPorFecha[f]; });
+      Object.keys(r.ventasPorFecha || {}).forEach(f => { if (f <= fechaFis) saldo -= r.ventasPorFecha[f]; });
+      saldo += r.ajustes;
+      r.finalAlConteo = saldo;
+      r.dif = r.fisico - saldo;
+    } else { r.finalAlConteo = r.final; r.dif = r.fisico - r.final; }
+  });
+  out._remFechas = Object.keys(remFechas).sort().map(f => ({
+    fecha: f, remisiones: [...remFechas[f].remisiones].join(', ') }));
+  out._fechaFisico = fechaFis;
   if (fis) Object.keys(fis).forEach(ref => { if (!out.find(r => r.ref === ref)) out.push({ ref, cat: catOf[ref]||'', inicial:0, remisiones:0, remDespacho:0, remAjuste:0, ventas:0, ajustes:0, final:0, fisico: fis[ref], dif: fis[ref] }); });
   return out.sort((a,b) => a.ref.localeCompare(b.ref));
 }
@@ -5606,6 +5650,10 @@ async function cargarControlMensual() {
   tbody.innerHTML = '<tr><td colspan="8"><div class="loader"><div class="spinner"></div></div></td></tr>';
   await loadInvCache();
   const rows = inventarioMensual(almId, periodo);
+  const fechasRem = rows._remFechas || [];          // un envío por fecha
+  const fechaFis  = rows._fechaFisico || null;      // día en que se contó
+  const fechaIni  = fechaInicialDe(almId, periodo); // día del inventario inicial
+  const dm = f => f ? new Date(f + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short' }) : '';
   const soloLectura = esVendedora();   // vendedoras NO editan inicial ni novedades
   const t = { ini:0, rem:0, vta:0, aj:0, fin:0, fis:0, dif:0, hasFis:false };
   const html = rows.map(r => {
@@ -5628,6 +5676,12 @@ async function cargarControlMensual() {
     const novCell = soloLectura
       ? `<td style="text-align:right;white-space:nowrap"><span style="color:${novColor}">${novTxt||'—'}</span></td>`
       : `<td style="text-align:right;white-space:nowrap"><span style="color:${novColor}">${novTxt||'—'}</span> <button ${da} onclick="abrirModalNovedad(this)" title="Registrar novedad" style="background:none;border:1px solid var(--borde);border-radius:6px;color:var(--rosa-oscuro);cursor:pointer;font-size:12px;padding:2px 6px">✎</button></td>`;
+    // Una celda por cada envío del mes: así se ve qué llegó el 10 y qué el 24.
+    const remCols = fechasRem.map(fr => {
+      const q = (r.remPorFecha || {})[fr.fecha] || 0;
+      return `<td style="text-align:right;color:${q?'var(--verde)':'var(--gris-medio)'};white-space:nowrap"
+        title="${fr.remisiones ? 'Remisión ' + fr.remisiones : ''}">${q ? '+' + NUM(q) : '—'}</td>`;
+    }).join('');
     const remAjTxt = r.remAjuste ? `<div style="font-size:10px;color:var(--gris-medio);line-height:1.3">desp ${NUM(r.remDespacho)} · man ${r.remAjuste>0?'+':''}${NUM(r.remAjuste)}</div>` : '';
     const remCell = soloLectura
       ? `<td style="text-align:right;color:var(--verde);white-space:nowrap">${r.remisiones?'+'+NUM(r.remisiones):'—'}${remAjTxt}</td>`
@@ -5635,6 +5689,7 @@ async function cargarControlMensual() {
     return `<tr>
       <td><strong>${r.ref}</strong></td>
       ${iniCell}
+      ${remCols}
       ${remCell}
       <td style="text-align:right;color:var(--rosa-oscuro)">${r.ventas?'−'+NUM(r.ventas):'—'}</td>
       ${novCell}
@@ -5643,9 +5698,31 @@ async function cargarControlMensual() {
       <td style="text-align:right">${difCell}</td>
     </tr>`;
   }).join('');
-  tbody.innerHTML = (html || '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--gris-medio)">Sin movimientos para este período.</td></tr>') + (rows.length ? `<tr style="background:var(--gris-claro)">
+  // Cabecera: se recalcula porque las columnas de envío dependen del mes
+  const thead = document.getElementById('invc-thead');
+  if (thead) {
+    const rangoVta = (() => {
+      const fs = []; rows.forEach(r => Object.keys(r.ventasPorFecha || {}).forEach(f => fs.push(f)));
+      if (!fs.length) return '';
+      fs.sort(); return fs[0] === fs[fs.length-1] ? dm(fs[0]) : dm(fs[0]) + '–' + dm(fs[fs.length-1]);
+    })();
+    thead.innerHTML = `<tr>
+      <th>Referencia</th>
+      <th style="text-align:right">Inicial${fechaIni ? `<div style="font-weight:400;font-size:10px;color:var(--gris-medio)">${dm(fechaIni)}</div>` : ''}</th>
+      ${fechasRem.map(fr => `<th style="text-align:right" title="${fr.remisiones ? 'Remisión ' + fr.remisiones : ''}">Remis.<div style="font-weight:400;font-size:10px;color:var(--gris-medio)">${dm(fr.fecha)}</div></th>`).join('')}
+      <th style="text-align:right">Remis.<div style="font-weight:400;font-size:10px;color:var(--gris-medio)">total mes</div></th>
+      <th style="text-align:right">Ventas${rangoVta ? `<div style="font-weight:400;font-size:10px;color:var(--gris-medio)">${rangoVta}</div>` : ''}</th>
+      <th style="text-align:right">Novedades</th>
+      <th style="text-align:right">Final</th>
+      <th style="text-align:right">Físico${fechaFis ? `<div style="font-weight:400;font-size:10px;color:var(--gris-medio)">${dm(fechaFis)}</div>` : ''}</th>
+      <th style="text-align:right">Dif.${fechaFis ? `<div style="font-weight:400;font-size:10px;color:var(--gris-medio)">al ${dm(fechaFis)}</div>` : ''}</th>
+    </tr>`;
+  }
+  const nCols = 8 + fechasRem.length;
+  tbody.innerHTML = (html || `<tr><td colspan="${nCols}" style="text-align:center;padding:20px;color:var(--gris-medio)">Sin movimientos para este período.</td></tr>`) + (rows.length ? `<tr style="background:var(--gris-claro)">
       <td style="font-weight:700">TOTAL</td>
       <td style="text-align:right;font-weight:700">${NUM(t.ini)}</td>
+      ${fechasRem.map(fr => `<td style="text-align:right;font-weight:700;color:var(--verde)">+${NUM(rows.reduce((a,r)=>a+((r.remPorFecha||{})[fr.fecha]||0),0))}</td>`).join('')}
       <td style="text-align:right;font-weight:700">+${NUM(t.rem)}</td>
       <td style="text-align:right;font-weight:700">−${NUM(t.vta)}</td>
       <td style="text-align:right;font-weight:700">${NUM(t.aj)}</td>
@@ -5663,7 +5740,7 @@ async function cargarControlMensual() {
   document.getElementById('invc-kpis').innerHTML = `
     <div class="metric-card"><div class="m-label">Inventario final</div><div class="m-val">${NUM(enPositivo)}</div>
       <div class="m-sub">unidades en existencia${deficit ? ` · ${NUM(deficit)} en negativo` : ''}</div></div>
-    <div class="metric-card accent"><div class="m-label">Diferencia vs físico</div><div class="m-val">${t.hasFis?((t.dif>0?'+':'')+NUM(t.dif)):'—'}</div><div class="m-sub">${faltantes} faltan · ${sobrantes} sobran</div></div>`;
+    <div class="metric-card accent"><div class="m-label">Diferencia vs físico</div><div class="m-val">${t.hasFis?((t.dif>0?'+':'')+NUM(t.dif)):'—'}</div><div class="m-sub">${t.hasFis ? `${faltantes} faltan · ${sobrantes} sobran${fechaFis ? ` · contado el ${dm(fechaFis)}` : ''}` : 'sin conteo este mes'}</div></div>`;
   const aviso = document.getElementById('invc-aviso');
   if (aviso) {
     if (refsNeg) {
@@ -5999,12 +6076,13 @@ async function ventasShapedDelPeriodo(periodo, opts) {
     if (!codigosSku.length) { try { await cargarCodigos(); } catch (e) {} }
     const codeMap = {}; codigosSku.forEach(c => { if (c.codigo) codeMap[String(c.codigo).toUpperCase().trim()] = c.referencia; });
     const det = await selectAll('ventas_feria_detalle',
-      'reporte_id, almacen, referencia_base, desc_item, cantidad, valor_sin_iva, valor_con_iva, valor_descuentos',
+      'reporte_id, fecha, almacen, referencia_base, desc_item, cantidad, valor_sin_iva, valor_con_iva, valor_descuentos',
       q => q.in('reporte_id', ids));
     feriaRows = (det || []).map(d => {
       const uds = d.cantidad || 0;
       const real = codeMap['ANT' + String(d.referencia_base || '').toUpperCase().trim()];
       return {
+        fecha: d.fecha || null,
         almacen_nombre: feriaAlmacenLargo(d.almacen),
         referencia: refCanon(real || d.desc_item || d.referencia_base || '—'),
         categoria: null,
@@ -6018,7 +6096,7 @@ async function ventasShapedDelPeriodo(periodo, opts) {
   }
 
   const ventas = await selectAll('ventas',
-    'almacen_nombre, referencia, categoria, cantidad, precio_unitario, descuento, periodo',
+    'fecha, almacen_nombre, referencia, categoria, cantidad, precio_unitario, descuento, periodo',
     q => periodo ? q.eq('periodo', periodo) : q);
   const ventasRows = (ventas || [])
     .filter(v => !mesesFeria.has(v.periodo))                 // excluir meses ya cubiertos por Feria
