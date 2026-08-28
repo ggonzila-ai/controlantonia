@@ -514,6 +514,7 @@
     <div id="tab-content-bod-despachos" style="display:none">
       <div class="section-card" style="border-radius:0 0 var(--radius) var(--radius);margin-bottom:14px">
         <div style="padding:14px 16px 0;font-size:12px;font-weight:600;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Nuevo despacho</div>
+        <div style="padding:12px 16px 0"><div id="d-control-bodega"></div></div>
         <div class="form-section">
           <div class="form-row">
             <div class="form-group">
@@ -2425,6 +2426,7 @@ function showTab(tabId) {
   if (tabId === 'tab-bod-activos') cargarActivos();
   if (tabId === 'tab-bod-registro') cargarRegistroProduccion();
   if (tabId === 'tab-bod-despachos') {
+    cargarControlBodega(true).then(pintarControlBodega);
     llenarSelectAlmacenes();
     const addSel = document.getElementById('d-add-ref');
     if (addSel && addSel.options.length <= 1) llenarSelectDespachoRef();
@@ -4503,6 +4505,47 @@ let _refsDespIdx = -1;   // opción resaltada con el teclado
 // Antes solo se listaban las referencias CON stock, así que las demás no había
 // forma de despacharlas aunque la bodega estuviera desactualizada. Ahora salen
 // todas: las que no tienen stock se marcan y el sistema avisa al confirmar.
+// ─── CONTROL DE STOCK DE BODEGA (interruptor) ──────────────────────────────
+// Mientras la bodega no esté cuadrada, exigir stock para despachar impide
+// registrar envíos que sí ocurrieron. Con el control apagado la remisión se
+// registra igual, y de bodega se descuenta solo lo que alcance.
+let _controlBodega = null;
+async function cargarControlBodega(force) {
+  if (_controlBodega !== null && !force) return _controlBodega;
+  try {
+    const { data } = await sb.from('app_config').select('valor').eq('clave', 'control_stock_bodega').maybeSingle();
+    _controlBodega = data ? (data.valor === true || data.valor === 'true') : false;
+  } catch (e) { _controlBodega = false; }
+  return _controlBodega;
+}
+async function cambiarControlBodega(activar) {
+  const txt = activar
+    ? 'Activar el control de bodega: a partir de ahora no se podrá despachar una prenda si la bodega no tiene stock suficiente.\n\nActívalo solo cuando el inventario de bodega esté cuadrado.\n\n¿Continuar?'
+    : 'Desactivar el control de bodega: se podrán registrar remisiones aunque la bodega no tenga stock. De bodega se descontará solo lo que alcance y el resto quedará anotado en la remisión.\n\n¿Continuar?';
+  if (!confirm(txt)) { pintarControlBodega(); return; }
+  const { error } = await sb.from('app_config')
+    .upsert({ clave: 'control_stock_bodega', valor: activar, updated_at: new Date().toISOString() },
+            { onConflict: 'clave' });
+  if (error) { toast('No se pudo guardar el ajuste: ' + detalleError(error), 'err'); return; }
+  _controlBodega = activar;
+  toast(activar ? '✓ Control de bodega activado' : '✓ Control de bodega desactivado');
+  pintarControlBodega();
+  llenarDropdownDespacho();
+}
+function pintarControlBodega() {
+  const box = document.getElementById('d-control-bodega'); if (!box) return;
+  const on = !!_controlBodega;
+  box.innerHTML = `<div class="alert ${on ? 'alert-info' : 'alert-warn'}" style="margin:0 0 14px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+    <span style="font-size:12.5px">
+      ${on ? '<strong>Control de bodega activo.</strong> No se puede despachar más de lo que hay en bodega.'
+           : '<strong>Bodega sin control de stock.</strong> Se registra la remisión aunque la bodega no tenga las prendas; se descuenta solo lo que alcance y el resto queda anotado.'}
+    </span>
+    <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px;white-space:nowrap"
+      onclick="cambiarControlBodega(${on ? 'false' : 'true'})">
+      ${on ? 'Desactivar control' : 'Activar control'}</button>
+  </div>`;
+}
+
 function refsDespachoDisponibles(filtro) {
   const q = _norm(filtro).trim();
   const palabras = q ? q.split(/\s+/) : [];
@@ -4528,8 +4571,8 @@ function filtrarRefsDespacho() {
         <span style="font-weight:600;font-size:13px">${r.ref}</span>
         <span style="font-size:11px;color:var(--gris-medio);display:block">${r.cat || '—'}</span>
       </span>
-      <span style="font-size:12px;white-space:nowrap;color:${r.stock > 0 ? 'var(--verde)' : 'var(--rojo)'}">
-        ${r.stock > 0 ? NUM(r.stock) + ' uds' : 'sin stock'}</span>
+      ${_controlBodega ? `<span style="font-size:12px;white-space:nowrap;color:${r.stock > 0 ? 'var(--verde)' : 'var(--rojo)'}">
+        ${r.stock > 0 ? NUM(r.stock) + ' uds' : 'sin stock'}</span>` : ''}
     </div>`).join('')
     : `<div style="padding:12px;font-size:13px;color:var(--gris-medio)">Ninguna referencia coincide con “${ea(inp.value)}”.</div>`;
   cont.style.display = 'block';
@@ -4581,12 +4624,20 @@ function agregarReferenciaDespacho(ref) {
   if (!ref || despachoActual[ref]) return;
   const p = bodegaData.find(x => x.referencia === ref); if (!p) return;
   const { tallas } = despStockRef(ref);
-  if (!Object.keys(tallas).length) {
+  const t = {};
+  if (Object.keys(tallas).length) {
+    Object.entries(tallas).forEach(([talla, dispo]) => { t[talla] = { disponible: dispo, cantidad: 0 }; });
+  } else if (_controlBodega) {
     toast(`${ref} no tiene stock en bodega, así que no se puede despachar. `
       + `Si la mercancía existe, registra primero su entrada en Bodega → Registro.`, 'err');
     return;
+  } else {
+    // Sin control de bodega: se ofrecen las tallas del producto (o el juego
+    // completo) para poder registrar el envío aunque la bodega esté en cero.
+    const suyas = parseTallas(p.tallas);
+    const cuales = suyas.length ? suyas : ['S','M','L','XL','2XL','3XL','U'];
+    cuales.forEach(talla => { t[talla] = { disponible: 0, cantidad: 0, sinRespaldo: true }; });
   }
-  const t = {}; Object.entries(tallas).forEach(([talla, dispo]) => { t[talla] = { disponible: dispo, cantidad: 0 }; });
   despachoActual[ref] = { categoria: p.categoria || '', tallas: t };
   const cont = document.getElementById('despacho-refs');
   const div = document.createElement('div'); div.innerHTML = renderTarjetaDespacho(ref);
@@ -4602,7 +4653,8 @@ function renderTarjetaDespacho(ref) {
     const d = data.tallas[t];
     return `<div style="text-align:center;min-width:50px">
       <div style="font-size:11px;font-weight:700">${t}</div>
-      <div style="font-size:10px;color:var(--gris-medio);margin-bottom:3px">(${NUM(d.disponible)})</div>
+      <div style="font-size:10px;color:${d.sinRespaldo ? 'var(--rojo)' : 'var(--gris-medio)'};margin-bottom:3px"
+        title="${d.sinRespaldo ? 'Bodega no tiene esta talla registrada; se enviará sin descontar' : 'Disponible en bodega'}">${d.sinRespaldo ? 'sin reg.' : '(' + NUM(d.disponible) + ')'}</div>
       <input type="text" inputmode="numeric" value="${d.cantidad || ''}" placeholder="0" data-ref="${ea(ref)}" data-talla="${ea(t)}" oninput="actualizarCantidadTalla(this)" onkeydown="bloquearFlechas(event)" autocomplete="off" style="width:46px;text-align:center;padding:6px 2px;font-size:14px;border:1.5px solid var(--borde);border-radius:8px;font-family:inherit">
     </div>`;
   }).join('');
@@ -4623,7 +4675,7 @@ function actualizarCantidadTalla(input) {
   const limpio = String(input.value || '').replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
   if (limpio !== input.value) input.value = limpio;
   let val = parseInt(input.value) || 0; if (val < 0) val = 0;
-  if (val > d.disponible) { val = d.disponible; input.value = val; input.style.borderColor = 'var(--rojo)'; setTimeout(() => { input.style.borderColor = ''; }, 1500); }
+  if (_controlBodega && val > d.disponible) { val = d.disponible; input.value = val; input.style.borderColor = 'var(--rojo)'; setTimeout(() => { input.style.borderColor = ''; }, 1500); }
   else input.style.borderColor = '';
   d.cantidad = val;
   const card = input.closest('.tarjeta-desp');
@@ -4732,7 +4784,8 @@ async function confirmarDespacho() {
 
     // 3) confirmación atómica
     const { data: res, error: e3 } = await sb.rpc('confirmar_remision',
-      { p_remision_id: remId, p_usuario: _usuarioActual?.nombre || _usuarioActual?.email || 'app' });
+      { p_remision_id: remId, p_usuario: _usuarioActual?.nombre || _usuarioActual?.email || 'app',
+        p_control_bodega: await cargarControlBodega() });
     if (e3) {
       // La RPC no movió nada: se descarta el borrador para no dejar basura.
       await sb.from('remision_items').delete().eq('remision_id', remId);
@@ -4741,7 +4794,10 @@ async function confirmarDespacho() {
     }
 
     const numero = (res && res.numero) || rem.numero;
-    toast(`✓ ${numero} — ${NUM(totalUnd)} uds despachadas`);
+    const sinDesc = (res && res.uds_sin_descontar) || 0;
+    toast(sinDesc
+      ? `✓ ${numero} — ${NUM(totalUnd)} uds despachadas (${NUM(sinDesc)} sin respaldo en bodega, quedó anotado)`
+      : `✓ ${numero} — ${NUM(totalUnd)} uds despachadas`);
     document.getElementById('d-remision').value = '';
     await cargarBodega();
     await llenarSelectDespachoRef();
