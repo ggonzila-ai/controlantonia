@@ -534,9 +534,12 @@
         </div>
         <div style="padding:0 16px 8px;font-size:12px;font-weight:600;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Prendas a despachar</div>
         <div style="padding:0 16px 10px">
-          <select id="d-add-ref" onchange="agregarReferenciaDespacho(this.value); this.value='';" style="width:100%;padding:11px;border:1.5px solid var(--brand);border-radius:var(--radius-sm);font-size:14px;font-family:inherit;background:var(--blanco);font-weight:600;color:var(--brand-dark)">
-            <option value="">+ Agregar referencia…</option>
-          </select>
+          <div style="position:relative">
+            <input id="d-add-ref" type="text" autocomplete="off" placeholder="Escribe para buscar: blusa, mía, jogger…"
+              oninput="filtrarRefsDespacho()" onfocus="filtrarRefsDespacho()" onkeydown="tecladoRefsDespacho(event)"
+              style="width:100%;padding:11px;border:1.5px solid var(--brand);border-radius:var(--radius-sm);font-size:14px;font-family:inherit;background:var(--blanco);font-weight:600;color:var(--brand-dark)">
+            <div id="d-ref-lista" style="display:none;position:absolute;z-index:60;left:0;right:0;top:calc(100% + 4px);max-height:290px;overflow-y:auto;background:var(--blanco);border:1px solid var(--borde);border-radius:var(--radius-sm);box-shadow:0 8px 24px rgba(0,0,0,.12)"></div>
+          </div>
         </div>
         <div id="despacho-refs" style="padding:0 16px"></div>
         <div style="padding:12px 16px;border-top:1px solid var(--borde)">
@@ -4491,22 +4494,98 @@ function despStockRef(ref) {
   return { tallas, total };
 }
 
-function llenarDropdownDespacho() {
-  const sel = document.getElementById('d-add-ref'); if (!sel) return;
+// Quita tildes y mayúsculas para que "mia" encuentre "PIJAMA MÍA PLUS DE SHORT".
+function _norm(t) {
+  return String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+let _refsDespIdx = -1;   // opción resaltada con el teclado
+
+// Antes solo se listaban las referencias CON stock, así que las demás no había
+// forma de despacharlas aunque la bodega estuviera desactualizada. Ahora salen
+// todas: las que no tienen stock se marcan y el sistema avisa al confirmar.
+function refsDespachoDisponibles(filtro) {
+  const q = _norm(filtro).trim();
+  const palabras = q ? q.split(/\s+/) : [];
+  return (bodegaData || [])
+    .filter(p => p && p.referencia && !despachoActual[p.referencia] && !esAliasRef(p.referencia))
+    .filter(p => { if (!palabras.length) return true;
+                   const n = _norm(p.referencia) + ' ' + _norm(p.categoria || '');
+                   return palabras.every(w => n.includes(w)); })
+    .map(p => ({ ref: p.referencia, cat: p.categoria || '', stock: despStockRef(p.referencia).total }))
+    .sort((a, b) => (b.stock > 0) - (a.stock > 0) || a.ref.localeCompare(b.ref));
+}
+
+function filtrarRefsDespacho() {
+  const inp = document.getElementById('d-add-ref'), cont = document.getElementById('d-ref-lista');
+  if (!inp || !cont) return;
+  const lista = refsDespachoDisponibles(inp.value);
+  _refsDespIdx = -1;
   const ea = s => String(s).replace(/"/g, '&quot;');
-  const disp = (bodegaData || [])
-    .filter(p => p && p.referencia && !despachoActual[p.referencia] && despStockRef(p.referencia).total > 0)
-    .sort((a, b) => a.referencia.localeCompare(b.referencia));
-  sel.innerHTML = '<option value="">+ Agregar referencia…</option>' +
-    (disp.length ? disp.map(p => `<option value="${ea(p.referencia)}">${p.referencia} (${NUM(despStockRef(p.referencia).total)} uds)</option>`).join('')
-                 : '<option value="" disabled>Todas las referencias con stock ya están agregadas</option>');
+  cont.innerHTML = lista.length ? lista.map((r, i) => `
+    <div class="ref-op" data-i="${i}" data-ref="${ea(r.ref)}" onclick="elegirRefDespacho('${ea(r.ref)}')"
+      style="padding:9px 12px;cursor:pointer;display:flex;justify-content:space-between;gap:10px;align-items:center;border-bottom:1px solid var(--border-light)">
+      <span>
+        <span style="font-weight:600;font-size:13px">${r.ref}</span>
+        <span style="font-size:11px;color:var(--gris-medio);display:block">${r.cat || '—'}</span>
+      </span>
+      <span style="font-size:12px;white-space:nowrap;color:${r.stock > 0 ? 'var(--verde)' : 'var(--rojo)'}">
+        ${r.stock > 0 ? NUM(r.stock) + ' uds' : 'sin stock'}</span>
+    </div>`).join('')
+    : `<div style="padding:12px;font-size:13px;color:var(--gris-medio)">Ninguna referencia coincide con “${ea(inp.value)}”.</div>`;
+  cont.style.display = 'block';
+}
+
+function elegirRefDespacho(ref) {
+  const inp = document.getElementById('d-add-ref'), cont = document.getElementById('d-ref-lista');
+  if (cont) cont.style.display = 'none';
+  if (inp) inp.value = '';
+  agregarReferenciaDespacho(ref);
+}
+
+function tecladoRefsDespacho(ev) {
+  const cont = document.getElementById('d-ref-lista');
+  if (!cont || cont.style.display === 'none') return;
+  const ops = [...cont.querySelectorAll('.ref-op')];
+  if (!ops.length) return;
+  if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+    ev.preventDefault();
+    _refsDespIdx += (ev.key === 'ArrowDown' ? 1 : -1);
+    if (_refsDespIdx < 0) _refsDespIdx = ops.length - 1;
+    if (_refsDespIdx >= ops.length) _refsDespIdx = 0;
+    ops.forEach((o, i) => { o.style.background = i === _refsDespIdx ? 'var(--gris-claro)' : ''; });
+    ops[_refsDespIdx].scrollIntoView({ block: 'nearest' });
+  } else if (ev.key === 'Enter') {
+    ev.preventDefault();
+    const el = _refsDespIdx >= 0 ? ops[_refsDespIdx] : ops[0];
+    if (el) elegirRefDespacho(el.dataset.ref);
+  } else if (ev.key === 'Escape') {
+    cont.style.display = 'none';
+  }
+}
+
+// Cerrar la lista al hacer clic fuera
+document.addEventListener('click', function (ev) {
+  const cont = document.getElementById('d-ref-lista'), inp = document.getElementById('d-add-ref');
+  if (!cont || cont.style.display === 'none') return;
+  if (ev.target !== inp && !cont.contains(ev.target)) cont.style.display = 'none';
+});
+
+function llenarDropdownDespacho() {
+  const inp = document.getElementById('d-add-ref');
+  if (inp) inp.value = '';
+  const cont = document.getElementById('d-ref-lista');
+  if (cont) { cont.innerHTML = ''; cont.style.display = 'none'; }
 }
 
 function agregarReferenciaDespacho(ref) {
   if (!ref || despachoActual[ref]) return;
   const p = bodegaData.find(x => x.referencia === ref); if (!p) return;
   const { tallas } = despStockRef(ref);
-  if (!Object.keys(tallas).length) { toast('Sin stock por talla para ' + ref, 'err'); return; }
+  if (!Object.keys(tallas).length) {
+    toast(`${ref} no tiene stock en bodega, así que no se puede despachar. `
+      + `Si la mercancía existe, registra primero su entrada en Bodega → Registro.`, 'err');
+    return;
+  }
   const t = {}; Object.entries(tallas).forEach(([talla, dispo]) => { t[talla] = { disponible: dispo, cantidad: 0 }; });
   despachoActual[ref] = { categoria: p.categoria || '', tallas: t };
   const cont = document.getElementById('despacho-refs');
@@ -4524,7 +4603,7 @@ function renderTarjetaDespacho(ref) {
     return `<div style="text-align:center;min-width:50px">
       <div style="font-size:11px;font-weight:700">${t}</div>
       <div style="font-size:10px;color:var(--gris-medio);margin-bottom:3px">(${NUM(d.disponible)})</div>
-      <input type="number" min="0" max="${d.disponible}" value="${d.cantidad || ''}" placeholder="0" data-ref="${ea(ref)}" data-talla="${ea(t)}" oninput="actualizarCantidadTalla(this)" style="width:46px;text-align:center;padding:6px 2px;font-size:14px;border:1.5px solid var(--borde);border-radius:8px;font-family:inherit">
+      <input type="text" inputmode="numeric" value="${d.cantidad || ''}" placeholder="0" data-ref="${ea(ref)}" data-talla="${ea(t)}" oninput="actualizarCantidadTalla(this)" onkeydown="bloquearFlechas(event)" autocomplete="off" style="width:46px;text-align:center;padding:6px 2px;font-size:14px;border:1.5px solid var(--borde);border-radius:8px;font-family:inherit">
     </div>`;
   }).join('');
   return `<div class="tarjeta-desp" data-refcard="${ea(ref)}" style="border:1px solid var(--borde);border-radius:10px;padding:12px;margin-bottom:10px">
@@ -4540,6 +4619,9 @@ function renderTarjetaDespacho(ref) {
 function actualizarCantidadTalla(input) {
   const ref = input.dataset.ref, talla = input.dataset.talla;
   const d = despachoActual[ref] && despachoActual[ref].tallas[talla]; if (!d) return;
+  // Solo dígitos (el campo ya no es type=number)
+  const limpio = String(input.value || '').replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
+  if (limpio !== input.value) input.value = limpio;
   let val = parseInt(input.value) || 0; if (val < 0) val = 0;
   if (val > d.disponible) { val = d.disponible; input.value = val; input.style.borderColor = 'var(--rojo)'; setTimeout(() => { input.style.borderColor = ''; }, 1500); }
   else input.style.borderColor = '';
