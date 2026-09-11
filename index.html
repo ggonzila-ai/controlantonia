@@ -41,6 +41,7 @@
     --blanco:      #FFFFFF;
     --verde:       #16A34A;   /* verde semántico */
     --rojo:        #991B1B;   /* rojo semántico legible */
+    --ambar:       #B45309;   /* ámbar: valores fijados a mano, avisos suaves */
     --amarillo:    #92400E;
     --azul:        #016E8A;   /* azul interactivo */
     --radius: 12px;
@@ -845,6 +846,7 @@
     <div class="tabs" style="border-radius:var(--radius) var(--radius) 0 0;overflow:hidden">
       <div class="tab active" id="tab-inv-consolidado" onclick="showTab('tab-inv-consolidado')">Consolidado</div>
       <div class="tab" id="tab-inv-control" onclick="showTab('tab-inv-control')">Control mensual</div>
+      <div class="tab" id="tab-inv-remisiones" onclick="showTab('tab-inv-remisiones')">Remisiones</div>
       <div class="tab" id="tab-inv-fisico" onclick="showTab('tab-inv-fisico')">Conteo físico</div>
     </div>
 
@@ -892,7 +894,12 @@
       </div>
       <div class="alert alert-info" style="margin-bottom:0;border-radius:var(--radius) var(--radius) 0 0">
         <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-        <div id="invc-nota"><strong>Inicial + Remisiones − Ventas ± Novedades = Inventario final.</strong> Toca <strong>Inicial</strong> o <strong>Novedades</strong> para editarlos manualmente. La diferencia es Físico − Final (negativo = faltante, positivo = sobrante).</div>
+        <div id="invc-nota"><strong>Inicial + Remisiones − Ventas ± Novedades = Inventario final.</strong>
+          El mes se cierra contra el <strong>conteo que lo cierra</strong> —normalmente el de fin de mes o el de
+          los primeros días del siguiente—, y la diferencia se mide contra el saldo que había el día en que se contó
+          (negativo = faltante, positivo = sobrante). Ese mismo conteo pasa a ser el <strong>Inicial</strong> del mes
+          siguiente sin copiar nada. Toca <strong>Inicial</strong> o <strong>Novedades</strong> para corregirlos a mano:
+          lo que escribas prevalece y queda marcado con ✎.</div>
       </div>
       <div id="invc-btn-remision" style="display:none;margin-bottom:12px"></div>
       <div id="invc-aviso" style="display:none"></div>
@@ -912,6 +919,47 @@
           <tbody id="invc-tbody"><tr><td colspan="8"><div class="loader"><div class="spinner"></div> Selecciona almacén y período</div></td></tr></tbody>
         </table></div>
       </div>
+    </div>
+
+    <!-- REMISIONES -->
+    <div id="tab-content-inv-remisiones" style="display:none">
+      <div class="section-card" style="margin-top:14px">
+        <div style="padding:12px 16px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <div class="form-group" style="margin:0;min-width:170px">
+            <label>Almacén</label>
+            <select id="remi-almacen" onchange="cargarRemisionesInv()"><option value="">Todos</option></select>
+          </div>
+          <div class="form-group" style="margin:0;min-width:130px">
+            <label>Mes</label>
+            <select id="remi-mes" onchange="cargarRemisionesInv()"></select>
+          </div>
+          <div class="form-group" style="margin:0;min-width:100px">
+            <label>Año</label>
+            <select id="remi-anio" onchange="cargarRemisionesInv()"></select>
+          </div>
+          <div style="flex:1"></div>
+          <div id="remi-acciones" style="display:flex;gap:8px;align-items:center"></div>
+        </div>
+      </div>
+      <div class="metrics" id="remi-kpis" style="margin-bottom:14px"></div>
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12"/></svg>
+            Remisiones enviadas
+          </div>
+          <span id="remi-resumen" style="font-size:12px;color:var(--gris-medio)"></span>
+        </div>
+        <div class="tabla-wrap"><table>
+          <thead><tr>
+            <th>Fecha</th><th>N.º remisión</th><th>Almacén destino</th>
+            <th style="text-align:right">Refs.</th><th style="text-align:right">Unidades</th>
+            <th>Estado</th><th style="text-align:right">Acciones</th>
+          </tr></thead>
+          <tbody id="remi-tbody"><tr><td colspan="7"><div class="loader"><div class="spinner"></div></div></td></tr></tbody>
+        </table></div>
+      </div>
+      <div id="remi-detalle"></div>
     </div>
 
     <!-- CONTEO FÍSICO (integrado) -->
@@ -2265,6 +2313,7 @@ function filtrarUIporRol() {
 
   // Inventarios: ocultar Consolidado; dejar Control mensual + Conteo físico
   const c = document.getElementById('tab-inv-consolidado'); if (c) c.style.display = 'none';
+  const rm = document.getElementById('tab-inv-remisiones'); if (rm) rm.style.display = 'none';
   ['tab-inv-control', 'tab-inv-fisico'].forEach(id => {
     const el = document.getElementById(id); if (el) el.style.display = 'block';
   });
@@ -2435,6 +2484,7 @@ function showTab(tabId) {
   }
   if (tabId === 'tab-inv-consolidado') cargarConsolidado();
   if (tabId === 'tab-inv-control') cargarControlMensual();
+  if (tabId === 'tab-inv-remisiones') iniciarRemisionesInv();
   if (tabId === 'tab-inv-fisico') {
     const f = document.getElementById('if-fecha'); if (f && !f.value) f.value = hoy();
     cargarItemsConteo();
@@ -4470,10 +4520,10 @@ async function llenarSelectAlmacenes() {
     const { data } = await sb.from('almacenes').select('*').order('nombre');
     almacenes = (data || []).sort(cmpAlmObj);
   }
-  ['d-almacen','vm-almacen','fv-almacen','conc-alm','if-almacen','invc-almacen','rank-almacen'].forEach(id => {
+  ['d-almacen','vm-almacen','fv-almacen','conc-alm','if-almacen','invc-almacen','rank-almacen','remi-almacen'].forEach(id => {
     const s = document.getElementById(id); if (!s) return;
     const prev = s.value;
-    const blank = (id === 'fv-almacen' || id === 'conc-alm' || id === 'rank-almacen') ? 'Todos' : 'Seleccionar…';
+    const blank = (id === 'fv-almacen' || id === 'conc-alm' || id === 'rank-almacen' || id === 'remi-almacen') ? 'Todos' : 'Seleccionar…';
     s.innerHTML = `<option value="">${blank}</option>` + almacenes.map(a => `<option value="${a.id}" data-nombre="${a.nombre}">${a.nombre}</option>`).join('');
     if (prev) s.value = prev;
   });
@@ -5317,14 +5367,31 @@ async function enviarConteo() {
   toast(`✓ Conteo guardado y verificado — ${nGuardadas} referencias, ${NUM(sumaGuardada)} unidades, ${diffs} diferencia(s)`);
   borrarBorradorConteo(almId);
   _conteoFisico = {};
+
+  // Encadenado: si por su fecha este conteo cierra un mes, pasa a ser el inicial del
+  // siguiente sin que nadie pulse nada. Va DESPUÉS de verificar el conteo y aparte:
+  // si esto falla, el conteo ya está a salvo y solo queda pendiente el encadenamiento.
+  try {
+    const { data: enc, error: errEnc } = await sb.rpc('sincronizar_inicial_desde_cierre',
+      { p_conteo_id: conteo.id, p_forzar: false });
+    if (errEnc) throw errEnc;
+    if (enc && enc.cierra) {
+      let m = `✓ Cierra ${mesNombre(enc.cierra)} → inicial de ${mesNombre(enc.inicial_de)}`;
+      if (enc.hay_protegidas) m += ` · ${(enc.protegidas||[]).length} ref. con inicial fijado a mano sin tocar`;
+      setTimeout(() => toast(m), 2600);
+    }
+  } catch (e) {
+    console.error('encadenar inicial', e);
+    setTimeout(() => toast('El conteo quedó guardado, pero no se pudo pasar como inicial del mes siguiente. '
+      + 'Hazlo desde la tarjeta del conteo.', 'err'), 2600);
+  }
+
   await loadInvCache(true);
   showTab('tab-if-res');
 }
 
-// Convierte un conteo físico en el inventario INICIAL del mes de su fecha:
-// lo contado pasa a ser el punto de partida y el saldo se recalcula desde ahí.
-// Corrige el día del conteo. Si con eso cambia de mes y ya se había usado como
-// inventario inicial, la apertura se mueve al mes correcto.
+// Corrige el día del conteo. Al cambiar la fecha se recalcula qué mes cierra y, con él,
+// el inventario inicial que se deriva de ese cierre.
 async function editarFechaConteo(conteoId, fechaActual) {
   if (esVendedora()) return;
   const nueva = prompt(`¿Qué día se hizo realmente este conteo?\n\nActual: ${fechaActual}\n`
@@ -5335,46 +5402,62 @@ async function editarFechaConteo(conteoId, fechaActual) {
   if (f === fechaActual) return;
   if (f.slice(0,7) !== fechaActual.slice(0,7) &&
       !confirm(`Cambias el conteo de ${mesNombre(fechaActual.slice(0,7))} a ${mesNombre(f.slice(0,7))}.\n\n`
-        + `Si lo habías usado como inventario inicial, la apertura se mueve al mes nuevo.\n\n¿Continuar?`)) return;
+        + `Con la fecha cambia también el mes que cierra, y con él el inventario inicial`
+        + ` que se deriva de ese cierre.\n\n¿Continuar?`)) return;
   const { data: res, error } = await sb.rpc('editar_fecha_conteo',
     { p_conteo_id: conteoId, p_nueva_fecha: f, p_usuario: _usuarioActual?.nombre || 'app' });
   if (error) { toast('No se pudo cambiar la fecha: ' + detalleError(error), 'err'); return; }
   if (res && res.sin_cambios) { toast('La fecha ya era esa'); return; }
   let msg = `✓ Conteo de ${limpiarAlm(res.almacen)}: ${res.fecha_anterior} → ${res.fecha_nueva}`;
-  if (res.cambio_de_mes && res.refs_movidas)
-    msg += ` · ${res.refs_movidas} referencia(s) movidas al inicial de ${mesNombre(res.periodo_nuevo)}`;
+  if (res.cambio_de_cierre)
+    msg += res.cierre_nuevo
+      ? ` · ahora cierra ${mesNombre(res.cierre_nuevo)} → inicial de ${mesNombre(res.inicial_de)} (${res.refs_movidas} ref.)`
+      : ` · ya no cierra ningún mes`;
+  else if (res.cierre_fijado_a_mano && res.cierre_nuevo)
+    msg += ` · sigue cerrando ${mesNombre(res.cierre_nuevo)} porque se fijó a mano`;
   toast(msg);
   await loadInvCache(true);
   cargarResultadosConteo();
 }
 
-async function aplicarConteoComoInicial(conteoId) {
+// Un conteo no "pertenece" al mes de su fecha: CIERRA un mes. El conteo que cierra
+// agosto se compara contra el saldo de agosto y, de paso, es el inicial de septiembre.
+// La base propone el mes por la fecha (del 25 en adelante cierra ese mes; del 1 al 10,
+// el anterior) y aquí se puede corregir.
+async function clasificarConteo(conteoId, periodoCierre) {
   if (esVendedora()) return;
-  const { data: c, error: e0 } = await sb.from('conteos_fisicos')
-    .select('*, conteo_items(referencia, categoria, cantidad_fisica)').eq('id', conteoId).single();
-  if (e0 || !c) { toast('No se pudo leer el conteo', 'err'); return; }
-  const items = c.conteo_items || [];
-  if (!items.length) { toast('Ese conteo no tiene referencias guardadas', 'err'); return; }
-  const periodo = periodoDe(c.fecha);
-  const uds = items.reduce((a, i) => a + (i.cantidad_fisica || 0), 0);
-  if (!confirm(`Usar el conteo del ${c.fecha} como inventario INICIAL de ${limpiarAlm(c.almacen_nombre)} `
-    + `en ${mesNombre(periodo)}.\n\n${items.length} referencia(s), ${NUM(uds)} unidades.\n\n`
-    + `Reemplaza el inicial que tenga ese mes y el saldo se recalcula desde este conteo. ¿Continuar?`)) return;
+  const { data, error } = await sb.rpc('clasificar_conteo', {
+    p_conteo_id: conteoId, p_periodo_cierre: periodoCierre || null, p_forzar: false });
+  if (error) { toast('No se pudo reclasificar: ' + detalleError(error), 'err'); console.error(error); return; }
+  if (data && data.ok === false) { toast('No se pudo reclasificar: ' + (data.motivo || ''), 'err'); return; }
 
-  // Se agrupa por referencia unificada: dos nombres viejos del mismo producto se suman.
-  const porRef = {};
-  items.forEach(i => {
-    const ref = refCanon(i.referencia);
-    if (porRef[ref]) porRef[ref].unidades += (i.cantidad_fisica || 0);
-    else porRef[ref] = { almacen_id: c.almacen_id, almacen_nombre: c.almacen_nombre, referencia: ref,
-                         categoria: i.categoria || '', periodo, unidades: i.cantidad_fisica || 0 };
-  });
-  const { error } = await sb.from('inventario_apertura')
-    .upsert(Object.values(porRef), { onConflict: 'almacen_id,referencia,periodo' });
-  if (error) { toast('Error al aplicar el conteo: ' + detalleError(error), 'err'); console.error(error); return; }
-  toast(`✓ Inventario inicial de ${mesNombre(periodo)} actualizado — ${Object.keys(porRef).length} referencia(s)`);
+  if (!periodoCierre) {
+    toast('✓ Marcado como conteo intermedio: ya no cierra ningún mes');
+  } else if (data && data.hay_protegidas) {
+    // Decisión de Laura: lo escrito a mano gana, pero tiene que verse.
+    const lista = (data.protegidas || []).map(x => `· ${x.referencia}: a mano ${NUM(x.manual)}, contado ${NUM(x.conteo)}`).join('\n');
+    if (confirm(`El conteo cierra ${mesNombre(data.cierra)} y pasa a ser el inicial de ${mesNombre(data.inicial_de)}.\n\n`
+      + `${(data.protegidas||[]).length} referencia(s) tienen el inicial fijado a mano y NO se tocaron:\n${lista}\n\n`
+      + `¿Reemplazarlas también por lo contado?`)) {
+      const { data: d2, error: e2 } = await sb.rpc('clasificar_conteo', {
+        p_conteo_id: conteoId, p_periodo_cierre: periodoCierre, p_forzar: true });
+      if (e2) { toast('No se pudo forzar: ' + detalleError(e2), 'err'); return; }
+      toast(`✓ Inicial de ${mesNombre(d2.inicial_de)} tomado del conteo, incluidas las fijadas a mano`);
+    } else {
+      toast(`✓ Cierra ${mesNombre(data.cierra)} · se respetaron los iniciales fijados a mano`);
+    }
+  } else {
+    toast(`✓ Cierra ${mesNombre(data.cierra)} → inicial de ${mesNombre(data.inicial_de)} (${data.escritas} referencia(s))`);
+  }
   await loadInvCache(true);
   cargarResultadosConteo();
+}
+
+// Se conserva el nombre anterior: ahora el "inicial" se deriva de cerrar el mes previo.
+async function aplicarConteoComoInicial(conteoId) {
+  const { data: c } = await sb.from('conteos_fisicos').select('fecha').eq('id', conteoId).single();
+  if (!c) { toast('No se pudo leer el conteo', 'err'); return; }
+  await clasificarConteo(conteoId, periodoPrev(periodoDe(c.fecha)));
 }
 
 async function borrarConteoVacio(conteoId) {
@@ -5384,6 +5467,35 @@ async function borrarConteoVacio(conteoId) {
   if (error) { toast('No se pudo eliminar: ' + detalleError(error), 'err'); return; }
   toast('✓ Conteo vacío eliminado');
   cargarResultadosConteo();
+}
+
+// Qué mes cierra este conteo y, por tanto, de qué mes es el inventario inicial.
+function bloqueCierreConteo(c) {
+  const mesFecha = periodoDe(c.fecha);
+  const mesPrev  = periodoPrev(mesFecha);
+  const actual   = c.periodo_cierre || '';
+  const sug      = (() => { const d = Number(String(c.fecha).slice(8,10));
+                            return d >= 25 ? mesFecha : d <= 10 ? mesPrev : ''; })();
+  const opts = [
+    { v: mesPrev,  t: 'cierra ' + mesNombre(mesPrev) },
+    { v: mesFecha, t: 'cierra ' + mesNombre(mesFecha) },
+    { v: '',       t: 'no cierra ningún mes (conteo intermedio)' }
+  ].map(o => `<option value="${o.v}" ${o.v === actual ? 'selected' : ''}>${o.t}${o.v === sug ? ' · propuesto' : ''}</option>`).join('');
+  const destino = actual
+    ? `<span style="color:var(--verde)">→ inicial de ${mesNombre(periodoNext(actual))}</span>`
+    : `<span style="color:var(--gris-medio)">no alimenta ningún inicial</span>`;
+  const marca = c.cierre_manual
+    ? `<span title="Lo fijó una persona, no la regla de fechas" style="font-size:11px;color:var(--ambar)">✎ fijado a mano</span>`
+    : `<span title="Propuesto por la fecha del conteo" style="font-size:11px;color:var(--gris-medio)">automático</span>`;
+  return `<div style="padding:10px 16px;background:var(--gris-claro);border-bottom:1px solid var(--borde);
+      display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px">
+    <select onchange="clasificarConteo('${c.id}', this.value)"
+      style="padding:5px 8px;font-size:12px;border:1px solid var(--borde);border-radius:6px;background:var(--blanco)">
+      ${opts}
+    </select>
+    ${destino}
+    ${marca}
+  </div>`;
 }
 
 async function cargarResultadosConteo() {
@@ -5422,13 +5534,10 @@ async function cargarResultadosConteo() {
           ${falt.length ? `<span class="badge badge-err">${falt.length} faltante(s)</span>` : ''}
           ${esVendedora() ? '' : `<button class="btn btn-secondary" style="padding:6px 12px;font-size:12px"
             onclick="editarFechaConteo('${c.id}','${c.fecha}')"
-            title="Corregir el día en que se hizo el conteo">📅 Cambiar fecha</button>
-          <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px"
-            onclick="aplicarConteoComoInicial('${c.id}')"
-            title="Toma lo contado como el inventario inicial del mes: pasa a ser el punto de partida">
-            Usar como inventario inicial</button>`}
+            title="Corregir el día en que se hizo el conteo">📅 Cambiar fecha</button>`}
         </div>
       </div>
+      ${esVendedora() ? '' : bloqueCierreConteo(c)}
       ${items.filter(i => i.diferencia !== 0).length === 0
         ? '<div style="padding:14px 16px;font-size:13px;color:var(--gris-medio)">✓ Inventario cuadrado, sin diferencias.</div>'
         : `<div class="tabla-wrap"><table><thead><tr><th>Referencia</th><th>Sistema</th><th>Físico</th><th>Diferencia</th></tr></thead><tbody>
@@ -5630,11 +5739,11 @@ async function loadInvCache(force) {
   if (invCache && !force) return invCache;
   await cargarAliasRef(force);
   const [aper, ajus, desp, ventShaped, cont, bod, remaj] = await Promise.all([
-    sb.from('inventario_apertura').select('almacen_id, referencia, categoria, periodo, unidades, created_at'),
+    sb.from('inventario_apertura').select('almacen_id, referencia, categoria, periodo, unidades, created_at, origen, conteo_id'),
     sb.from('inventario_ajustes').select('almacen_id, referencia, periodo, unidades'),
     selectAll('despacho_items', 'referencia, categoria, cantidad, despachos!inner(almacen_id, fecha, remision)'),
     ventasShapedDelPeriodo(null),   // ventas + reportes de Feria unificados (sin doble conteo)
-    sb.from('conteos_fisicos').select('id, almacen_id, fecha, conteo_items(referencia, cantidad_fisica)'),
+    sb.from('conteos_fisicos').select('id, almacen_id, fecha, periodo_cierre, cierre_manual, conteo_items(referencia, cantidad_fisica)'),
     bodegaData.length ? Promise.resolve({ data: bodegaData }) : sb.from('bodega').select('*'),
     sb.from('remisiones_ajuste').select('almacen_id, referencia, periodo, unidades')
   ]);
@@ -5649,55 +5758,70 @@ async function loadInvCache(force) {
     remAjuste: (remaj.data || []).map(a => ({ ...a, referencia: refCanon(a.referencia) })),
     despItems: (desp || []).map(d => ({ almacen_id: d.despachos && d.despachos.almacen_id, periodo: periodoDe(d.despachos && d.despachos.fecha), fecha: (d.despachos && d.despachos.fecha) || null, remision: (d.despachos && d.despachos.remision) || '', referencia: refCanon(d.referencia), categoria: d.categoria, cantidad: d.cantidad })).filter(d => d.almacen_id),
     ventas: (ventShaped.rows || []).map(v => ({ almacen_id: v.almacen_id || _idByNom[v.almacen_nombre] || null, periodo: v.periodo, fecha: v.fecha || null, referencia: refCanon(v.referencia), categoria: v.categoria || _catByRef[refCanon(v.referencia)] || '', cantidad: v.cantidad, precio: v.precio_unitario })).filter(v => v.almacen_id),
-    conteos: (cont.data || []).map(c => ({ almacen_id: c.almacen_id, periodo: periodoDe(c.fecha), fecha: c.fecha, items: (c.conteo_items || []).map(i => ({ ...i, referencia: refCanon(i.referencia) })) }))
+    conteos: (cont.data || []).map(c => ({ id: c.id, almacen_id: c.almacen_id, periodo: periodoDe(c.fecha), cierra: c.periodo_cierre || null, cierreManual: !!c.cierre_manual, fecha: c.fecha, items: (c.conteo_items || []).map(i => ({ ...i, referencia: refCanon(i.referencia) })) }))
   };
   return invCache;
 }
 
 function costoDe(ref) { const p = bodegaData.find(b => b.referencia === ref); return p ? (p.costo || 0) : 0; }
 
-function fisicoDe(almId, periodo) {
-  // Se combinan TODOS los conteos del mes, del más viejo al más nuevo: si el mes se
-  // contó en varias tandas (media tienda un día y el resto otro), antes solo valía la
-  // última y el resto de referencias aparecía como faltante completo.
-  // Si una referencia se contó dos veces, manda el conteo más reciente.
-  const cs = (invCache.conteos || []).filter(c => c.almacen_id === almId && c.periodo === periodo)
+// El mes se cierra contra el conteo que lo CIERRA, no contra los conteos que caen
+// dentro del mes. Un almacén se cuenta a fin de mes o en los primeros días del
+// siguiente, así que el conteo que cierra agosto puede tener fecha de septiembre.
+// Antes se filtraba por el mes de la fecha: agosto se comparaba contra el mismo
+// conteo que le había servido de inicial — se medía contra sí mismo y siempre cuadraba.
+// conteos_fisicos.periodo_cierre lo dice ahora de forma explícita.
+function conteosDeCierre(almId, periodo) {
+  return (invCache.conteos || [])
+    .filter(c => c.almacen_id === almId && c.cierra === periodo && (c.items || []).length)
     .sort((a,b) => (a.fecha||'').localeCompare(b.fecha||''));
+}
+
+function fisicoDe(almId, periodo) {
+  // Se combinan TODOS los conteos que cierran el mes, del más viejo al más nuevo: si
+  // se contó en varias tandas (media tienda un día y el resto otro), antes solo valía
+  // la última y el resto de referencias aparecía como faltante completo.
+  // Si una referencia se contó dos veces, manda el conteo más reciente.
+  const cs = conteosDeCierre(almId, periodo);
   if (!cs.length) return null;
   const o = {};
   cs.forEach(c => (c.items || []).forEach(it => { o[it.referencia] = it.cantidad_fisica || 0; }));
   return Object.keys(o).length ? o : null;
 }
 
-// Cuándo se cargó el inventario inicial de ese mes (si vino de un conteo, su fecha).
+// El inicial de un mes es el conteo que cerró el mes anterior; si no hubo conteo,
+// la fecha en que se cargó a mano.
 function fechaInicialDe(almId, periodo) {
-  const cs = (invCache.conteos || []).filter(c => c.almacen_id === almId && c.periodo === periodo
-                                             && (c.items || []).length)
-    .sort((a,b) => (a.fecha||'').localeCompare(b.fecha||''));
-  if (cs.length) return cs[0].fecha;
+  const cs = conteosDeCierre(almId, periodoPrev(periodo));
+  if (cs.length) return cs[cs.length-1].fecha;
   const ap = (invCache.aperturas || []).find(a => a.almacen_id === almId && a.periodo === periodo);
   return ap && ap.created_at ? String(ap.created_at).slice(0,10) : null;
 }
 
-// Fecha del conteo físico más reciente del mes (para comparar contra ese día).
+// Fecha del conteo que cierra el mes (se compara contra el saldo de ese día).
 function fechaConteoDe(almId, periodo) {
-  const cs = (invCache.conteos || []).filter(c => c.almacen_id === almId && c.periodo === periodo
-                                             && (c.items || []).length)
-    .sort((a,b) => (a.fecha||'').localeCompare(b.fecha||''));
+  const cs = conteosDeCierre(almId, periodo);
   return cs.length ? cs[cs.length-1].fecha : null;
 }
 
 function inventarioMensual(almId, periodo) {
   const c = invCache; if (!c) return [];
   const aperPR = {}, remPR = {}, remAjPR = {}, vtaPR = {}, ajPR = {}, catOf = {};
-  c.aperturas.filter(a => a.almacen_id === almId).forEach(a => { (aperPR[a.periodo] = aperPR[a.periodo]||{})[a.referencia] = { u:a.unidades, cat:a.categoria }; if (a.categoria) catOf[a.referencia]=a.categoria; });
-  const remFechas = {};   // fecha -> { remision, refs: { ref: uds } }  (solo del período pedido)
+  c.aperturas.filter(a => a.almacen_id === almId).forEach(a => { (aperPR[a.periodo] = aperPR[a.periodo]||{})[a.referencia] = { u:a.unidades, cat:a.categoria, org:a.origen||'manual' }; if (a.categoria) catOf[a.referencia]=a.categoria; });
+  const pSig = periodoNext(periodo);
+  const remFechas = {};   // fecha -> { remision, refs: { ref: uds } }  (solo del período pedido; alimenta las columnas)
+  // Para medir contra el día del conteo hacen falta también los movimientos del mes
+  // siguiente: el conteo que cierra agosto puede ser del 1 o del 10 de septiembre.
+  const remCalc = {};     // ref -> { fecha: uds }  del mes pedido Y del siguiente
   c.despItems.filter(d => d.almacen_id === almId).forEach(d => { const m = remPR[d.periodo] = remPR[d.periodo]||{}; m[d.referencia]=(m[d.referencia]||0)+d.cantidad; if (d.categoria) catOf[d.referencia]=d.categoria;
+    if (d.fecha && (d.periodo === periodo || d.periodo === pSig)) { (remCalc[d.referencia] = remCalc[d.referencia] || {})[d.fecha] = (remCalc[d.referencia][d.fecha]||0) + d.cantidad; }
     if (d.periodo === periodo && d.fecha) { const f = remFechas[d.fecha] = remFechas[d.fecha] || { remisiones: new Set(), refs: {} };
       if (d.remision) f.remisiones.add(d.remision); f.refs[d.referencia] = (f.refs[d.referencia]||0) + d.cantidad; } });
   (c.remAjuste||[]).filter(r => r.almacen_id === almId).forEach(r => { const m = remAjPR[r.periodo] = remAjPR[r.periodo]||{}; m[r.referencia]=(m[r.referencia]||0)+r.unidades; });
-  const vtaFechas = {};   // ref -> { fecha: uds }  del período pedido, para poder cortar a una fecha
+  const vtaFechas = {};   // ref -> { fecha: uds }  del período pedido (alimenta el rango que se muestra)
+  const vtaCalc   = {};   // ref -> { fecha: uds }  del mes pedido Y del siguiente, para cortar al día del conteo
   c.ventas.filter(v => v.almacen_id === almId).forEach(v => { const m = vtaPR[v.periodo] = vtaPR[v.periodo]||{}; m[v.referencia]=(m[v.referencia]||0)+v.cantidad; if (v.categoria) catOf[v.referencia]=v.categoria;
+    if (v.fecha && (v.periodo === periodo || v.periodo === pSig)) { (vtaCalc[v.referencia] = vtaCalc[v.referencia] || {})[v.fecha] = (vtaCalc[v.referencia][v.fecha]||0) + v.cantidad; }
     if (v.periodo === periodo && v.fecha) { (vtaFechas[v.referencia] = vtaFechas[v.referencia] || {})[v.fecha] = (vtaFechas[v.referencia][v.fecha]||0) + v.cantidad; } });
   c.ajustes.filter(a => a.almacen_id === almId).forEach(a => { const m = ajPR[a.periodo] = ajPR[a.periodo]||{}; m[a.referencia]=(m[a.referencia]||0)+a.unidades; });
   const aperPeriodos = Object.keys(aperPR).sort();
@@ -5718,7 +5842,12 @@ function inventarioMensual(almId, periodo) {
       if (p === periodo) Object.keys(remFechas).forEach(f => { const q = remFechas[f].refs[ref]; if (q) remXF[f] = q; });
       rows.push({ ref, cat: (aper&&aper.cat)||catOf[ref]||'', inicial, remisiones: rem, remDespacho: remDesp, remAjuste: remAj, ventas: vta, ajustes: aj, final: fin,
                   inicialCargado: !!aper,      // true = viene de un conteo/inicial cargado; false = arrastre
-                  remPorFecha: remXF, ventasPorFecha: (p === periodo ? (vtaFechas[ref] || {}) : {}) });
+                  // 'conteo' = heredado del cierre del mes anterior · 'manual' = escrito a mano
+                  // (gana sobre el conteo) · 'arrastre' = saldo con que cerró el mes anterior
+                  inicialOrigen: aper ? (aper.org || 'manual') : 'arrastre',
+                  remPorFecha: remXF, ventasPorFecha: (p === periodo ? (vtaFechas[ref] || {}) : {}),
+                  movRem: (p === periodo ? (remCalc[ref] || {}) : {}),
+                  movVta: (p === periodo ? (vtaCalc[ref] || {}) : {}) });
       next[ref] = fin;
     });
     carry = next;
@@ -5728,16 +5857,19 @@ function inventarioMensual(almId, periodo) {
   }
   const fis = fisicoDe(almId, periodo);
   const fechaFis = fechaConteoDe(almId, periodo);
-  // El conteo es de un día concreto. Compararlo con el saldo del cierre de mes
-  // hacía aparecer como "sobrante" todo lo vendido después de contar.
+  // El conteo es de un día concreto, que casi nunca es el 31 a medianoche. Se compara
+  // contra el saldo que debía haber ESE día: el inicial del mes más todo lo que entró y
+  // salió hasta esa fecha, incluidos los primeros días del mes siguiente si se contó
+  // entonces. Comparar contra el cierre de mes pelado hacía aparecer como "sobrante"
+  // todo lo vendido después de contar.
   out.forEach(r => {
     r.fisico = (fis && (r.ref in fis)) ? fis[r.ref] : null;
     r.fechaFisico = fechaFis;
     if (r.fisico == null) { r.dif = null; r.finalAlConteo = null; return; }
     if (fechaFis) {
       let saldo = r.inicial;
-      Object.keys(r.remPorFecha || {}).forEach(f => { if (f <= fechaFis) saldo += r.remPorFecha[f]; });
-      Object.keys(r.ventasPorFecha || {}).forEach(f => { if (f <= fechaFis) saldo -= r.ventasPorFecha[f]; });
+      Object.keys(r.movRem || {}).forEach(f => { if (f <= fechaFis) saldo += r.movRem[f]; });
+      Object.keys(r.movVta || {}).forEach(f => { if (f <= fechaFis) saldo -= r.movVta[f]; });
       saldo += r.ajustes;
       r.finalAlConteo = saldo;
       r.dif = r.fisico - saldo;
@@ -5746,7 +5878,7 @@ function inventarioMensual(almId, periodo) {
   out._remFechas = Object.keys(remFechas).sort().map(f => ({
     fecha: f, remisiones: [...remFechas[f].remisiones].join(', ') }));
   out._fechaFisico = fechaFis;
-  if (fis) Object.keys(fis).forEach(ref => { if (!out.find(r => r.ref === ref)) out.push({ ref, cat: catOf[ref]||'', inicial:0, remisiones:0, remDespacho:0, remAjuste:0, ventas:0, ajustes:0, final:0, fisico: fis[ref], dif: fis[ref] }); });
+  if (fis) Object.keys(fis).forEach(ref => { if (!out.find(r => r.ref === ref)) out.push({ ref, cat: catOf[ref]||'', inicial:0, remisiones:0, remDespacho:0, remAjuste:0, ventas:0, ajustes:0, final:0, inicialOrigen:'arrastre', remPorFecha:{}, ventasPorFecha:{}, movRem:{}, movVta:{}, fisico: fis[ref], dif: fis[ref], fechaFisico: fechaFis, finalAlConteo: 0 }); });
   return out.sort((a,b) => a.ref.localeCompare(b.ref));
 }
 
@@ -5828,18 +5960,27 @@ function renderDataQuality() {
 
 // ─── INVENTARIOS: CONTROL MENSUAL ─────────────
 const escAttr = s => String(s||'').replace(/"/g,'&quot;');
+const escHtml = s => String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;' }[c]));
 // Lleva a Bodega → Despachos, que es donde se registra una remisión completa
 // (varias prendas y tallas de una vez). Lo que se registre ahí aparece en la
 // columna Remis. de este cuadro, en la fecha del envío.
+// Las remisiones se registran en un solo sitio (Bodega → Despachos, que descuenta el
+// stock); desde Inventarios y desde el Control mensual se entra ahí. Sin almacén
+// (botón "Nueva remisión") solo se abre el formulario en blanco.
 function irARegistrarRemision(almId) {
   showPage('bodega');
   showTab('tab-bod-despachos');
+  if (!almId) {
+    const f = document.getElementById('d-fecha');
+    if (f && !f.value) f.value = hoy();
+    return;
+  }
   // El select de almacenes se llena de forma asíncrona: se espera a que exista
   // la opción antes de seleccionarla, en vez de confiar en un tiempo fijo.
   let intentos = 0;
   (function seleccionar() {
     const sel = document.getElementById('d-almacen');
-    const listo = sel && almId && [...sel.options].some(o => o.value === almId);
+    const listo = sel && [...sel.options].some(o => o.value === almId);
     if (listo) {
       sel.value = almId;
       sel.dispatchEvent(new Event('change'));
@@ -5875,14 +6016,17 @@ async function cargarControlMensual() {
     const da = `data-ref="${escAttr(r.ref)}" data-cat="${escAttr(r.cat)}"`;
     const novTxt = r.ajustes ? ((r.ajustes>0?'+':'')+NUM(r.ajustes)) : '';
     const novColor = r.ajustes<0?'var(--rojo)':r.ajustes>0?'var(--verde)':'var(--gris-medio)';
-    // Se distingue el inicial que viene de un conteo cargado del que es arrastre del mes anterior
-    const iniOrigen = r.inicialCargado
-      ? { pt: '●', col: 'var(--verde)', tt: 'Inventario inicial cargado (conteo físico o carga manual de este mes)' }
-      : { pt: '○', col: 'var(--gris-medio)', tt: 'Arrastre: es el saldo con que cerró el mes anterior, no un conteo de este mes' };
+    // Tres orígenes posibles del inicial, y conviene verlos de un vistazo:
+    // heredado del conteo que cerró el mes anterior, escrito a mano (manda sobre el
+    // conteo), o arrastre del saldo anterior sin conteo que lo respalde.
+    const iniOrigen =
+      r.inicialOrigen === 'conteo' ? { pt: '●', col: 'var(--verde)', tt: 'Heredado del conteo que cerró ' + mesNombre(periodoPrev(periodo)) + ' — se actualiza solo' }
+    : r.inicialOrigen === 'manual' ? { pt: '✎', col: 'var(--ambar)', tt: 'Escrito a mano: prevalece sobre el conteo de cierre y no se sobrescribe' }
+    :                                { pt: '○', col: 'var(--gris-medio)', tt: 'Arrastre: es el saldo con que cerró el mes anterior, sin conteo que lo respalde' };
     const iniMarca = `<span title="${iniOrigen.tt}" style="color:${iniOrigen.col};font-size:11px;margin-right:4px">${iniOrigen.pt}</span>`;
     const iniCell = soloLectura
       ? `<td style="text-align:right;font-weight:600">${iniMarca}${NUM(r.inicial)}</td>`
-      : `<td style="text-align:right;white-space:nowrap">${iniMarca}<input type="text" inputmode="numeric" ${da} value="${r.inicial}" onchange="guardarInicialManual(this)" onkeydown="bloquearFlechas(event)" autocomplete="off" title="${iniOrigen.tt}" style="width:58px;padding:5px;text-align:right;font-size:13px;border:1px solid ${r.inicialCargado ? 'var(--verde)' : 'var(--borde)'};border-radius:6px;background:var(--blanco)"></td>`;
+      : `<td style="text-align:right;white-space:nowrap">${iniMarca}<input type="text" inputmode="numeric" ${da} value="${r.inicial}" onchange="guardarInicialManual(this)" onkeydown="bloquearFlechas(event)" autocomplete="off" title="${iniOrigen.tt}" style="width:58px;padding:5px;text-align:right;font-size:13px;border:1px solid ${iniOrigen.col};border-radius:6px;background:var(--blanco)"></td>`;
     const novCell = soloLectura
       ? `<td style="text-align:right;white-space:nowrap"><span style="color:${novColor}">${novTxt||'—'}</span></td>`
       : `<td style="text-align:right;white-space:nowrap"><span style="color:${novColor}">${novTxt||'—'}</span> <button ${da} onclick="abrirModalNovedad(this)" title="Registrar novedad" style="background:none;border:1px solid var(--borde);border-radius:6px;color:var(--rosa-oscuro);cursor:pointer;font-size:12px;padding:2px 6px">✎</button></td>`;
@@ -5918,14 +6062,14 @@ async function cargarControlMensual() {
     })();
     thead.innerHTML = `<tr>
       <th>Referencia</th>
-      <th style="text-align:right">Inicial${fechaIni ? `<div style="font-weight:400;font-size:10px;color:var(--gris-medio)">${dm(fechaIni)}</div>` : ''}</th>
+      <th style="text-align:right" title="${fechaIni ? 'Del conteo que cerró ' + mesNombre(periodoPrev(periodo)) + ' (' + fechaIni + ')' : 'Arrastre del mes anterior'}">Inicial${fechaIni ? `<div style="font-weight:400;font-size:10px;color:var(--gris-medio)">${dm(fechaIni)}</div>` : ''}</th>
       ${fechasRem.map(fr => `<th style="text-align:right" title="${fr.remisiones ? 'Remisión ' + fr.remisiones : ''}">Remis.<div style="font-weight:400;font-size:10px;color:var(--gris-medio)">${dm(fr.fecha)}</div></th>`).join('')}
       <th style="text-align:right">Remis.<div style="font-weight:400;font-size:10px;color:var(--gris-medio)">total mes</div></th>
       <th style="text-align:right">Ventas${rangoVta ? `<div style="font-weight:400;font-size:10px;color:var(--gris-medio)">${rangoVta}</div>` : ''}</th>
       <th style="text-align:right">Novedades</th>
       <th style="text-align:right">Final</th>
-      <th style="text-align:right">Físico${fechaFis ? `<div style="font-weight:400;font-size:10px;color:var(--gris-medio)">${dm(fechaFis)}</div>` : ''}</th>
-      <th style="text-align:right">Dif.${fechaFis ? `<div style="font-weight:400;font-size:10px;color:var(--gris-medio)">al ${dm(fechaFis)}</div>` : ''}</th>
+      <th style="text-align:right" title="${fechaFis ? 'Conteo que cierra ' + mesNombre(periodo) + ', hecho el ' + fechaFis : 'Todavía no hay conteo que cierre este mes'}">Físico${fechaFis ? `<div style="font-weight:400;font-size:10px;color:var(--gris-medio)">cierre · ${dm(fechaFis)}</div>` : ''}</th>
+      <th style="text-align:right" title="Físico del cierre menos el saldo que debía haber ese día">Dif.${fechaFis ? `<div style="font-weight:400;font-size:10px;color:var(--gris-medio)">al ${dm(fechaFis)}</div>` : ''}</th>
     </tr>`;
   }
   const nCols = 8 + fechasRem.length;
@@ -5947,33 +6091,228 @@ async function cargarControlMensual() {
   const deficit     = rows.filter(r => r.final < 0).reduce((a,r) => a - r.final, 0);
   const refsNeg     = rows.filter(r => r.final < 0).length;
   const sinCargar   = rows.filter(r => !r.inicialCargado).length;
+  // Si hubo conteo de cierre, las referencias con saldo que el conteo no menciona quedan
+  // sin comparar y su saldo se arrastra al mes siguiente. Conviene verlo, no esconderlo.
+  const noContadas  = fechaFis ? rows.filter(r => r.fisico == null && r.final !== 0) : [];
+  const udsNoCont   = noContadas.reduce((a,r) => a + r.final, 0);
+  const fijadosMano = rows.filter(r => r.inicialOrigen === 'manual').length;
   const btnRem = document.getElementById('invc-btn-remision');
   if (btnRem) {
     btnRem.style.display = esVendedora() ? 'none' : 'block';
     btnRem.innerHTML = `<button class="btn btn-primary" style="padding:9px 16px;font-size:13px"
       onclick="irARegistrarRemision('${almId}')">+ Registrar remisión a este almacén</button>
+      <button class="btn btn-secondary" style="padding:9px 16px;font-size:13px;margin-left:6px"
+        onclick="showTab('tab-inv-remisiones')">Ver todas las remisiones</button>
       <span style="font-size:11px;color:var(--gris-medio);margin-left:10px">
-        Se registra completa (varias prendas y tallas) y aparece aquí en la fecha del envío.</span>`;
+        Se registra completa y aparece aquí en la fecha del envío.</span>`;
   }
   document.getElementById('invc-kpis').innerHTML = `
     <div class="metric-card"><div class="m-label">Inventario final</div><div class="m-val">${NUM(enPositivo)}</div>
       <div class="m-sub">unidades en existencia${deficit ? ` · ${NUM(deficit)} en negativo` : ''}</div></div>
-    <div class="metric-card accent"><div class="m-label">Diferencia vs físico</div><div class="m-val">${t.hasFis?((t.dif>0?'+':'')+NUM(t.dif)):'—'}</div><div class="m-sub">${t.hasFis ? `${faltantes} faltan · ${sobrantes} sobran${fechaFis ? ` · contado el ${dm(fechaFis)}` : ''}` : 'sin conteo este mes'}</div></div>`;
+    <div class="metric-card accent"><div class="m-label">Diferencia vs físico</div><div class="m-val">${t.hasFis?((t.dif>0?'+':'')+NUM(t.dif)):'—'}</div><div class="m-sub">${t.hasFis ? `${faltantes} faltan · ${sobrantes} sobran${fechaFis ? ` · cerrado con el conteo del ${dm(fechaFis)}` : ''}` : 'todavía no hay conteo que cierre este mes'}</div></div>`;
   const aviso = document.getElementById('invc-aviso');
   if (aviso) {
-    if (refsNeg) {
-      aviso.style.display = 'block';
-      aviso.innerHTML = `<div class="alert alert-warn" style="margin:0 12px 12px">
+    const partes = [];
+    if (refsNeg) partes.push(`<div class="alert alert-warn" style="margin:0 12px 12px">
         <strong>${refsNeg} referencia(s) con saldo negativo (${NUM(deficit)} unidades).</strong>
         Eso no es inventario real: son prendas que se vendieron sin que la remisión que las
         repuso quedara registrada, y el saldo se arrastra de mes en mes.
         Se cierra de dos formas: registrando las remisiones que faltan
-        (botón de arriba) o haciendo un conteo físico y pulsando
-        <em>“Usar como inventario inicial”</em>, que recalcula el saldo desde lo contado.
+        (botón de arriba) o contando el almacén y marcando ese conteo como cierre del mes,
+        que recalcula el saldo desde lo contado.
         ${sinCargar ? `<br><span style="font-size:12px">${sinCargar} de ${rows.length} referencias arrastran saldo del mes anterior en vez de venir de un conteo.</span>` : ''}
-      </div>`;
-    } else aviso.style.display = 'none';
+      </div>`);
+    if (noContadas.length) partes.push(`<div class="alert alert-warn" style="margin:0 12px 12px">
+        <strong>El conteo del ${dm(fechaFis)} no menciona ${noContadas.length} referencia(s)
+        que sí tienen saldo en libros (${NUM(udsNoCont)} unidades).</strong>
+        Quedan sin comparar y su saldo pasa tal cual al mes siguiente. Si el conteo fue de
+        todo el almacén, significa que esas prendas ya no están: ponlas en cero en el
+        inicial del mes siguiente.
+        <div style="font-size:12px;margin-top:6px">${noContadas.map(r => `${r.ref} (${NUM(r.final)})`).join(' · ')}</div>
+      </div>`);
+    if (fijadosMano) partes.push(`<div class="alert alert-info" style="margin:0 12px 12px;font-size:12px">
+        ${fijadosMano} referencia(s) tienen el inicial <strong>fijado a mano</strong> (✎): prevalece
+        sobre el conteo que cierra ${mesNombre(periodoPrev(periodo))} y no se sobrescribe solo.
+      </div>`);
+    if (partes.length) { aviso.style.display = 'block'; aviso.innerHTML = partes.join(''); }
+    else aviso.style.display = 'none';
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  INVENTARIOS · REMISIONES
+//  Las remisiones se registran en Bodega → Despachos (que descuenta el stock) y
+//  aparecen en el Control mensual del almacén. Aquí tienen su propio lugar: buscarlas,
+//  ver qué llevaba cada una, reimprimir el PDF y sacar el listado a Excel.
+// ═══════════════════════════════════════════════════════════════
+let _remiCache = [];
+
+async function iniciarRemisionesInv() {
+  await llenarSelectAlmacenes();
+  const mSel = document.getElementById('remi-mes'), aSel = document.getElementById('remi-anio');
+  if (mSel && !mSel.options.length) {
+    const [cy, cm] = periodoActual().split('-').map(Number);
+    mSel.innerHTML = '<option value="">Todo el año</option>' +
+      MESES.map((n,i) => `<option value="${i+1}" ${i+1===cm?'selected':''}>${n}</option>`).join('');
+    aSel.innerHTML = aniosDisponibles().map(y => `<option value="${y}" ${y===cy?'selected':''}>${y}</option>`).join('');
+  }
+  const acc = document.getElementById('remi-acciones');
+  if (acc) acc.innerHTML = esVendedora() ? '' :
+    `<button class="btn btn-primary" style="padding:9px 16px;font-size:13px" onclick="irARegistrarRemision('')">+ Nueva remisión</button>
+     <button class="btn btn-secondary" style="padding:9px 16px;font-size:13px" onclick="exportarRemisionesCSV()">Exportar</button>`;
+  cargarRemisionesInv();
+}
+
+async function cargarRemisionesInv() {
+  const tbody = document.getElementById('remi-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="7"><div class="loader"><div class="spinner"></div></div></td></tr>';
+  document.getElementById('remi-detalle').innerHTML = '';
+
+  const almId = document.getElementById('remi-almacen').value;
+  const mes   = document.getElementById('remi-mes').value;
+  const anio  = document.getElementById('remi-anio').value;
+  const desde = mes ? `${anio}-${String(mes).padStart(2,'0')}-01` : `${anio}-01-01`;
+  const hasta = mes ? `${anio}-${String(mes).padStart(2,'0')}-31` : `${anio}-12-31`;
+
+  let q = sb.from('despachos').select('*').gte('fecha', desde).lte('fecha', hasta)
+            .order('fecha', { ascending: false });
+  if (almId) q = q.eq('almacen_id', almId);
+  const { data: desps, error } = await q;
+  if (error) { tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--rojo)">No se pudieron leer las remisiones: ${escHtml(detalleError(error))}</td></tr>`; return; }
+
+  const ids = (desps || []).map(d => d.id);
+  // Referencias por remisión y estado del flujo nuevo, en dos consultas y no una por fila
+  const [itemsRes, remsRes] = await Promise.all([
+    ids.length ? sb.from('despacho_items').select('despacho_id, referencia, cantidad').in('despacho_id', ids)
+               : Promise.resolve({ data: [] }),
+    ids.length ? sb.from('remisiones').select('despacho_id, numero, estado, responsable').in('despacho_id', ids)
+               : Promise.resolve({ data: [] })
+  ]);
+  const refsPorDesp = {}, udsPorDesp = {};
+  (itemsRes.data || []).forEach(i => {
+    (refsPorDesp[i.despacho_id] = refsPorDesp[i.despacho_id] || new Set()).add(refCanon(i.referencia));
+    udsPorDesp[i.despacho_id] = (udsPorDesp[i.despacho_id] || 0) + (i.cantidad || 0);
+  });
+  const remPorDesp = {};
+  (remsRes.data || []).forEach(r => { remPorDesp[r.despacho_id] = r; });
+
+  _remiCache = (desps || []).map(d => ({
+    id: d.id, fecha: d.fecha, remision: d.remision,
+    almacen: limpiarAlm(d.almacen_nombre), almacen_id: d.almacen_id,
+    refs: (refsPorDesp[d.id] || new Set()).size,
+    uds: udsPorDesp[d.id] != null ? udsPorDesp[d.id] : (d.total_unidades || 0),
+    estado: (remPorDesp[d.id] || {}).estado || null,
+    responsable: (remPorDesp[d.id] || {}).responsable || ''
+  }));
+
+  const ea = v => String(v == null ? '' : v).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  tbody.innerHTML = _remiCache.map(r => {
+    const est = r.estado
+      ? `<span class="badge ${r.estado === 'confirmada' ? 'badge-ok' : r.estado === 'anulada' ? 'badge-err' : 'badge-info'}">${escHtml(r.estado)}</span>`
+      : `<span class="badge badge-info" title="Registrada antes del modelo de remisiones">despacho</span>`;
+    return `<tr style="cursor:pointer" onclick="verDetalleRemision('${r.id}')">
+      <td style="white-space:nowrap">${r.fecha}</td>
+      <td><span style="font-family:monospace;font-size:12px">${escHtml(r.remision)}</span></td>
+      <td style="font-size:12px">${escHtml(r.almacen)}</td>
+      <td style="text-align:right">${NUM(r.refs)}</td>
+      <td style="text-align:right;font-weight:700">${NUM(r.uds)}</td>
+      <td>${est}</td>
+      <td style="text-align:right;white-space:nowrap" onclick="event.stopPropagation()">
+        ${esVendedora() ? '' : `<button onclick="editarFechaDespacho('${r.id}','${ea(r.remision)}','${r.fecha}')" title="Corregir la fecha del envío" style="background:none;border:none;color:var(--brand-mid);cursor:pointer;font-size:15px;padding:2px 6px">📅</button>`}
+        <button onclick="imprimirRemision('${r.id}')" title="Remisión imprimible / PDF" style="background:none;border:none;color:var(--rosa-oscuro);cursor:pointer;font-size:15px;padding:2px 6px">🖨</button>
+        ${esVendedora() ? '' : `<button onclick="deleteDespacho('${r.id}','${ea(r.remision)}')" title="Anular y devolver stock a bodega" style="background:none;border:none;color:var(--rojo);cursor:pointer;font-size:15px;padding:2px 6px">✕</button>`}
+      </td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--gris-medio)">
+      Sin remisiones en ${mes ? mesNombre(`${anio}-${String(mes).padStart(2,'0')}`) : anio}${almId ? ' para ese almacén' : ''}.</td></tr>`;
+
+  const totUds = _remiCache.reduce((a,r) => a + r.uds, 0);
+  const almDist = new Set(_remiCache.map(r => r.almacen)).size;
+  document.getElementById('remi-resumen').textContent =
+    _remiCache.length ? `${_remiCache.length} remisión(es) · ${NUM(totUds)} unidades` : '';
+  document.getElementById('remi-kpis').innerHTML = `
+    <div class="metric-card"><div class="m-label">Remisiones</div><div class="m-val">${NUM(_remiCache.length)}</div>
+      <div class="m-sub">${mes ? mesNombre(`${anio}-${String(mes).padStart(2,'0')}`) : 'año ' + anio}</div></div>
+    <div class="metric-card"><div class="m-label">Unidades enviadas</div><div class="m-val">${NUM(totUds)}</div>
+      <div class="m-sub">${almDist} almacén(es) destino</div></div>
+    <div class="metric-card accent"><div class="m-label">Promedio por remisión</div>
+      <div class="m-val">${_remiCache.length ? NUM(Math.round(totUds / _remiCache.length)) : '—'}</div>
+      <div class="m-sub">unidades</div></div>`;
+}
+
+// Qué llevaba una remisión, referencia por referencia.
+async function verDetalleRemision(id) {
+  const cab = _remiCache.find(r => r.id === id);
+  const wrap = document.getElementById('remi-detalle');
+  wrap.innerHTML = '<div class="section-card" style="margin-top:14px"><div class="loader"><div class="spinner"></div></div></div>';
+  const { data: items, error } = await sb.from('despacho_items')
+    .select('referencia, categoria, talla, cantidad').eq('despacho_id', id);
+  if (error) { wrap.innerHTML = `<div class="alert alert-err" style="margin-top:14px">No se pudo leer el detalle: ${escHtml(detalleError(error))}</div>`; return; }
+
+  // Las remisiones nuevas van por referencia; las viejas traen talla, y ahí se suma.
+  const porRef = {};
+  (items || []).forEach(i => {
+    const ref = refCanon(i.referencia);
+    const r = porRef[ref] = porRef[ref] || { ref, cat: i.categoria || '', uds: 0, tallas: {} };
+    r.uds += (i.cantidad || 0);
+    if (i.talla && i.talla !== '—') r.tallas[i.talla] = (r.tallas[i.talla] || 0) + (i.cantidad || 0);
+  });
+  const filas = Object.values(porRef).sort((a,b) => a.ref.localeCompare(b.ref));
+  const tot = filas.reduce((a,r) => a + r.uds, 0);
+  const hayTallas = filas.some(r => Object.keys(r.tallas).length);
+
+  wrap.innerHTML = `<div class="section-card" style="margin-top:14px">
+    <div class="section-header">
+      <div class="section-title">Remisión ${escHtml(cab ? cab.remision : '')}</div>
+      <span style="font-size:12px;color:var(--gris-medio)">
+        ${cab ? `${cab.fecha} · ${escHtml(cab.almacen)}${cab.responsable ? ' · ' + escHtml(cab.responsable) : ''}` : ''}</span>
+    </div>
+    <div class="tabla-wrap"><table>
+      <thead><tr><th>Referencia</th><th>Categoría</th>${hayTallas ? '<th>Tallas</th>' : ''}<th style="text-align:right">Unidades</th></tr></thead>
+      <tbody>${filas.map(r => `<tr>
+        <td><strong>${escHtml(r.ref)}</strong></td>
+        <td style="font-size:12px;color:var(--gris-medio)">${escHtml(r.cat)}</td>
+        ${hayTallas ? `<td style="font-size:11px;color:var(--gris-medio)">${Object.keys(r.tallas).sort((a,b)=>ORDEN_TALLAS.indexOf(a)-ORDEN_TALLAS.indexOf(b)).map(t => `${t}:${r.tallas[t]}`).join(' · ')}</td>` : ''}
+        <td style="text-align:right;font-weight:700">${NUM(r.uds)}</td></tr>`).join('')
+        || `<tr><td colspan="${hayTallas?4:3}" style="text-align:center;padding:18px;color:var(--gris-medio)">Esta remisión no tiene prendas registradas.</td></tr>`}
+      </tbody>
+      ${filas.length ? `<tfoot><tr style="background:var(--gris-claro)">
+        <td style="font-weight:700">TOTAL</td><td></td>${hayTallas?'<td></td>':''}
+        <td style="text-align:right;font-weight:700">${NUM(tot)}</td></tr></tfoot>` : ''}
+    </table></div>
+    <div style="padding:10px 16px;display:flex;gap:8px">
+      <button class="btn btn-secondary" style="padding:7px 14px;font-size:12px" onclick="imprimirRemision('${id}')">🖨 Remisión en PDF</button>
+      <button class="btn btn-secondary" style="padding:7px 14px;font-size:12px" onclick="document.getElementById('remi-detalle').innerHTML=''">Cerrar</button>
+    </div>
+  </div>`;
+  wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// Dos hojas: el listado y el detalle línea a línea, que es lo que se cruza con el físico.
+async function exportarRemisionesCSV() {
+  if (!_remiCache.length) { toast('No hay remisiones en el filtro actual', 'err'); return; }
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(_remiCache.map(r => ({
+    Fecha: r.fecha, 'N.º remisión': r.remision, 'Almacén destino': r.almacen,
+    Referencias: r.refs, Unidades: r.uds, Estado: r.estado || 'despacho', Responsable: r.responsable
+  }))), 'Remisiones');
+
+  const ids = _remiCache.map(r => r.id);
+  const { data: items } = await sb.from('despacho_items')
+    .select('despacho_id, referencia, categoria, talla, cantidad').in('despacho_id', ids);
+  const porId = {}; _remiCache.forEach(r => { porId[r.id] = r; });
+  const det = (items || []).map(i => {
+    const c = porId[i.despacho_id] || {};
+    return { Fecha: c.fecha, 'N.º remisión': c.remision, 'Almacén destino': c.almacen,
+             Referencia: refCanon(i.referencia), Categoría: i.categoria || '',
+             Talla: i.talla || '', Unidades: i.cantidad || 0 };
+  }).sort((a,b) => String(a.Fecha).localeCompare(b.Fecha) || a.Referencia.localeCompare(b.Referencia));
+  if (det.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(det), 'Detalle');
+
+  const mes = document.getElementById('remi-mes').value, anio = document.getElementById('remi-anio').value;
+  XLSX.writeFile(wb, `remisiones-${anio}${mes ? '-' + String(mes).padStart(2,'0') : ''}.xlsx`);
+  toast(`✓ ${_remiCache.length} remisión(es) y ${det.length} línea(s) exportadas`);
 }
 
 // ─── INVENTARIOS: EDICIÓN MANUAL ──────────────
@@ -5985,10 +6324,11 @@ async function guardarInicialManual(el) {
   const val = parseInt(el.value); if (isNaN(val)) return;
   const almNombre = (almacenes.find(a => a.id === almId) || {}).nombre || '';
   const { error } = await sb.from('inventario_apertura').upsert(
-    { almacen_id: almId, almacen_nombre: almNombre, referencia: ref, categoria: cat, periodo, unidades: val },
+    { almacen_id: almId, almacen_nombre: almNombre, referencia: ref, categoria: cat, periodo, unidades: val,
+      origen: 'manual', conteo_id: null },   // a mano gana: el cierre del mes anterior ya no lo pisa
     { onConflict: 'almacen_id,referencia,periodo' });
   if (error) { toast('Error al guardar inicial', 'err'); return; }
-  toast(`✓ Inicial de ${ref}: ${NUM(val)}`);
+  toast(`✓ Inicial de ${ref}: ${NUM(val)} · queda fijado a mano`);
   await loadInvCache(true);
   cargarControlMensual();
 }
