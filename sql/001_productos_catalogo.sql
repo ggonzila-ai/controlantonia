@@ -16,9 +16,14 @@ CREATE TABLE IF NOT EXISTS productos (
   precio_venta     BIGINT,               -- PVP con IVA incluido
   estado           TEXT DEFAULT 'activo',
   observaciones    TEXT,
+  -- Puente hacia el vocabulario del inventario: bodega, conteos y ventas usan sus
+  -- propios nombres de referencia ("JOGGER", "BLUSA 39900 & 49900"), que no son los
+  -- del catálogo. NULL = producto nuevo que todavía no entra al inventario.
+  referencia_inventario TEXT,
   created_at       TIMESTAMPTZ DEFAULT NOW(),
   updated_at       TIMESTAMPTZ DEFAULT NOW()
 );
+ALTER TABLE productos ADD COLUMN IF NOT EXISTS referencia_inventario TEXT;
 
 CREATE TABLE IF NOT EXISTS productos_variantes (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -245,7 +250,7 @@ JOIN (VALUES
   ('ANT3051U2600',   'ANT3051', 'U',    '7706730044996', 32900),
   -- BLUSA BASICA ESQUELETO · ANT8297
   ('ANT8297U2600',   'ANT8297', 'U',    '7706730950907', 29900),
-  ('ANT8297XL2600',  'ANT8297', 'EXTRA','7706730068459', 29900),
+  ('ANT8297XL2600',  'ANT8297', 'XL',   '7706730068459', 29900),   -- Feria la rotula EXTRA; es XL
   -- BLUSA GEA EN DURAZNO · ANT6301
   ('ANT6301M2600',   'ANT6301', 'M',    '7706730528199', 39900),
   ('ANT6301L2600',   'ANT6301', 'L',    '7706730658308', 39900),
@@ -280,6 +285,49 @@ JOIN (VALUES
 ) AS v(referencia, producto_base, talla, codigo_barras, precio_venta)
   ON p.referencia_base = v.producto_base;
 
+-- ─── PUENTE CON EL INVENTARIO ─────────────────────────────────────
+-- Derivado de codigos_sku, con dos correcciones que confirman los reportes de Feria:
+--   ANT2001 = blusa juvenil velo (no batola señorera ely, que va con ANT5304)
+--   ANT5022 = batola siza algodón, producto distinto de la batola siza bolsillo
+UPDATE productos p SET referencia_inventario = m.ref
+  FROM (VALUES
+  ('ANT1201','OFERTAS'),
+  ('ANT1202','OFERTAS'),
+  ('ANT1203','OFERTAS'),
+  ('ANT1209','OFERTAS'),
+  ('ANT1211','OFERTAS'),
+  ('ANT2001','BLUSA 39900 & 49900'),
+  ('ANT2007','OFERTAS'),
+  ('ANT3030','PANTALONES DE BAÑO'),
+  ('ANT3033','KIMONOS'),
+  ('ANT3035','SHORTS DE BAÑO'),
+  ('ANT3051','FALDA CORTA DE BAÑO'),
+  ('ANT3231','VESTIDO SALIDA DE BAÑO'),
+  ('ANT5011','BATOLA TIRAS'),
+  ('ANT5020','BATOLA SIZA AURA'),
+  ('ANT5022','BATOLA SIZA ALGODON'),
+  ('ANT5110','BATOLA TIRAS'),
+  ('ANT5117','PIJAMA DE SHORT NOA'),
+  ('ANT5301','BATOLA SIZA BOLSILLO'),
+  ('ANT5302','PIJAMA CAPRI VERA'),
+  ('ANT5303','PIJAMA MÍA PLUS DE SHORT'),
+  ('ANT5304','BATOLA SEÑORERA ELY'),
+  ('ANT6215','BLUSA 39900 & 49900'),
+  ('ANT6254','OFERTAS'),
+  ('ANT6301','BLUSA DURAZNO 36900'),
+  ('ANT8022','OFERTAS'),
+  ('ANT8050','SHORTS EN LICRA'),
+  ('ANT8051','CAPRIS EN LICRA'),
+  ('ANT8062','JOGGER'),
+  ('ANT8081','CONJUNTO DEPORTIVO COPA'),
+  ('ANT8099','CONJUNTO DEPORTIVO COPA'),
+  ('ANT8153','CAPRI DE BOLSILLO'),
+  ('ANT8155','LEGGINS'),
+  ('ANT8164','SHORTS DE BOLSILLO'),
+  ('ANT8297','BLUSA ESQUELETO VISCOSA UNIF')
+  ) AS m(base, ref)
+ WHERE p.referencia_base = m.base;
+
 -- ─── VERIFICACIÓN ─────────────────────────────────────────────────
 SELECT p.categoria,
        COUNT(DISTINCT p.id) AS productos,
@@ -290,3 +338,6 @@ GROUP BY p.categoria
 ORDER BY skus DESC;
 -- Esperado: PIJAMERIA 13/65 · DEPORTIVO 8/39 · OFERTAS 8/15 · BLUSAS 4/14 · SALIDAS DE BAÑO 5/10
 -- Totales: 38 productos · 143 variantes
+
+-- Productos que todavía no existen en el inventario (esperado: 4 referencias nuevas)
+SELECT referencia_base, nombre FROM productos WHERE referencia_inventario IS NULL ORDER BY referencia_base;
