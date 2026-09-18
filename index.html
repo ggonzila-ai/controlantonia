@@ -1024,6 +1024,37 @@
   </div>
 
   <!-- ALMACENES -->
+  <!-- PRODUCTOS · catálogo maestro -->
+  <div class="page" id="page-productos">
+    <div class="page-title">Productos</div>
+    <div class="section-card" style="margin-bottom:14px">
+      <div style="padding:12px 16px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="form-group" style="margin:0;flex:1;min-width:240px">
+          <label>Buscar</label>
+          <input type="text" id="cat-buscar" placeholder="Nombre, referencia o código de barras…"
+                 autocomplete="off" oninput="renderCatalogo()"
+                 style="width:100%;padding:9px 12px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit">
+        </div>
+        <div class="form-group" style="margin:0;min-width:150px">
+          <label>Categoría</label>
+          <select id="cat-categoria" onchange="renderCatalogo()"><option value="">Todas</option></select>
+        </div>
+        <div class="form-group" style="margin:0;min-width:120px">
+          <label>Estado</label>
+          <select id="cat-estado" onchange="renderCatalogo()">
+            <option value="activo">Activos</option>
+            <option value="descontinuado">Descontinuados</option>
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <div id="cat-acciones" style="display:flex;gap:8px;align-items:center"></div>
+      </div>
+    </div>
+    <div class="metrics" id="cat-kpis" style="margin-bottom:14px"></div>
+    <div id="cat-avisos"></div>
+    <div id="cat-lista"><div class="loader"><div class="spinner"></div></div></div>
+  </div>
+
   <div class="page" id="page-almacenes">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
       <div class="page-title" style="margin:0">Almacenes</div>
@@ -1461,6 +1492,10 @@
     <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 8.25v.008H12V18m0-3.75h.008v.008H12v-.008z"/></svg>
     Inventarios
   </button>
+  <button class="nav-item" id="nav-productos" onclick="showPage('productos')">
+    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"/><path stroke-linecap="round" stroke-linejoin="round" d="M6 6h.008v.008H6V6z"/></svg>
+    Productos
+  </button>
   <button class="nav-item" id="nav-bodega" onclick="showPage('bodega')">
     <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0l-3-3m3 3l3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/></svg>
     Producción
@@ -1480,6 +1515,68 @@
 </nav>
 
 <!-- MODAL NUEVA ENTRADA -->
+
+<!-- MODAL CATÁLOGO · producto maestro con sus tallas -->
+<div class="modal-overlay" id="modal-catalogo">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="cat-modal-title">Nuevo producto</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Nombre (interno)</label>
+        <input type="text" id="cat-f-nombre" placeholder="JOGGER EN LICRA ALGODÓN" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label>Referencia base</label>
+        <input type="text" id="cat-f-base" placeholder="ANT8062" autocomplete="off"
+               oninput="this.value=this.value.toUpperCase();catRegenerarRefs()">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Descripción (como la nombra Feria del Brasier)</label>
+      <input type="text" id="cat-f-desc" placeholder="JOGGER EN LICRA ALGODÓN" autocomplete="off">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Categoría</label>
+        <select id="cat-f-categoria"></select>
+      </div>
+      <div class="form-group">
+        <label>PVP con IVA</label>
+        <input type="text" inputmode="numeric" id="cat-f-precio" placeholder="62900"
+               autocomplete="off" onkeydown="bloquearFlechas(event)" oninput="catRegenerarRefs()">
+      </div>
+      <div class="form-group">
+        <label>Estado</label>
+        <select id="cat-f-estado">
+          <option value="activo">Activo</option>
+          <option value="descontinuado">Descontinuado</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Observaciones (colores, materiales)</label>
+      <textarea id="cat-f-obs" rows="2" placeholder="Unicolor: gris oscuro, azul jean, negro…"
+                style="width:100%;padding:9px 12px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;resize:vertical"></textarea>
+    </div>
+    <div style="margin:14px 0 6px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gris-medio)">
+      Tallas · <span id="cat-f-sufijo-nota" style="font-weight:400;text-transform:none;letter-spacing:0"></span>
+    </div>
+    <div class="tabla-wrap" style="max-height:260px;overflow-y:auto">
+      <table><thead><tr>
+        <th style="width:80px">Talla</th><th>Referencia completa</th>
+        <th style="width:150px">Código de barras</th><th style="width:34px"></th>
+      </tr></thead><tbody id="cat-f-variantes"></tbody></table>
+    </div>
+    <button class="btn btn-secondary" style="padding:7px 14px;font-size:12px;margin-top:8px"
+      onclick="catAgregarFilaTalla()">+ Agregar talla</button>
+    <div id="cat-f-error" style="display:none;margin-top:10px" class="alert alert-err"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="cerrarModalCatalogo()">Cancelar</button>
+      <button class="btn btn-primary" id="cat-f-guardar" onclick="guardarProductoCatalogo()">Guardar</button>
+    </div>
+  </div>
+</div>
 
 <!-- MODAL PRODUCTO -->
 <div class="modal-overlay" id="modal-producto">
@@ -2306,7 +2403,7 @@ function filtrarUIporRol() {
   if (!esVendedora()) return;
 
   // Nav inferior: SOLO Inventarios y Ventas
-  ['nav-dash', 'nav-contabilidad', 'nav-despachos', 'nav-bodega', 'nav-almacenes'].forEach(id => {
+  ['nav-dash', 'nav-contabilidad', 'nav-despachos', 'nav-bodega', 'nav-almacenes', 'nav-productos'].forEach(id => {
     const el = document.getElementById(id); if (el) el.style.display = 'none';
   });
   const dash = document.getElementById('page-dash'); if (dash) dash.style.display = 'none';
@@ -2442,6 +2539,7 @@ function showPage(id) {
   }
   if (id === 'almacenes') iniciarAlmacenes();
   if (id === 'inventarios') iniciarInventarios();
+  if (id === 'productos') iniciarProductos();
   if (id === 'contabilidad') iniciarContabilidad();
 }
 
@@ -4088,6 +4186,375 @@ async function guardarEntrada(){
   toast(`✓ Entrada registrada: +${NUM(total)} uds`);
   cerrarModal('modal-entrada');
   await cargarBodega();
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  PRODUCTOS · CATÁLOGO MAESTRO
+//  Fuente de verdad de qué se vende: referencia base, tallas, códigos de barras
+//  y PVP. Es información de catálogo; el stock sigue viviendo en bodega y en los
+//  conteos, que hablan con sus propios nombres de referencia. Las dos cosas se
+//  cruzan por el código ANT#### (ver codigos_sku y referencia_alias).
+// ═══════════════════════════════════════════════════════════════
+let _catalogo = null;          // [{...producto, variantes:[...]}]
+let _catalogoError = null;
+let _catEditando = null;
+
+const TALLAS_CATALOGO = ['XS','S','M','L','XL','2XL','3XL','4XL','5XL','U','EXTRA'];
+
+async function cargarCatalogo(force) {
+  if (_catalogo && !force) return _catalogo;
+  _catalogoError = null;
+  const { data, error } = await sb.from('productos')
+    .select('*, variantes:productos_variantes(*)').order('nombre');
+  if (error) { _catalogoError = error; _catalogo = null; return null; }
+  _catalogo = (data || []).map(p => ({
+    ...p, variantes: ordenarTallas((p.variantes || []).map(v => v.talla))
+            .map(t => (p.variantes || []).find(v => v.talla === t))
+            .filter(Boolean)
+  }));
+  return _catalogo;
+}
+
+async function iniciarProductos() {
+  const selCat = document.getElementById('cat-categoria');
+  if (selCat && selCat.options.length <= 1)
+    selCat.innerHTML = '<option value="">Todas</option>' +
+      CATEGORIAS.map(c => `<option value="${c}">${c}</option>`).join('');
+  const acc = document.getElementById('cat-acciones');
+  if (acc) acc.innerHTML = esVendedora() ? '' :
+    `<button class="btn btn-primary" style="padding:9px 16px;font-size:13px" onclick="abrirModalCatalogo()">+ Nuevo producto</button>`;
+  await cargarCatalogo(true);
+  renderCatalogo();
+}
+
+function renderCatalogo() {
+  const wrap = document.getElementById('cat-lista');
+  const kpis = document.getElementById('cat-kpis');
+  const avisos = document.getElementById('cat-avisos');
+  if (!wrap) return;
+
+  // La tabla puede no existir todavía: se dice qué falta en vez de romperse.
+  if (_catalogoError) {
+    const falta = String(_catalogoError.message || '').includes('Could not find the table')
+               || _catalogoError.code === 'PGRST205' || _catalogoError.code === '42P01';
+    kpis.innerHTML = ''; avisos.innerHTML = '';
+    wrap.innerHTML = `<div class="alert alert-warn" style="margin:0">
+      <strong>${falta ? 'El catálogo todavía no existe en la base.' : 'No se pudo leer el catálogo.'}</strong><br>
+      ${falta ? 'Falta crear las tablas <code>productos</code> y <code>productos_variantes</code>: abre Supabase → SQL Editor y pega el archivo <code>sql/001_productos_catalogo.sql</code> del repositorio.'
+              : escHtml(detalleError(_catalogoError))}
+    </div>`;
+    return;
+  }
+  if (!_catalogo) { wrap.innerHTML = '<div class="loader"><div class="spinner"></div></div>'; return; }
+
+  const q      = (document.getElementById('cat-buscar').value || '').trim().toLowerCase();
+  const fCat   = document.getElementById('cat-categoria').value;
+  const fEst   = document.getElementById('cat-estado').value;
+  const esBarcode = /^\d{8,14}$/.test(q);
+
+  const filtrados = _catalogo.filter(p => {
+    if (fCat && p.categoria !== fCat) return false;
+    if (fEst && (p.estado || 'activo') !== fEst) return false;
+    if (!q) return true;
+    if (esBarcode) return (p.variantes || []).some(v => (v.codigo_barras || '').includes(q));
+    return (p.nombre || '').toLowerCase().includes(q)
+        || (p.descripcion || '').toLowerCase().includes(q)
+        || (p.referencia_base || '').toLowerCase().includes(q)
+        || (p.variantes || []).some(v => (v.referencia || '').toLowerCase().includes(q));
+  });
+
+  const totSkus = filtrados.reduce((a,p) => a + (p.variantes || []).length, 0);
+  const sinBarcode = filtrados.reduce((a,p) => a + (p.variantes || []).filter(v => !v.codigo_barras).length, 0);
+  kpis.innerHTML = `
+    <div class="metric-card"><div class="m-label">Productos</div><div class="m-val">${NUM(filtrados.length)}</div>
+      <div class="m-sub">${fCat || 'todas las categorías'}</div></div>
+    <div class="metric-card"><div class="m-label">Tallas con código</div><div class="m-val">${NUM(totSkus - sinBarcode)}</div>
+      <div class="m-sub">de ${NUM(totSkus)} tallas</div></div>
+    <div class="metric-card accent"><div class="m-label">Sin código de barras</div><div class="m-val">${NUM(sinBarcode)}</div>
+      <div class="m-sub">${sinBarcode ? 'hay que pedirlos a Feria' : 'todas tienen código'}</div></div>`;
+
+  // Si se buscó un código de barras, se dice exactamente qué talla es.
+  if (esBarcode) {
+    let hit = null;
+    _catalogo.forEach(p => (p.variantes || []).forEach(v => { if (v.codigo_barras === q) hit = { p, v }; }));
+    avisos.innerHTML = hit
+      ? `<div class="alert alert-info" style="margin:0 0 12px"><strong>${escHtml(hit.p.nombre)}</strong>
+           · talla <strong>${escHtml(hit.v.talla)}</strong> · ${escHtml(hit.v.referencia)}
+           · ${COP(hit.v.precio_venta || hit.p.precio_venta || 0)}</div>`
+      : `<div class="alert alert-warn" style="margin:0 0 12px">Ningún producto tiene el código de barras ${escHtml(q)}.</div>`;
+  } else avisos.innerHTML = '';
+
+  if (!filtrados.length) {
+    wrap.innerHTML = `<div class="section-card"><div style="padding:22px;text-align:center;color:var(--gris-medio)">
+      ${q ? 'Ningún producto coincide con la búsqueda.' : 'Aún no hay productos en el catálogo.'}</div></div>`;
+    return;
+  }
+
+  const porCat = {};
+  filtrados.forEach(p => (porCat[p.categoria] = porCat[p.categoria] || []).push(p));
+  const orden = CATEGORIAS.filter(c => porCat[c]).concat(Object.keys(porCat).filter(c => !CATEGORIAS.includes(c)));
+
+  wrap.innerHTML = orden.map(c => {
+    const items = porCat[c].sort((a,b) => a.nombre.localeCompare(b.nombre));
+    const skus = items.reduce((a,p) => a + (p.variantes || []).length, 0);
+    return `<div class="section-card" style="margin-bottom:14px">
+      <div class="section-header">
+        <div class="section-title">${escHtml(c)}</div>
+        <span style="font-size:12px;color:var(--gris-medio)">${items.length} referencia(s) · ${skus} tallas</span>
+      </div>
+      ${items.map(p => {
+        const vs = p.variantes || [];
+        const faltan = vs.filter(v => !v.codigo_barras).length;
+        const chips = vs.map(v => `<span title="${escAttr(v.referencia + (v.codigo_barras ? ' · ' + v.codigo_barras : ' · sin código de barras'))}"
+            style="display:inline-block;padding:2px 7px;margin:2px 3px 2px 0;border-radius:6px;font-size:11px;font-weight:600;
+                   background:${v.codigo_barras ? 'var(--brand-light,#E0F6FC)' : 'var(--gris-claro)'};
+                   color:${v.codigo_barras ? 'var(--brand-dark,#014A5E)' : 'var(--gris-medio)'};
+                   border:1px solid ${v.codigo_barras ? 'var(--brand-border,#A0DDEE)' : 'var(--borde)'}">${escHtml(v.talla)}</span>`).join('');
+        return `<div style="padding:12px 16px;border-bottom:1px solid var(--borde)">
+          <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start">
+            <div style="flex:1;min-width:200px;cursor:pointer" onclick="verDetalleProducto('${p.id}')">
+              <div style="font-weight:700;font-size:14px">${escHtml(p.nombre)}
+                ${(p.estado||'activo') !== 'activo' ? '<span class="badge badge-err" style="margin-left:6px">descontinuado</span>' : ''}</div>
+              <div style="font-size:12px;color:var(--gris-medio);font-family:monospace">${escHtml(p.referencia_base)}</div>
+              ${p.descripcion && p.descripcion !== p.nombre ? `<div style="font-size:11px;color:var(--gris-medio)">Feria: ${escHtml(p.descripcion)}</div>` : ''}
+            </div>
+            <div style="text-align:right;white-space:nowrap">
+              <div style="font-weight:700;font-size:14px">${COP(p.precio_venta || 0)}</div>
+              ${esVendedora() ? '' : `<button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;margin-top:4px"
+                onclick="event.stopPropagation();abrirModalCatalogo('${p.id}')">✎ Editar</button>`}
+            </div>
+          </div>
+          <div style="margin-top:6px">${chips || '<span style="font-size:11px;color:var(--gris-medio)">Sin tallas registradas</span>'}
+            ${faltan ? `<span style="font-size:11px;color:var(--ambar);margin-left:6px">⚠ ${faltan} sin código de barras</span>` : ''}</div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }).join('') + '<div id="cat-detalle"></div>';
+}
+
+async function verDetalleProducto(id) {
+  const p = (_catalogo || []).find(x => x.id === id);
+  if (!p) return;
+  const vs = p.variantes || [];
+  const wrap = document.getElementById('cat-detalle');
+  wrap.innerHTML = `<div class="section-card" style="margin-bottom:14px;border-color:var(--brand-mid)">
+    <div class="section-header">
+      <div class="section-title">${escHtml(p.nombre)}</div>
+      <span style="font-size:12px;color:var(--gris-medio)">${escHtml(p.categoria)} · ${escHtml(p.referencia_base)}</span>
+    </div>
+    ${p.observaciones ? `<div style="padding:10px 16px;font-size:12.5px;color:var(--gris-medio);border-bottom:1px solid var(--borde)">${escHtml(p.observaciones)}</div>` : ''}
+    <div class="tabla-wrap"><table>
+      <thead><tr><th>Talla</th><th>Referencia</th><th>Código de barras</th><th style="text-align:right">PVP</th></tr></thead>
+      <tbody>${vs.map(v => `<tr>
+        <td><strong>${escHtml(v.talla)}</strong></td>
+        <td style="font-family:monospace;font-size:12px">${escHtml(v.referencia)}</td>
+        <td style="font-family:monospace;font-size:12px">${v.codigo_barras ? escHtml(v.codigo_barras)
+            : '<span style="color:var(--ambar)">sin código</span>'}</td>
+        <td style="text-align:right">${COP(v.precio_venta || p.precio_venta || 0)}</td></tr>`).join('')
+        || '<tr><td colspan="4" style="text-align:center;padding:18px;color:var(--gris-medio)">Sin tallas registradas</td></tr>'}
+      </tbody>
+    </table></div>
+    <div style="padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap">
+      ${esVendedora() ? '' : `<button class="btn btn-secondary" style="padding:7px 14px;font-size:12px" onclick="abrirModalCatalogo('${p.id}')">✎ Editar producto</button>`}
+      <button class="btn btn-secondary" style="padding:7px 14px;font-size:12px" onclick="document.getElementById('cat-detalle').innerHTML=''">Cerrar</button>
+    </div>
+  </div>`;
+  wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// ─── Crear / editar ───────────────────────────
+function catSufijo() {
+  // El sufijo es el código del proveedor: 2600 en casi todo, 1200 en los multiuso.
+  const base = (document.getElementById('cat-f-base').value || '').trim().toUpperCase();
+  const p = (_catalogo || []).find(x => x.referencia_base === base);
+  const v = p && (p.variantes || [])[0];
+  const m = v && String(v.referencia).match(/(\d{4})$/);
+  return m ? m[1] : '2600';
+}
+
+function catFilaTalla(talla, referencia, barcode) {
+  const opts = TALLAS_CATALOGO.map(t => `<option value="${t}" ${t === talla ? 'selected' : ''}>${t}</option>`).join('');
+  return `<tr>
+    <td><select class="cat-v-talla" onchange="catRegenerarRefs()"
+        style="width:100%;padding:5px;font-size:12px;border:1px solid var(--borde);border-radius:6px">${opts}</select></td>
+    <td><input type="text" class="cat-v-ref" value="${escAttr(referencia || '')}" autocomplete="off"
+        style="width:100%;padding:5px;font-size:12px;font-family:monospace;border:1px solid var(--borde);border-radius:6px"></td>
+    <td><input type="text" class="cat-v-bar" value="${escAttr(barcode || '')}" inputmode="numeric" maxlength="14"
+        placeholder="13 dígitos" autocomplete="off" onkeydown="bloquearFlechas(event)"
+        style="width:100%;padding:5px;font-size:12px;font-family:monospace;border:1px solid var(--borde);border-radius:6px"></td>
+    <td><button onclick="this.closest('tr').remove()" title="Quitar esta talla"
+        style="background:none;border:none;color:var(--rojo);cursor:pointer;font-size:15px">✕</button></td>
+  </tr>`;
+}
+
+function catAgregarFilaTalla() {
+  document.getElementById('cat-f-variantes').insertAdjacentHTML('beforeend', catFilaTalla('', '', ''));
+  catRegenerarRefs();
+}
+
+// La referencia completa se arma sola: base + talla + sufijo del proveedor.
+// Solo se rellenan las vacías, para no pisar una que se haya escrito a mano.
+function catRegenerarRefs() {
+  const base = (document.getElementById('cat-f-base').value || '').trim().toUpperCase();
+  const suf = catSufijo();
+  const nota = document.getElementById('cat-f-sufijo-nota');
+  if (nota) nota.textContent = base ? `la referencia se arma como ${base} + talla + ${suf}` : '';
+  if (!base) return;
+  document.querySelectorAll('#cat-f-variantes tr').forEach(tr => {
+    const t = tr.querySelector('.cat-v-talla').value;
+    const r = tr.querySelector('.cat-v-ref');
+    if (t && !r.value.trim()) r.value = base + t + suf;
+  });
+}
+
+function abrirModalCatalogo(id) {
+  if (esVendedora()) return;
+  _catEditando = id || null;
+  const p = id ? (_catalogo || []).find(x => x.id === id) : null;
+  document.getElementById('cat-modal-title').textContent = p ? 'Editar producto' : 'Nuevo producto';
+  document.getElementById('cat-f-nombre').value    = p ? (p.nombre || '') : '';
+  document.getElementById('cat-f-base').value      = p ? (p.referencia_base || '') : '';
+  document.getElementById('cat-f-desc').value      = p ? (p.descripcion || '') : '';
+  document.getElementById('cat-f-precio').value    = p ? (p.precio_venta || '') : '';
+  document.getElementById('cat-f-obs').value       = p ? (p.observaciones || '') : '';
+  document.getElementById('cat-f-estado').value    = p ? (p.estado || 'activo') : 'activo';
+  const selC = document.getElementById('cat-f-categoria');
+  selC.innerHTML = CATEGORIAS.map(c => `<option value="${c}">${c}</option>`).join('');
+  if (p) selC.value = p.categoria;
+  document.getElementById('cat-f-variantes').innerHTML =
+    (p && (p.variantes || []).length ? p.variantes : [{ talla: '', referencia: '', codigo_barras: '' }])
+      .map(v => catFilaTalla(v.talla, v.referencia, v.codigo_barras)).join('');
+  document.getElementById('cat-f-error').style.display = 'none';
+  catRegenerarRefs();
+  document.getElementById('modal-catalogo').classList.add('open');
+}
+
+function cerrarModalCatalogo() { cerrarModal('modal-catalogo'); _catEditando = null; }
+
+function catError(msg) {
+  const e = document.getElementById('cat-f-error');
+  e.innerHTML = msg; e.style.display = 'block';
+  e.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+async function guardarProductoCatalogo() {
+  if (esVendedora()) return;
+  const nombre = document.getElementById('cat-f-nombre').value.trim();
+  const base   = document.getElementById('cat-f-base').value.trim().toUpperCase();
+  const desc   = document.getElementById('cat-f-desc').value.trim();
+  const cat    = document.getElementById('cat-f-categoria').value;
+  const precio = parseInt(String(document.getElementById('cat-f-precio').value).replace(/\D/g, ''), 10);
+  const obs    = document.getElementById('cat-f-obs').value.trim();
+  const estado = document.getElementById('cat-f-estado').value;
+
+  if (!nombre) return catError('Falta el nombre del producto.');
+  if (!/^ANT\d{4}$/.test(base)) return catError('La referencia base debe ser ANT y cuatro dígitos, por ejemplo <strong>ANT8062</strong>.');
+  if (!cat) return catError('Falta la categoría.');
+
+  // Tallas del formulario, ya validadas antes de tocar la base.
+  const filas = [...document.querySelectorAll('#cat-f-variantes tr')].map(tr => ({
+    talla: tr.querySelector('.cat-v-talla').value,
+    referencia: tr.querySelector('.cat-v-ref').value.trim().toUpperCase(),
+    codigo_barras: tr.querySelector('.cat-v-bar').value.trim() || null
+  })).filter(v => v.talla || v.referencia);
+
+  for (const v of filas) {
+    if (!v.talla) return catError(`Hay una talla sin elegir (referencia ${escHtml(v.referencia || '—')}).`);
+    if (!v.referencia) return catError(`Falta la referencia completa de la talla ${escHtml(v.talla)}.`);
+    if (v.codigo_barras && !/^\d{8,14}$/.test(v.codigo_barras))
+      return catError(`El código de barras de la talla ${escHtml(v.talla)} debe tener entre 8 y 14 dígitos.`);
+  }
+  const dupT = filas.map(v => v.talla).filter((t,i,a) => a.indexOf(t) !== i);
+  if (dupT.length) return catError(`La talla ${escHtml(dupT[0])} está dos veces.`);
+  const dupR = filas.map(v => v.referencia).filter((r,i,a) => a.indexOf(r) !== i);
+  if (dupR.length) return catError(`La referencia ${escHtml(dupR[0])} está dos veces.`);
+
+  const btn = document.getElementById('cat-f-guardar');
+  btn.disabled = true; btn.textContent = 'Guardando…';
+  try {
+    const fila = { nombre, descripcion: desc || nombre, referencia_base: base, categoria: cat,
+                   precio_venta: isNaN(precio) ? null : precio, estado, observaciones: obs || null };
+    let prodId = _catEditando;
+    if (prodId) {
+      const { error } = await sb.from('productos').update({ ...fila, updated_at: new Date().toISOString() }).eq('id', prodId);
+      if (error) throw error;
+    } else {
+      const { data, error } = await sb.from('productos').insert(fila).select('id').single();
+      if (error) throw error;
+      prodId = data.id;
+    }
+
+    // Las tallas se reemplazan enteras: es un juego pequeño y así no quedan huérfanas.
+    const { error: eDel } = await sb.from('productos_variantes').delete().eq('producto_id', prodId);
+    if (eDel) throw eDel;
+    if (filas.length) {
+      const { error: eIns } = await sb.from('productos_variantes').insert(
+        filas.map(v => ({ producto_id: prodId, referencia: v.referencia, talla: v.talla,
+                          codigo_barras: v.codigo_barras, precio_venta: isNaN(precio) ? null : precio, estado: 'activo' })));
+      if (eIns) throw eIns;
+    }
+
+    // Verificar releyendo: que no devuelva error no basta (ya nos costó datos antes).
+    const { data: chk } = await sb.from('productos_variantes').select('referencia').eq('producto_id', prodId);
+    if ((chk || []).length !== filas.length)
+      throw new Error(`se enviaron ${filas.length} tallas y quedaron ${(chk || []).length}`);
+
+    cerrarModalCatalogo();
+    toast(`✓ ${nombre} guardado — ${filas.length} talla(s)`);
+    await cargarCatalogo(true);
+    renderCatalogo();
+  } catch (e) {
+    console.error('guardar producto', e);
+    const m = String(e.message || e);
+    catError(/duplicate key|unique/i.test(m)
+      ? 'Ya existe otro producto con esa referencia base, o una talla repite un código de barras que ya está en uso.'
+      : 'No se pudo guardar: ' + escHtml(m));
+  } finally {
+    btn.disabled = false; btn.textContent = 'Guardar';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  BÚSQUEDA DE PRODUCTOS — utilidades para el resto de la app
+// ═══════════════════════════════════════════════════════════════
+// Por nombre, referencia base, referencia completa o código de barras.
+async function buscarProducto(query) {
+  const q = String(query || '').trim();
+  if (!q) return [];
+  if (/^\d{8,14}$/.test(q)) {
+    const { data } = await sb.from('productos_variantes')
+      .select('*, producto:productos(*)').eq('codigo_barras', q);
+    return data || [];
+  }
+  if (/^ANT/i.test(q)) {
+    const { data } = await sb.from('productos_variantes')
+      .select('*, producto:productos(*)').ilike('referencia', `${q}%`).order('referencia');
+    return data || [];
+  }
+  const { data } = await sb.from('productos')
+    .select('*, variantes:productos_variantes(*)')
+    .or(`nombre.ilike.%${q}%,descripcion.ilike.%${q}%`)
+    .eq('estado', 'activo').order('nombre');
+  return data || [];
+}
+
+async function obtenerVariantes(producto_id) {
+  const { data } = await sb.from('productos_variantes')
+    .select('*').eq('producto_id', producto_id).eq('estado', 'activo');
+  return ordenarTallas((data || []).map(v => v.talla)).map(t => (data || []).find(v => v.talla === t)).filter(Boolean);
+}
+
+async function obtenerPorReferencia(referencia) {
+  const { data } = await sb.from('productos_variantes')
+    .select('*, producto:productos(*)').eq('referencia', referencia).maybeSingle();
+  return data;
+}
+
+async function buscarPorCodigoBarras(codigo) {
+  const { data } = await sb.from('productos_variantes')
+    .select('*, producto:productos(*)').eq('codigo_barras', String(codigo).trim()).maybeSingle();
+  return data;
 }
 
 function cerrarModal(id) { document.getElementById(id).classList.remove('open'); }
