@@ -326,6 +326,25 @@
   .alert-warn { background: var(--warning-bg); color: var(--warning-text); border-color: #FDE68A; }
   .alert-err  { background: var(--danger-bg);  color: var(--danger-text);  border-color: #FCA5A5; }
   .alert-info { background: var(--brand-light); color: var(--brand-mid);    border-color: var(--brand-border); }
+  /* Formulario de referencia: en celular ocupa toda la pantalla, con los botones fijos
+     abajo para no perderlos al hacer scroll por las tallas. */
+  .rf-modal { max-width: 720px; display: flex; flex-direction: column; max-height: 92vh; }
+  .rf-body { overflow-y: auto; flex: 1; padding-right: 2px; }
+  .rf-pie { position: sticky; bottom: 0; background: var(--blanco); border-top: 1px solid var(--borde);
+            padding: 10px 0 2px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .rf-sec { border: 1px solid var(--borde); border-radius: 10px; margin-bottom: 10px; overflow: hidden; }
+  .rf-sec > summary { padding: 11px 14px; cursor: pointer; font-size: 13px; font-weight: 700;
+                      display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .rf-sec > summary::-webkit-details-marker { display: none; }
+  .rf-sec[open] > summary { border-bottom: 1px solid var(--borde); }
+  .rf-sec-cuerpo { padding: 12px 14px; }
+  .rf-chip { border: 1.5px solid var(--borde); background: var(--blanco); border-radius: 999px;
+             padding: 6px 13px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .rf-chip.on { background: var(--rosa-oscuro); border-color: var(--rosa-oscuro); color: #fff; }
+  @media (max-width: 640px) {
+    .rf-modal { max-width: 100%; width: 100%; max-height: 100vh; height: 100vh;
+                border-radius: 0; margin: 0; }
+  }
 
   /* ---- DETALLES ---- */
   .chart-bar-fill { background: var(--brand); }
@@ -452,7 +471,7 @@
       <div class="section-card" style="border-radius:0;margin-bottom:0;border-bottom:none">
         <div style="padding:12px 16px;display:flex;gap:8px;align-items:center">
           <input type="text" id="bodega-buscar" placeholder="Buscar referencia, categoría o SKU…" style="flex:1;padding:10px 14px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:14px;font-family:inherit" oninput="filtrarBodega()">
-          <button class="btn btn-primary btn-sm" style="flex-shrink:0" onclick="abrirModalProducto()">+ Producto</button>
+          <button class="btn btn-primary btn-sm" style="flex-shrink:0" onclick="abrirRefDesdeBodega()">+ Producto</button>
         </div>
       </div>
       <div id="bodega-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin-top:12px">
@@ -1516,6 +1535,145 @@
 
 <!-- MODAL NUEVA ENTRADA -->
 
+<!-- MODAL REFERENCIA · el único formulario para crear y editar un producto -->
+<div class="modal-overlay" id="modal-ref">
+  <div class="modal rf-modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="rf-titulo">Nuevo producto</div>
+    <div class="rf-body">
+
+      <!-- ── 1 · Datos básicos ── -->
+      <div class="rf-sec" style="border-color:var(--rosa-oscuro)">
+        <div style="padding:11px 14px;font-size:13px;font-weight:700;border-bottom:1px solid var(--borde)">Datos básicos</div>
+        <div class="rf-sec-cuerpo">
+          <div class="form-group">
+            <label>Nombre de la referencia</label>
+            <input type="text" id="rf-nombre" placeholder="JOGGER EN LICRA ALGODÓN" autocomplete="off"
+                   oninput="this.value=this.value.toUpperCase();rfValidarNombre()" onkeydown="rfNoEnviar(event)">
+            <div id="rf-nombre-msg" style="font-size:11px;margin-top:3px"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Código de referencia</label>
+              <input type="text" id="rf-base" placeholder="ANT8062" autocomplete="off"
+                     oninput="this.value=this.value.toUpperCase();rfValidarBase()" onkeydown="rfNoEnviar(event)">
+              <div id="rf-base-msg" style="font-size:11px;margin-top:3px"></div>
+            </div>
+            <div class="form-group">
+              <label>Categoría</label>
+              <select id="rf-cat"></select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Tipo de inventario</label>
+              <select id="rf-tipo" onchange="rfPintarChips()"></select>
+            </div>
+            <div class="form-group">
+              <label>Stock mínimo</label>
+              <input type="text" inputmode="numeric" id="rf-min" value="10"
+                     onkeydown="bloquearFlechas(event);rfNoEnviar(event)">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Precio de venta (PVP con IVA)</label>
+              <input type="text" inputmode="numeric" id="rf-pvp" placeholder="$ 55.900" autocomplete="off"
+                     oninput="rfPvpCambio()" onkeydown="bloquearFlechas(event);rfNoEnviar(event)">
+              <div id="rf-pvp-msg" style="font-size:11px;color:var(--gris-medio);margin-top:3px"></div>
+            </div>
+            <div class="form-group" id="rf-kukos-wrap">
+              <label>Precio neto Kukos (sin IVA)</label>
+              <input type="text" inputmode="numeric" id="rf-kukos" placeholder="opcional" autocomplete="off"
+                     oninput="rfKukosCambio()" onkeydown="bloquearFlechas(event);rfNoEnviar(event)">
+              <div id="rf-kukos-msg" style="font-size:11px;color:var(--gris-medio);margin-top:3px"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 2 · Tallas y códigos de barras ── -->
+      <div class="rf-sec">
+        <div style="padding:11px 14px;font-size:13px;font-weight:700;border-bottom:1px solid var(--borde)">
+          Tallas y códigos de barras
+          <div style="font-weight:400;font-size:11px;color:var(--gris-medio);margin-top:2px">
+            Los códigos los asigna GS1; aquí solo se escanean o se digitan. Una talla sin código queda
+            <strong>pendiente de GS1</strong> y la puedes completar después.
+          </div>
+        </div>
+        <div class="rf-sec-cuerpo">
+          <div id="rf-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
+          <div class="tabla-wrap" style="max-height:300px;overflow-y:auto">
+            <table><thead><tr>
+              <th style="width:74px">Talla</th><th>Código de barras</th><th style="width:30px"></th>
+            </tr></thead><tbody id="rf-tallas"></tbody></table>
+          </div>
+          <div id="rf-tallas-vacio" style="font-size:12px;color:var(--gris-medio);padding:8px 0">
+            Elige las tallas arriba.
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 3 · Costos (solo administración) ── -->
+      <details class="rf-sec" id="rf-sec-costos">
+        <summary>
+          <span>Costos <span style="font-weight:400;color:var(--gris-medio)">· opcional</span></span>
+          <span id="rf-costo-estado" class="badge badge-gray">Sin costo</span>
+        </summary>
+        <div class="rf-sec-cuerpo">
+          <div style="font-size:11px;color:var(--gris-medio);margin-bottom:8px">
+            Todos los valores <strong>sin IVA</strong>: el IVA de las compras se descuenta, no es costo.
+          </div>
+          <div id="rf-insumos"></div>
+          <button type="button" class="btn btn-secondary" style="padding:6px 12px;font-size:12px;margin-top:6px"
+                  onclick="rfAgregarInsumo()">+ Agregar insumo</button>
+          <div class="form-row" style="margin-top:10px">
+            <div class="form-group"><label>Producción por prenda</label>
+              <input type="text" inputmode="numeric" id="rf-cprod" oninput="rfResumenCosto()" onkeydown="bloquearFlechas(event);rfNoEnviar(event)"></div>
+            <div class="form-group"><label>Comercial por prenda</label>
+              <input type="text" inputmode="numeric" id="rf-ccom" oninput="rfResumenCosto()" onkeydown="bloquearFlechas(event);rfNoEnviar(event)"></div>
+          </div>
+          <div id="rf-resumen" style="margin-top:4px"></div>
+        </div>
+      </details>
+
+      <!-- ── 4 · Ficha Kukos ── -->
+      <details class="rf-sec">
+        <summary><span>Ficha Kukos <span style="font-weight:400;color:var(--gris-medio)">· opcional</span></span></summary>
+        <div class="rf-sec-cuerpo">
+          <div class="form-group">
+            <label>Descripción larga <span id="rf-dl-c" style="font-weight:400;color:var(--gris-medio)">0/40</span></label>
+            <input type="text" id="rf-desc-larga" maxlength="40" autocomplete="off"
+                   oninput="rfContador('rf-desc-larga','rf-dl-c',40)" onkeydown="rfNoEnviar(event)">
+          </div>
+          <div class="form-group">
+            <label>Descripción corta <span id="rf-dc-c" style="font-weight:400;color:var(--gris-medio)">0/11</span></label>
+            <input type="text" id="rf-desc-corta" maxlength="11" autocomplete="off"
+                   oninput="rfContador('rf-desc-corta','rf-dc-c',11)" onkeydown="rfNoEnviar(event)">
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Línea</label><select id="rf-linea"></select></div>
+            <div class="form-group"><label>Género</label><select id="rf-genero"></select></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Componente</label><select id="rf-componente"></select></div>
+            <div class="form-group"><label>Silueta</label><select id="rf-silueta"></select></div>
+          </div>
+          <div class="form-group"><label>Uso</label><select id="rf-uso"></select></div>
+        </div>
+      </details>
+
+      <div id="rf-error" class="alert alert-err" style="display:none;margin:0 0 10px"></div>
+    </div>
+
+    <div class="rf-pie">
+      <button type="button" class="btn btn-secondary" onclick="cerrarModal('modal-ref')">Cancelar</button>
+      <button type="button" class="btn btn-secondary" id="rf-guardar-entrada" onclick="guardarRef(true)">Guardar y registrar entrada</button>
+      <button type="button" class="btn btn-primary" id="rf-guardar" onclick="guardarRef(false)">Guardar</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL CATÁLOGO · producto maestro con sus tallas -->
 <div class="modal-overlay" id="modal-catalogo">
   <div class="modal" style="max-width:640px">
@@ -2430,7 +2588,37 @@ const COP = n => '$' + Math.round(n || 0).toLocaleString('es-CO');
 const NUM = n => Math.round(n || 0).toLocaleString('es-CO');
 const IVA_RATE = 0.19;   // los precios de Feria del Brasier ya incluyen IVA
 // ─── HELPERS IVA (centralizados, base sin IVA = total / 1.19) ─────────
-const baseSinIva = x => Math.round((x || 0) / (1 + IVA_RATE));
+// ═══ FUENTE ÚNICA DE IVA ═══════════════════════════════════════
+// Un solo lugar donde un valor se parte en sus tres componentes. Se digita el TOTAL,
+// como viene en la factura, y se elige la tarifa; el resto se calcula.
+// Tarifa 0 = proveedor que no cobra IVA: el total ES la base. Nunca restarle el 19% a
+// una factura que no trae IVA.
+let _ivaPct = IVA_RATE * 100;          // configurable: app_config.iva_pct
+function ivaPct(){ return _ivaPct; }
+const IVA_TARIFAS = [19, 5, 0];
+
+function desgloseIva(total, tarifaPct){
+  const pct = (tarifaPct == null || !isFinite(+tarifaPct)) ? ivaPct() : +tarifaPct;
+  const tot = +total || 0;
+  if (pct <= 0) { const t = Math.round(tot); return { total:t, iva:0, sinIva:t, tarifa:0 }; }
+  const sinIva = Math.round(tot / (1 + pct/100));
+  return { total: Math.round(tot), iva: Math.round(tot) - sinIva, sinIva, tarifa: pct };
+}
+// De una base sin IVA al total con IVA.
+function conIva(sinIva, tarifaPct){
+  const pct = (tarifaPct == null || !isFinite(+tarifaPct)) ? ivaPct() : +tarifaPct;
+  return Math.round((+sinIva || 0) * (1 + pct/100));
+}
+// Lo que se queda Kukos por vender nuestra prenda. Configurable: app_config.kukos_pct.
+let _kukosPct = 16;
+function kukosPct(){ return _kukosPct; }
+// Sugerencia de precio neto Kukos a partir del PVP, redondeada a la centena.
+function netoKukosSugerido(pvpConIva){
+  const base = desgloseIva(pvpConIva).sinIva * (1 - kukosPct()/100);
+  return Math.round(base/100)*100;
+}
+
+const baseSinIva = x => desgloseIva(x).sinIva;
 const ivaDe = x => Math.round(x || 0) - baseSinIva(x);
 // ingreso/venta canónico de una fila de ventas
 const ventaTotal = v => (v.cantidad || 0) * (v.precio_unitario || 0);
@@ -3577,7 +3765,7 @@ async function renderBodega(items) {
       <div style="margin-top:8px">${chipTallas(p.referencia)}</div>
       <div style="display:flex;gap:8px;margin-top:auto;padding-top:10px">
         <button onclick="abrirEntradaBodega('${refEsc}')" style="flex:1;background:var(--verde);color:#fff;border:none;border-radius:var(--radius-sm);font-size:13px;font-weight:700;padding:9px;cursor:pointer">+ Entrada</button>
-        <button onclick="abrirModalProducto('${p.id}')" style="flex:1;background:none;border:1px solid var(--borde);border-radius:var(--radius-sm);color:var(--gris-medio);font-size:13px;padding:9px;cursor:pointer">✏ Editar</button>
+        <button onclick="abrirRefDesdeBodega('${escAttr(p.referencia)}')" style="flex:1;background:none;border:1px solid var(--borde);border-radius:var(--radius-sm);color:var(--gris-medio);font-size:13px;padding:9px;cursor:pointer">✏ Editar</button>
       </div>
     </div>`;
   }).join('') || '<div class="empty" style="grid-column:1/-1;padding:20px;text-align:center;color:var(--gris-medio)">Sin referencias en bodega.</div>';
@@ -3656,17 +3844,423 @@ async function loadCostosData() {
 }
 
 // Margen bruto por referencia (reutilizable en Ventas). null si no hay precio definido.
-function margenReferencia(ref) {
+// ═══════════════════════════════════════════════════════════════
+//  FORMULARIO DE REFERENCIA — el único para crear y editar
+//  Antes había tres pantallas distintas para lo mismo (el modal de bodega, el de la
+//  página Productos y el de catálogo), y cada una guardaba en sitios diferentes.
+//  Esta llama a guardar_referencia(), que escribe todo en una sola transacción.
+// ═══════════════════════════════════════════════════════════════
+let _rfCat = null;            // catálogos: tipos de inventario y criterios Kukos
+let _rfEditId = null;         // null = creando
+let _rfTallas = [];           // [{talla, codigo, activo, bloqueada}]
+let _rfInsumos = [];          // [{nombre, valor}]
+let _rfCodigosUsados = null;  // código de barras -> "ANT5302 – talla L"
+
+async function rfCargarCatalogos(force){
+  if (_rfCat && !force) return _rfCat;
+  const [ti, ck] = await Promise.all([
+    sb.from('tipos_inventario').select('codigo, nombre, tallas').eq('activo', true).order('codigo'),
+    sb.from('criterios_kukos').select('grupo, codigo').eq('activo', true).order('codigo')
+  ]);
+  const crit = {};
+  (ck.data || []).forEach(c => (crit[c.grupo] = crit[c.grupo] || []).push(c.codigo));
+  _rfCat = { tipos: ti.data || [], crit };
+  return _rfCat;
+}
+
+// Todos los códigos ya asignados, para avisar en vivo si uno se repite.
+async function rfCargarCodigos(force){
+  if (_rfCodigosUsados && !force) return _rfCodigosUsados;
+  const m = {};
+  try {
+    const filas = await selectAll('productos_variantes',
+      'codigo_barras, talla, producto_id, productos!inner(referencia_base)');
+    (filas || []).forEach(v => {
+      if (v.codigo_barras) m[v.codigo_barras] = {
+        dueno: (v.productos && v.productos.referencia_base) || '?', talla: v.talla, id: v.producto_id };
+    });
+  } catch (e) { }
+  _rfCodigosUsados = m; return m;
+}
+
+// Dígito de control del EAN-13, igual que ean13_valido() en la base.
+function ean13Valido(c){
+  if (!/^\d{13}$/.test(c || '')) return false;
+  let s = 0;
+  for (let i = 0; i < 12; i++) s += (+c[i]) * (i % 2 === 0 ? 1 : 3);
+  return ((10 - (s % 10)) % 10) === +c[12];
+}
+
+const rfNum = v => parseInt(String(v == null ? '' : v).replace(/[^\d]/g, ''), 10) || 0;
+function rfNoEnviar(ev){ if (ev.key === 'Enter') { ev.preventDefault(); } }   // nunca enviar con Enter
+function rfContador(idInput, idCont, max){
+  const el = document.getElementById(idInput), c = document.getElementById(idCont);
+  if (!el || !c) return;
+  c.textContent = el.value.length + '/' + max;
+  c.style.color = el.value.length >= max ? 'var(--ambar)' : 'var(--gris-medio)';
+}
+
+// Bodega identifica los productos por NOMBRE y el formulario por el id de `productos`.
+// Este puente traduce: si el nombre ya tiene ficha en el catálogo, se edita; si no, se
+// abre en blanco con el nombre puesto para completarle código de referencia y tallas.
+async function abrirRefDesdeBodega(nombre){
+  if (esVendedora()) { toast('Solo administración crea o edita productos', 'err'); return; }
+  if (!nombre) return abrirModalRef();
+  let id = null;
+  try {
+    const { data } = await sb.from('productos').select('id').ilike('nombre', nombre).maybeSingle();
+    id = data && data.id;
+  } catch (e) { }
+  await abrirModalRef(id);
+  if (!id) {
+    const el = document.getElementById('rf-nombre');
+    if (el) { el.value = (nombre || '').toUpperCase(); rfValidarNombre(); }
+    const p = (bodegaData || []).find(b => b.referencia === nombre);
+    if (p) {
+      document.getElementById('rf-cat').value = p.categoria || CATEGORIAS[0];
+      document.getElementById('rf-min').value = p.stock_minimo ?? 10;
+      const c = _costos[nombre];
+      if (c && c.precio_venta) { document.getElementById('rf-pvp').value = NUM(c.precio_venta); rfPvpCambio(); }
+    }
+    toast('Esta referencia todavía no tiene código ni tallas: complétalos aquí');
+  }
+}
+
+async function abrirModalRef(productoId){
+  if (esVendedora()) { toast('Solo administración crea o edita productos', 'err'); return; }
+  _rfEditId = productoId || null;
+  _rfTallas = []; _rfInsumos = [];
+  await Promise.all([rfCargarCatalogos(), rfCargarCodigos(true), loadCostosData()]);
+  const cat = _rfCat;
+
+  document.getElementById('rf-titulo').textContent = _rfEditId ? 'Editar producto' : 'Nuevo producto';
+  document.getElementById('rf-cat').innerHTML = CATEGORIAS.map(c => `<option>${c}</option>`).join('');
+  document.getElementById('rf-tipo').innerHTML = cat.tipos.length
+    ? cat.tipos.map(t => `<option value="${t.codigo}" ${t.codigo==='INV002'?'selected':''}>${t.codigo} · ${t.nombre}</option>`).join('')
+    : '<option value="INV002">INV002 · alfanumérico</option>';
+  const op = g => '<option value="">—</option>' + ((cat.crit[g]||[]).map(c => `<option value="${escAttr(c)}">${escHtml(c)}</option>`).join(''));
+  ['linea','genero','componente','silueta','uso'].forEach(g => {
+    const el = document.getElementById('rf-' + g); if (el) el.innerHTML = op(g);
+  });
+
+  let p = null, ficha = {};
+  if (_rfEditId) {
+    const { data } = await sb.from('productos').select('*, productos_variantes(talla, codigo_barras, activo)')
+      .eq('id', _rfEditId).single();
+    p = data || null;
+  }
+  const g = (id, v) => { const el = document.getElementById(id); if (el) el.value = v == null ? '' : v; };
+  g('rf-nombre', p?.nombre || '');
+  g('rf-base', p?.referencia_base || '');
+  g('rf-min', p?.stock_minimo ?? 10);
+  g('rf-pvp', p?.precio_venta ? NUM(p.precio_venta) : '');
+  g('rf-kukos', p?.precio_neto_kukos ? NUM(p.precio_neto_kukos) : '');
+  g('rf-desc-larga', p?.desc_larga || '');
+  g('rf-desc-corta', p?.desc_corta || '');
+  if (p?.categoria) document.getElementById('rf-cat').value = p.categoria;
+  if (p?.tipo_inventario) document.getElementById('rf-tipo').value = p.tipo_inventario;
+  ['linea','genero','componente','silueta','uso'].forEach(k => {
+    const el = document.getElementById('rf-' + k); const v = p && p['k_' + k];
+    if (el && v) { if (![...el.options].some(o => o.value === v)) el.add(new Option(v, v)); el.value = v; }
+  });
+  rfContador('rf-desc-larga','rf-dl-c',40); rfContador('rf-desc-corta','rf-dc-c',11);
+
+  // Tallas existentes: las que ya están guardadas no se pueden quitar, solo desactivar,
+  // porque detrás puede haber stock o ventas.
+  (p?.productos_variantes || []).forEach(v => _rfTallas.push({
+    talla: v.talla, codigo: v.codigo_barras || '', activo: v.activo !== false, bloqueada: true }));
+  _rfTallas.sort((a,b) => ORDEN_TALLAS.indexOf(a.talla) - ORDEN_TALLAS.indexOf(b.talla));
+
+  // Costos: se leen por NOMBRE, que es como los guarda el módulo de Costos.
+  const costos = p ? _costos[p.nombre] : null;
+  g('rf-cprod', costos?.costo_produccion ? NUM(costos.costo_produccion) : '');
+  g('rf-ccom',  costos?.costo_comercial  ? NUM(costos.costo_comercial)  : '');
+  _rfInsumos = p ? ((_insumos[p.nombre] || []).map(i => ({ nombre: i.nombre, valor: i.valor || 0 }))) : [];
+
+  // Las asesoras no ven costos ni precio neto Kukos.
+  const secCostos = document.getElementById('rf-sec-costos');
+  if (secCostos) secCostos.style.display = esVendedora() ? 'none' : '';
+  const kw = document.getElementById('rf-kukos-wrap');
+  if (kw) kw.style.display = esVendedora() ? 'none' : '';
+
+  document.getElementById('rf-error').style.display = 'none';
+  document.getElementById('rf-base-msg').textContent = '';
+  document.getElementById('rf-nombre-msg').textContent = '';
+  rfPintarChips(); rfPintarInsumos(); rfPvpCambio();
+  document.getElementById('modal-ref').classList.add('open');
+}
+
+// ── Sección 1 · validación en vivo ──
+// El nombre tiene que ser único porque el resto de la app (conteos, ventas, remisiones)
+// identifica el producto por su nombre: dos homónimos mezclarían sus saldos.
+let _rfNombreTimer = null;
+function rfValidarNombre(){
+  const v = (document.getElementById('rf-nombre').value || '').trim().toUpperCase();
+  const msg = document.getElementById('rf-nombre-msg');
+  if (!v) { msg.textContent = ''; return; }
+  clearTimeout(_rfNombreTimer);
+  _rfNombreTimer = setTimeout(async () => {
+    try {
+      const { data } = await sb.from('productos').select('id, referencia_base').ilike('nombre', v);
+      const otro = (data || []).find(x => x.id !== _rfEditId);
+      if (otro) { msg.style.color = 'var(--rojo)'; msg.textContent = 'Ya hay una referencia con ese nombre: ' + otro.referencia_base; }
+      else { msg.textContent = ''; }
+    } catch (e) { msg.textContent = ''; }
+  }, 350);
+}
+async function rfValidarBase(){
+  const v = (document.getElementById('rf-base').value || '').trim();
+  const msg = document.getElementById('rf-base-msg');
+  if (!v) { msg.textContent = ''; return; }
+  if (!/^[A-Z0-9]{4,20}$/.test(v)) {
+    msg.style.color = 'var(--rojo)'; msg.textContent = 'Solo letras y números (ej. ANT8062)'; return;
+  }
+  const { data } = await sb.from('productos').select('id, nombre').eq('referencia_base', v).maybeSingle();
+  if (data && data.id !== _rfEditId) { msg.style.color = 'var(--rojo)'; msg.textContent = 'Ya existe: ' + data.nombre; }
+  else { msg.style.color = 'var(--verde)'; msg.textContent = 'Disponible'; }
+}
+function rfPvpCambio(){
+  const el = document.getElementById('rf-pvp'); const n = rfNum(el.value);
+  el.value = n ? NUM(n) : '';
+  const d = desgloseIva(n);
+  document.getElementById('rf-pvp-msg').textContent = n
+    ? `Sin IVA ${COP(d.sinIva)} · IVA ${COP(d.iva)}` : '';
+  const k = document.getElementById('rf-kukos');
+  if (n && !rfNum(k.value)) k.value = NUM(netoKukosSugerido(n));   // sugerencia, editable
+  rfKukosCambio(); rfResumenCosto();
+}
+function rfKukosCambio(){
+  const el = document.getElementById('rf-kukos'); const n = rfNum(el.value);
+  if (document.activeElement !== el) el.value = n ? NUM(n) : '';
+  document.getElementById('rf-kukos-msg').textContent = `Kukos se queda con ${kukosPct()}%`;
+  rfResumenCosto();
+}
+
+// ── Sección 2 · chips de talla y filas con código ──
+function rfPintarChips(){
+  const tipo = document.getElementById('rf-tipo').value;
+  const t = (_rfCat?.tipos || []).find(x => x.codigo === tipo);
+  const curva = (t && t.tallas) ? t.tallas : ORDEN_TALLAS.filter(x => x !== '—');
+  const elegidas = new Set(_rfTallas.map(x => x.talla));
+  document.getElementById('rf-chips').innerHTML =
+    curva.map(x => `<button type="button" class="rf-chip ${elegidas.has(x)?'on':''}" onclick="rfToggleTalla('${escAttr(x)}')">${escHtml(x)}</button>`).join('')
+    + `<button type="button" class="rf-chip" style="border-style:dashed" onclick="rfOtraTalla()">+ Otra talla</button>`;
+  rfPintarTallas();
+}
+function rfToggleTalla(t){
+  const i = _rfTallas.findIndex(x => x.talla === t);
+  if (i >= 0) {
+    if (_rfTallas[i].bloqueada) { toast('Esa talla ya está guardada: se desactiva, no se quita', 'err'); return; }
+    _rfTallas.splice(i, 1);
+  } else _rfTallas.push({ talla: t, codigo: '', activo: true, bloqueada: false });
+  rfPintarChips();
+}
+function rfOtraTalla(){
+  const t = (prompt('¿Qué talla?') || '').trim().toUpperCase();
+  if (!t) return;
+  if (_rfTallas.some(x => x.talla === t)) { toast('Esa talla ya está en la lista', 'err'); return; }
+  _rfTallas.push({ talla: t, codigo: '', activo: true, bloqueada: false });
+  rfPintarChips();
+}
+function rfPintarTallas(){
+  const tb = document.getElementById('rf-tallas');
+  const vacio = document.getElementById('rf-tallas-vacio');
+  vacio.style.display = _rfTallas.length ? 'none' : 'block';
+  tb.innerHTML = _rfTallas.map((x, i) => `<tr${x.activo===false?' style="opacity:.5"':''}>
+    <td><strong>${escHtml(x.talla)}</strong>${x.bloqueada?'':''}</td>
+    <td>
+      <input type="text" inputmode="numeric" value="${escAttr(x.codigo)}" data-i="${i}"
+        placeholder="escanea o digita · opcional" autocomplete="off" maxlength="13"
+        oninput="rfCodigoInput(this)" onkeydown="rfCodigoEnter(event, ${i})"
+        style="width:100%;padding:7px 9px;border:1.5px solid var(--borde);border-radius:6px;font-size:13px;font-family:inherit">
+      <div class="rf-cod-msg" data-i="${i}" style="font-size:11px;margin-top:2px"></div>
+    </td>
+    <td style="text-align:center">${x.bloqueada
+      ? `<button type="button" title="${x.activo===false?'Reactivar':'Desactivar'} esta talla" onclick="rfToggleActiva(${i})"
+           style="background:none;border:none;cursor:pointer;font-size:14px">${x.activo===false?'○':'●'}</button>`
+      : `<button type="button" title="Quitar" onclick="rfToggleTalla('${escAttr(x.talla)}')"
+           style="background:none;border:none;color:var(--rojo);cursor:pointer;font-size:14px">✕</button>`}</td>
+  </tr>`).join('');
+  _rfTallas.forEach((x, i) => { if (x.codigo) rfValidarCodigo(i); });
+}
+function rfToggleActiva(i){ _rfTallas[i].activo = _rfTallas[i].activo === false; rfPintarTallas(); }
+function rfCodigoInput(el){
+  const i = +el.dataset.i;
+  _rfTallas[i].codigo = (el.value || '').replace(/[^\d]/g, '');
+  if (el.value !== _rfTallas[i].codigo) el.value = _rfTallas[i].codigo;
+  rfValidarCodigo(i);
+}
+// El lector escribe el código y manda Enter. Enter pasa a la talla siguiente y NUNCA envía.
+function rfCodigoEnter(ev, i){
+  if (ev.key !== 'Enter') return;
+  ev.preventDefault();
+  const inputs = [...document.querySelectorAll('#rf-tallas input')];
+  const sig = inputs[i + 1];
+  if (sig) { sig.focus(); sig.select(); }
+  else inputs[i]?.blur();
+}
+function rfValidarCodigo(i){
+  const cod = _rfTallas[i].codigo || '';
+  const msg = document.querySelector(`.rf-cod-msg[data-i="${i}"]`);
+  if (!msg) return;
+  if (!cod) { msg.style.color = 'var(--gris-medio)'; msg.textContent = 'Pendiente GS1'; return; }
+  if (cod.length < 13) { msg.style.color = 'var(--gris-medio)'; msg.textContent = cod.length + '/13'; return; }
+  if (!ean13Valido(cod)) { msg.style.color = 'var(--rojo)'; msg.textContent = 'Dígito de control incorrecto'; return; }
+  if (!cod.startsWith('7706730')) { msg.style.color = 'var(--rojo)'; msg.textContent = 'No empieza por 7706730'; return; }
+  const rep = _rfTallas.findIndex((x, j) => j !== i && x.codigo === cod);
+  if (rep >= 0) { msg.style.color = 'var(--rojo)'; msg.textContent = 'Repetido con la talla ' + _rfTallas[rep].talla; return; }
+  const usado = (_rfCodigosUsados || {})[cod];
+  if (usado && usado.id !== _rfEditId) {
+    msg.style.color = 'var(--rojo)'; msg.textContent = `Ya pertenece a ${usado.dueno} – talla ${usado.talla}`; return;
+  }
+  msg.style.color = 'var(--verde)'; msg.textContent = 'Válido';
+}
+
+// ── Sección 3 · costos e insumos ──
+function rfPintarInsumos(){
+  const w = document.getElementById('rf-insumos');
+  w.innerHTML = _rfInsumos.map((x, i) => `<div style="display:flex;gap:6px;margin-bottom:5px">
+    <input type="text" value="${escAttr(x.nombre)}" placeholder="Tela, etiqueta, gancho…" autocomplete="off"
+      oninput="_rfInsumos[${i}].nombre=this.value" onkeydown="rfNoEnviar(event)"
+      style="flex:1;padding:7px 9px;border:1.5px solid var(--borde);border-radius:6px;font-size:13px;font-family:inherit">
+    <input type="text" inputmode="numeric" value="${x.valor?NUM(x.valor):''}" placeholder="valor sin IVA"
+      oninput="_rfInsumos[${i}].valor=rfNum(this.value);rfResumenCosto()" onkeydown="bloquearFlechas(event);rfNoEnviar(event)"
+      style="width:120px;padding:7px 9px;border:1.5px solid var(--borde);border-radius:6px;font-size:13px;text-align:right;font-family:inherit">
+    <button type="button" onclick="_rfInsumos.splice(${i},1);rfPintarInsumos();rfResumenCosto()"
+      style="background:none;border:none;color:var(--rojo);cursor:pointer;font-size:14px">✕</button>
+  </div>`).join('') || '<div style="font-size:12px;color:var(--gris-medio)">Sin insumos registrados.</div>';
+}
+function rfAgregarInsumo(){ _rfInsumos.push({ nombre:'', valor:0 }); rfPintarInsumos(); }
+
+// Resumen en vivo. Usa las MISMAS funciones que Rentabilidad y el punto de equilibrio.
+function rfResumenCosto(){
+  const pvp = rfNum(document.getElementById('rf-pvp')?.value);
+  const kuk = rfNum(document.getElementById('rf-kukos')?.value);
+  const mp = _rfInsumos.reduce((s, x) => s + (x.valor || 0), 0);
+  const cProd = rfNum(document.getElementById('rf-cprod')?.value);
+  const cCom  = rfNum(document.getElementById('rf-ccom')?.value);
+  const tieneCosto = (mp > 0 || cProd > 0 || cCom > 0);
+  const est = document.getElementById('rf-costo-estado');
+  if (est) { est.textContent = tieneCosto ? 'Costo registrado' : 'Sin costo';
+             est.className = 'badge ' + (tieneCosto ? 'badge-ok' : 'badge-gray'); }
+  const out = document.getElementById('rf-resumen'); if (!out) return;
+  if (!tieneCosto || !pvp) {
+    out.innerHTML = `<div style="font-size:12px;color:var(--gris-medio)">Sin costo registrado no se calcula margen.</div>`;
+    return;
+  }
+  const fila = (etiqueta, ingreso, comision) => {
+    const costo = mp + cProd + cCom + comision;
+    const m = ingreso - costo, pct = ingreso ? Math.round(m/ingreso*100) : 0;
+    const col = pct >= 20 ? 'var(--verde)' : pct >= 10 ? 'var(--ambar)' : 'var(--rojo)';
+    return `<tr><td>${etiqueta}</td><td style="text-align:right">${COP(ingreso)}</td>
+      <td style="text-align:right;color:var(--gris-medio)">${COP(costo)}</td>
+      <td style="text-align:right;font-weight:700;color:${col}">${COP(m)}</td>
+      <td style="text-align:right;font-weight:700;color:${col}">${pct}%</td></tr>`;
+  };
+  const sinIva = desgloseIva(pvp).sinIva;
+  out.innerHTML = `<div class="tabla-wrap"><table style="font-size:12px">
+    <thead><tr><th>Canal</th><th style="text-align:right">Ingreso s/IVA</th>
+      <th style="text-align:right">Costo</th><th style="text-align:right">Margen</th><th style="text-align:right">%</th></tr></thead>
+    <tbody>
+      ${fila('En mis almacenes', sinIva, Math.round(sinIva * COMISION_RATE))}
+      ${kuk ? fila('Por Kukos', kuk, 0) : ''}
+    </tbody></table>
+    <div style="font-size:11px;color:var(--gris-medio);margin-top:4px">
+      Materiales ${COP(mp)} · producción ${COP(cProd)} · comercial ${COP(cCom)}${kuk?'':' · agrega el precio neto Kukos para ver ese canal'}</div></div>`;
+}
+
+// ── Guardar ──
+async function guardarRef(irAEntrada){
+  const err = document.getElementById('rf-error');
+  const mostrar = m => { err.style.display='block'; err.textContent = m; err.scrollIntoView({block:'nearest'}); };
+  const pvp = rfNum(document.getElementById('rf-pvp').value);
+  const payload = {
+    id: _rfEditId,
+    nombre: (document.getElementById('rf-nombre').value||'').trim().toUpperCase(),
+    referencia_base: (document.getElementById('rf-base').value||'').trim().toUpperCase(),
+    categoria: document.getElementById('rf-cat').value,
+    tipo_inventario: document.getElementById('rf-tipo').value,
+    precio_venta: pvp,
+    precio_neto_kukos: rfNum(document.getElementById('rf-kukos').value) || null,
+    stock_minimo: rfNum(document.getElementById('rf-min').value) || 10,
+    activo: true,
+    ficha: {
+      desc_larga: document.getElementById('rf-desc-larga').value.trim() || null,
+      desc_corta: document.getElementById('rf-desc-corta').value.trim() || null,
+      linea: document.getElementById('rf-linea').value || null,
+      genero: document.getElementById('rf-genero').value || null,
+      componente: document.getElementById('rf-componente').value || null,
+      silueta: document.getElementById('rf-silueta').value || null,
+      uso: document.getElementById('rf-uso').value || null
+    },
+    variantes: _rfTallas.map(x => ({ talla: x.talla, codigo_barras: x.codigo || null, activo: x.activo !== false })),
+    costos: {
+      insumos: _rfInsumos.filter(x => (x.nombre||'').trim()).map(x => ({ nombre: x.nombre.trim(), valor: x.valor||0 })),
+      costo_produccion: rfNum(document.getElementById('rf-cprod').value) || null,
+      costo_comercial:  rfNum(document.getElementById('rf-ccom').value)  || null
+    }
+  };
+  const btn = document.getElementById('rf-guardar'); const prev = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Guardando…';
+  const { data, error } = await sb.rpc('guardar_referencia', { p: payload });
+  btn.disabled = false; btn.textContent = prev;
+  if (error) { mostrar('No se pudo guardar: ' + detalleError(error)); console.error(error); return; }
+  if (!data || data.ok === false) { mostrar(data?.motivo || 'No se pudo guardar'); return; }
+
+  let m = `✓ ${data.nombre} guardado — ${data.tallas_guardadas} talla(s)`;
+  if (data.pendientes_gs1) m += `, ${data.pendientes_gs1} pendiente(s) de GS1`;
+  toast(m);
+  (data.avisos || []).forEach((a, k) => setTimeout(() => toast(a, 'err'), 2600 * (k+1)));
+  if (data.pendientes_gs1) setTimeout(() => toast(
+    'Registra esas tallas en GS1 y luego asigna sus códigos en Códigos pendientes.'), 2600);
+
+  cerrarModal('modal-ref');
+  _rfCodigosUsados = null; invCache = null;
+  await Promise.all([cargarBodega(), loadCostosData()]);
+  if (typeof renderCatalogo === 'function' && document.getElementById('page-productos')?.classList.contains('active')) renderCatalogo();
+  if (irAEntrada) abrirEntradaBodega(data.nombre);   // abre + Entrada con la referencia ya puesta
+}
+
+// ═══ FUENTE ÚNICA DE MARGEN ════════════════════════════════════
+// Toda rentabilidad se calcula sobre ingresos SIN IVA (el IVA se cobra y se declara,
+// no es ingreso). Antes esta cadena estaba escrita dos veces —margenReferencia y
+// analisisRef— y no coincidían: una tomaba el costo de producción de la referencia y
+// la otra el de Costos Mensuales, así que la misma prenda mostraba márgenes distintos
+// según la pantalla. Ahora las dos son envolturas de esta.
+//
+// canal 'almacen': ingreso = PVP sin IVA, menos la comisión de Feria.
+// canal 'kukos'  : ingreso = precio neto que paga Kukos (ya viene sin IVA, sin comisión).
+//
+// Devuelve null si no hay precio. Si NO hay ningún costo registrado, margen y margenPct
+// van en null y tieneCosto queda en false: sin costo no hay margen, y mostrar 100% por
+// falta de datos engaña más que no mostrar nada.
+function costeoReferencia(ref, canal) {
   const c = _costos[ref];
   if (!c || !c.precio_venta) return null;
+  const esKukos = canal === 'kukos';
   const mp = (_insumos[ref]||[]).reduce((s,i)=>s+(i.valor||0),0);
-  const sinIva = baseSinIva(c.precio_venta);
-  const comision = Math.round(sinIva * COMISION_RATE);   // comisión Feria sobre la base SIN IVA
   const factorProd = (c.factor_produccion!=null) ? c.factor_produccion : 1;
-  const cProd = Math.round((c.costo_produccion||0) * factorProd);   // producción ajustada por el factor de la prenda
-  const costoTotal = mp + cProd + (c.costo_comercial||0) + comision;  // el IVA NO es costo (se cobra y se declara); el comercial NO lleva factor
-  const margen = sinIva - costoTotal;   // utilidad operativa (igual que el detalle)
-  return { precio:c.precio_venta, sinIva, mp, comision, factorProd, cProd, cCom:(c.costo_comercial||0), costoTotal, margen, margenPct: sinIva ? margen/sinIva : 0 };
+  const cProd = Math.round(costoProdPrenda(c) * factorProd);   // producción ajustada por el factor de la prenda
+  const cCom  = costoComPrenda(c);                             // el comercial NO lleva factor
+  const tieneCosto = (mp > 0 || cProd > 0 || cCom > 0);
+  const ingreso = esKukos
+    ? (c.precio_neto_kukos || 0)
+    : desgloseIva(c.precio_venta).sinIva;
+  const comision = esKukos ? 0 : Math.round(ingreso * COMISION_RATE);
+  const costoTotal = mp + cProd + cCom + comision;
+  const margen = ingreso - costoTotal;
+  return {
+    ref, canal: esKukos ? 'kukos' : 'almacen', tieneCosto,
+    precio: c.precio_venta, ingreso, sinIva: ingreso,
+    mp, factorProd, cProd, cCom: cCom, comision, costoTotal,
+    margen:    tieneCosto ? margen : null,
+    margenPct: (tieneCosto && ingreso) ? margen/ingreso : null
+  };
+}
+
+function margenReferencia(ref, canal) {
+  const r = costeoReferencia(ref, canal);
+  return (r && r.tieneCosto) ? r : null;
 }
 
 // ─── COSTOS: PARÁMETROS DEL MES + RENTABILIDAD (cadena base sin IVA) ───
@@ -3749,22 +4343,22 @@ function recalcSimulador() {
   out.innerHTML = `Precio sin IVA <strong>${COP(sinIva)}</strong> · Margen bruto <strong>${p(mb)}%</strong> · Post-comisión <strong>${p(mpc)}%</strong><br>Utilidad operativa <strong style="color:${sem[0]}">${COP(util)} (${p(util)}%)</strong> — <span style="color:${sem[0]};font-weight:600">${sem[1]}</span>`;
 }
 
-// Cadena de rentabilidad por referencia (base = precio sin IVA = 100%)
+// Cadena de rentabilidad por referencia, desglosada en porcentajes para la tabla de
+// Rentabilidad. Envoltura de costeoReferencia: una sola aritmética para toda la app.
+// null cuando no hay costo, para que una referencia sin costear no aparezca con 100%.
 function analisisRef(ref) {
-  const c = _costos[ref];
-  if (!c || !c.precio_venta) return null;
-  const precioSinIva = baseSinIva(c.precio_venta);
-  const mp = (_insumos[ref]||[]).reduce((s,i)=>s+(i.valor||0),0);
-  const margenBruto = precioSinIva - mp;
-  const comision = Math.round(precioSinIva * COMISION_RATE);
-  const margenPostCom = margenBruto - comision;
-  const factorProd = (c.factor_produccion!=null) ? c.factor_produccion : 1;
-  const cProd = Math.round(costoProdPrenda(c) * factorProd);   // producción ajustada por factor de la prenda
-  const cCom = costoComPrenda(c);
-  const utilidad = margenPostCom - cProd - cCom;
+  const r = costeoReferencia(ref);
+  if (!r || !r.tieneCosto) return null;
+  const precioSinIva = r.sinIva;
+  const margenBruto = precioSinIva - r.mp;
+  const margenPostCom = margenBruto - r.comision;
+  const utilidad = margenPostCom - r.cProd - r.cCom;
   const pct = x => precioSinIva>0 ? +(x/precioSinIva*100).toFixed(1) : 0;
-  return { precioConIva:c.precio_venta, precioSinIva, mp, margenBruto, comision, margenPostCom, factorProd, cProd, cCom, utilidad,
-    mpPct:pct(mp), margenBrutoPct:pct(margenBruto), comisionPct:pct(comision), margenPostComPct:pct(margenPostCom), cProdPct:pct(cProd), cComPct:pct(cCom), utilidadPct:pct(utilidad) };
+  return { precioConIva:r.precio, precioSinIva, mp:r.mp, margenBruto, comision:r.comision,
+    margenPostCom, factorProd:r.factorProd, cProd:r.cProd, cCom:r.cCom, utilidad,
+    mpPct:pct(r.mp), margenBrutoPct:pct(margenBruto), comisionPct:pct(r.comision),
+    margenPostComPct:pct(margenPostCom), cProdPct:pct(r.cProd), cComPct:pct(r.cCom),
+    utilidadPct:pct(utilidad) };
 }
 function semaforoUtil(pct) {
   return pct>=20 ? ['var(--verde)','✓ Referencia rentable'] : pct>=10 ? ['var(--amarillo)','⚠ Margen ajustado — viable en volumen'] : ['var(--rojo)','✗ Referencia en riesgo — revisar precio o costos'];
@@ -4223,7 +4817,7 @@ async function iniciarProductos() {
       CATEGORIAS.map(c => `<option value="${c}">${c}</option>`).join('');
   const acc = document.getElementById('cat-acciones');
   if (acc) acc.innerHTML = esVendedora() ? '' :
-    `<button class="btn btn-primary" style="padding:9px 16px;font-size:13px" onclick="abrirModalCatalogo()">+ Nuevo producto</button>`;
+    `<button class="btn btn-primary" style="padding:9px 16px;font-size:13px" onclick="abrirModalRef()">+ Nuevo producto</button>`;
   await cargarCatalogo(true);
   renderCatalogo();
 }
@@ -4322,7 +4916,7 @@ function renderCatalogo() {
             <div style="text-align:right;white-space:nowrap">
               <div style="font-weight:700;font-size:14px">${COP(p.precio_venta || 0)}</div>
               ${esVendedora() ? '' : `<button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;margin-top:4px"
-                onclick="event.stopPropagation();abrirModalCatalogo('${p.id}')">✎ Editar</button>`}
+                onclick="event.stopPropagation();abrirModalRef('${p.id}')">✎ Editar</button>`}
             </div>
           </div>
           <div style="margin-top:6px">${chips || '<span style="font-size:11px;color:var(--gris-medio)">Sin tallas registradas</span>'}
@@ -4361,7 +4955,7 @@ async function verDetalleProducto(id) {
       </tbody>
     </table></div>
     <div style="padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap">
-      ${esVendedora() ? '' : `<button class="btn btn-secondary" style="padding:7px 14px;font-size:12px" onclick="abrirModalCatalogo('${p.id}')">✎ Editar producto</button>`}
+      ${esVendedora() ? '' : `<button class="btn btn-secondary" style="padding:7px 14px;font-size:12px" onclick="abrirModalRef('${p.id}')">✎ Editar producto</button>`}
       <button class="btn btn-secondary" style="padding:7px 14px;font-size:12px" onclick="document.getElementById('cat-detalle').innerHTML=''">Cerrar</button>
     </div>
   </div>`;
@@ -10509,6 +11103,8 @@ async function sincronizarConfigRemota() {
       if (r.clave === 'parametros_be' && r.valor) localStorage.setItem(BE_KEY, JSON.stringify(r.valor));
       if (r.clave === 'param_costo_produccion' && r.valor != null) { localStorage.setItem('param_costo_produccion', r.valor); _paramProdPrenda = +r.valor; }
       if (r.clave === 'param_costo_comercial' && r.valor != null) { localStorage.setItem('param_costo_comercial', r.valor); _paramComPrenda = +r.valor; }
+      if (r.clave === 'iva_pct'   && r.valor != null && isFinite(+r.valor)) _ivaPct   = +r.valor;
+      if (r.clave === 'kukos_pct' && r.valor != null && isFinite(+r.valor)) _kukosPct = +r.valor;
     });
   } catch (e) { /* tabla app_config aún no creada → seguimos con localStorage local */ }
   _cfgRemotaCargada = true;
