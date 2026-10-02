@@ -2430,7 +2430,37 @@ const COP = n => '$' + Math.round(n || 0).toLocaleString('es-CO');
 const NUM = n => Math.round(n || 0).toLocaleString('es-CO');
 const IVA_RATE = 0.19;   // los precios de Feria del Brasier ya incluyen IVA
 // ─── HELPERS IVA (centralizados, base sin IVA = total / 1.19) ─────────
-const baseSinIva = x => Math.round((x || 0) / (1 + IVA_RATE));
+// ═══ FUENTE ÚNICA DE IVA ═══════════════════════════════════════
+// Un solo lugar donde un valor se parte en sus tres componentes. Se digita el TOTAL,
+// como viene en la factura, y se elige la tarifa; el resto se calcula.
+// Tarifa 0 = proveedor que no cobra IVA: el total ES la base. Nunca restarle el 19% a
+// una factura que no trae IVA.
+let _ivaPct = IVA_RATE * 100;          // configurable: app_config.iva_pct
+function ivaPct(){ return _ivaPct; }
+const IVA_TARIFAS = [19, 5, 0];
+
+function desgloseIva(total, tarifaPct){
+  const pct = (tarifaPct == null || !isFinite(+tarifaPct)) ? ivaPct() : +tarifaPct;
+  const tot = +total || 0;
+  if (pct <= 0) { const t = Math.round(tot); return { total:t, iva:0, sinIva:t, tarifa:0 }; }
+  const sinIva = Math.round(tot / (1 + pct/100));
+  return { total: Math.round(tot), iva: Math.round(tot) - sinIva, sinIva, tarifa: pct };
+}
+// De una base sin IVA al total con IVA.
+function conIva(sinIva, tarifaPct){
+  const pct = (tarifaPct == null || !isFinite(+tarifaPct)) ? ivaPct() : +tarifaPct;
+  return Math.round((+sinIva || 0) * (1 + pct/100));
+}
+// Lo que se queda Kukos por vender nuestra prenda. Configurable: app_config.kukos_pct.
+let _kukosPct = 16;
+function kukosPct(){ return _kukosPct; }
+// Sugerencia de precio neto Kukos a partir del PVP, redondeada a la centena.
+function netoKukosSugerido(pvpConIva){
+  const base = desgloseIva(pvpConIva).sinIva * (1 - kukosPct()/100);
+  return Math.round(base/100)*100;
+}
+
+const baseSinIva = x => desgloseIva(x).sinIva;
 const ivaDe = x => Math.round(x || 0) - baseSinIva(x);
 // ingreso/venta canónico de una fila de ventas
 const ventaTotal = v => (v.cantidad || 0) * (v.precio_unitario || 0);
@@ -3656,17 +3686,46 @@ async function loadCostosData() {
 }
 
 // Margen bruto por referencia (reutilizable en Ventas). null si no hay precio definido.
-function margenReferencia(ref) {
+// ═══ FUENTE ÚNICA DE MARGEN ════════════════════════════════════
+// Toda rentabilidad se calcula sobre ingresos SIN IVA (el IVA se cobra y se declara,
+// no es ingreso). Antes esta cadena estaba escrita dos veces —margenReferencia y
+// analisisRef— y no coincidían: una tomaba el costo de producción de la referencia y
+// la otra el de Costos Mensuales, así que la misma prenda mostraba márgenes distintos
+// según la pantalla. Ahora las dos son envolturas de esta.
+//
+// canal 'almacen': ingreso = PVP sin IVA, menos la comisión de Feria.
+// canal 'kukos'  : ingreso = precio neto que paga Kukos (ya viene sin IVA, sin comisión).
+//
+// Devuelve null si no hay precio. Si NO hay ningún costo registrado, margen y margenPct
+// van en null y tieneCosto queda en false: sin costo no hay margen, y mostrar 100% por
+// falta de datos engaña más que no mostrar nada.
+function costeoReferencia(ref, canal) {
   const c = _costos[ref];
   if (!c || !c.precio_venta) return null;
+  const esKukos = canal === 'kukos';
   const mp = (_insumos[ref]||[]).reduce((s,i)=>s+(i.valor||0),0);
-  const sinIva = baseSinIva(c.precio_venta);
-  const comision = Math.round(sinIva * COMISION_RATE);   // comisión Feria sobre la base SIN IVA
   const factorProd = (c.factor_produccion!=null) ? c.factor_produccion : 1;
-  const cProd = Math.round((c.costo_produccion||0) * factorProd);   // producción ajustada por el factor de la prenda
-  const costoTotal = mp + cProd + (c.costo_comercial||0) + comision;  // el IVA NO es costo (se cobra y se declara); el comercial NO lleva factor
-  const margen = sinIva - costoTotal;   // utilidad operativa (igual que el detalle)
-  return { precio:c.precio_venta, sinIva, mp, comision, factorProd, cProd, cCom:(c.costo_comercial||0), costoTotal, margen, margenPct: sinIva ? margen/sinIva : 0 };
+  const cProd = Math.round(costoProdPrenda(c) * factorProd);   // producción ajustada por el factor de la prenda
+  const cCom  = costoComPrenda(c);                             // el comercial NO lleva factor
+  const tieneCosto = (mp > 0 || cProd > 0 || cCom > 0);
+  const ingreso = esKukos
+    ? (c.precio_neto_kukos || 0)
+    : desgloseIva(c.precio_venta).sinIva;
+  const comision = esKukos ? 0 : Math.round(ingreso * COMISION_RATE);
+  const costoTotal = mp + cProd + cCom + comision;
+  const margen = ingreso - costoTotal;
+  return {
+    ref, canal: esKukos ? 'kukos' : 'almacen', tieneCosto,
+    precio: c.precio_venta, ingreso, sinIva: ingreso,
+    mp, factorProd, cProd, cCom: cCom, comision, costoTotal,
+    margen:    tieneCosto ? margen : null,
+    margenPct: (tieneCosto && ingreso) ? margen/ingreso : null
+  };
+}
+
+function margenReferencia(ref, canal) {
+  const r = costeoReferencia(ref, canal);
+  return (r && r.tieneCosto) ? r : null;
 }
 
 // ─── COSTOS: PARÁMETROS DEL MES + RENTABILIDAD (cadena base sin IVA) ───
@@ -3749,22 +3808,22 @@ function recalcSimulador() {
   out.innerHTML = `Precio sin IVA <strong>${COP(sinIva)}</strong> · Margen bruto <strong>${p(mb)}%</strong> · Post-comisión <strong>${p(mpc)}%</strong><br>Utilidad operativa <strong style="color:${sem[0]}">${COP(util)} (${p(util)}%)</strong> — <span style="color:${sem[0]};font-weight:600">${sem[1]}</span>`;
 }
 
-// Cadena de rentabilidad por referencia (base = precio sin IVA = 100%)
+// Cadena de rentabilidad por referencia, desglosada en porcentajes para la tabla de
+// Rentabilidad. Envoltura de costeoReferencia: una sola aritmética para toda la app.
+// null cuando no hay costo, para que una referencia sin costear no aparezca con 100%.
 function analisisRef(ref) {
-  const c = _costos[ref];
-  if (!c || !c.precio_venta) return null;
-  const precioSinIva = baseSinIva(c.precio_venta);
-  const mp = (_insumos[ref]||[]).reduce((s,i)=>s+(i.valor||0),0);
-  const margenBruto = precioSinIva - mp;
-  const comision = Math.round(precioSinIva * COMISION_RATE);
-  const margenPostCom = margenBruto - comision;
-  const factorProd = (c.factor_produccion!=null) ? c.factor_produccion : 1;
-  const cProd = Math.round(costoProdPrenda(c) * factorProd);   // producción ajustada por factor de la prenda
-  const cCom = costoComPrenda(c);
-  const utilidad = margenPostCom - cProd - cCom;
+  const r = costeoReferencia(ref);
+  if (!r || !r.tieneCosto) return null;
+  const precioSinIva = r.sinIva;
+  const margenBruto = precioSinIva - r.mp;
+  const margenPostCom = margenBruto - r.comision;
+  const utilidad = margenPostCom - r.cProd - r.cCom;
   const pct = x => precioSinIva>0 ? +(x/precioSinIva*100).toFixed(1) : 0;
-  return { precioConIva:c.precio_venta, precioSinIva, mp, margenBruto, comision, margenPostCom, factorProd, cProd, cCom, utilidad,
-    mpPct:pct(mp), margenBrutoPct:pct(margenBruto), comisionPct:pct(comision), margenPostComPct:pct(margenPostCom), cProdPct:pct(cProd), cComPct:pct(cCom), utilidadPct:pct(utilidad) };
+  return { precioConIva:r.precio, precioSinIva, mp:r.mp, margenBruto, comision:r.comision,
+    margenPostCom, factorProd:r.factorProd, cProd:r.cProd, cCom:r.cCom, utilidad,
+    mpPct:pct(r.mp), margenBrutoPct:pct(margenBruto), comisionPct:pct(r.comision),
+    margenPostComPct:pct(margenPostCom), cProdPct:pct(r.cProd), cComPct:pct(r.cCom),
+    utilidadPct:pct(utilidad) };
 }
 function semaforoUtil(pct) {
   return pct>=20 ? ['var(--verde)','✓ Referencia rentable'] : pct>=10 ? ['var(--amarillo)','⚠ Margen ajustado — viable en volumen'] : ['var(--rojo)','✗ Referencia en riesgo — revisar precio o costos'];
@@ -10509,6 +10568,8 @@ async function sincronizarConfigRemota() {
       if (r.clave === 'parametros_be' && r.valor) localStorage.setItem(BE_KEY, JSON.stringify(r.valor));
       if (r.clave === 'param_costo_produccion' && r.valor != null) { localStorage.setItem('param_costo_produccion', r.valor); _paramProdPrenda = +r.valor; }
       if (r.clave === 'param_costo_comercial' && r.valor != null) { localStorage.setItem('param_costo_comercial', r.valor); _paramComPrenda = +r.valor; }
+      if (r.clave === 'iva_pct'   && r.valor != null && isFinite(+r.valor)) _ivaPct   = +r.valor;
+      if (r.clave === 'kukos_pct' && r.valor != null && isFinite(+r.valor)) _kukosPct = +r.valor;
     });
   } catch (e) { /* tabla app_config aún no creada → seguimos con localStorage local */ }
   _cfgRemotaCargada = true;
