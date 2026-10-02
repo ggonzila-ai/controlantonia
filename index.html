@@ -10306,13 +10306,39 @@ async function vfHistorial(){
 
 // ─── UTILIDAD 2026 real (para el panel de equilibrio) ───
 let _be2026 = null;
+// Feria liquida del 26 al 25, y ese corte es el que se certifica y se consigna. Por eso
+// la utilidad se mira por corte contable y no por mes natural: cada corte es un reporte,
+// un certificado y un pago, mientras un mes natural hay que armarlo pegando dos reportes
+// — que es de donde salieron los huecos de abril y de agosto.
+// El inventario sigue siendo mensual (los conteos cierran meses), así que se guardan las
+// dos agrupaciones y la tabla deja elegir.
+function corteDe(fecha){                     // '2026-08-28' → '2026-09' (corte 26 ago → 25 sep)
+  const f = String(fecha||''); if (f.length < 10) return f.slice(0,7);
+  let y = +f.slice(0,4), m = +f.slice(5,7);
+  if (+f.slice(8,10) >= 26) { m++; if (m === 13) { m = 1; y++; } }
+  return `${y}-${String(m).padStart(2,'0')}`;
+}
+// Primer y último día del período, según se mire por corte o por mes.
+function rangoPeriodo(key, modo){
+  const [y, m] = key.split('-').map(Number);
+  if (modo === 'corte') {
+    const pm = m === 1 ? 12 : m - 1, py = m === 1 ? y - 1 : y;
+    return { ini: `${py}-${String(pm).padStart(2,'0')}-26`, fin: `${key}-25`,
+             label: `26 ${MESES[pm-1].toLowerCase().slice(0,3)} → 25 ${MESES[m-1].toLowerCase().slice(0,3)}` };
+  }
+  const dm = new Date(y, m, 0).getDate();
+  return { ini: `${key}-01`, fin: `${key}-${String(dm).padStart(2,'0')}`, label: mesNombre(key) };
+}
+
+let _be2026Cortes = null, _beModo = 'corte';
+function beSetModo(m){ _beModo = m; beRecompute(); }
+
 async function cargarVentasReales2026(){
-  const porMes = {};
+  const porDia = {};
   const add = (m, fecha, uds, valSinIva) => {
-    if (!m) return;
-    const o = porMes[m] = porMes[m] || { u:0, v:0, ult: fecha || (m + '-01') };
+    const f = fecha || ((m || '') + '-28'); if (!f) return;
+    const o = porDia[f] = porDia[f] || { u:0, v:0 };
     o.u += uds; o.v += valSinIva;
-    if (fecha && fecha > o.ult) o.ult = fecha;
   };
   // Los reportes de Feria mandan, pero SOLO en los días que cubren. Antes bastaba con
   // que Feria aportara un día del mes para descartar la tabla `ventas` de ese mes
@@ -10337,22 +10363,44 @@ async function cargarVentasReales2026(){
       add(m, x.fecha || (m + '-28'), x.cantidad||0, baseSinIva((x.cantidad||0)*(x.precio_unitario||0)));
     });
   } catch(e){}
-  _be2026=porMes; return porMes;
+  const agrupar = clave => {
+    const g = {};
+    Object.keys(porDia).sort().forEach(f => {
+      const k = clave(f); if (!k) return;
+      const o = g[k] = g[k] || { u:0, v:0, pri:f, ult:f };
+      o.u += porDia[f].u; o.v += porDia[f].v;
+      if (f < o.pri) o.pri = f;
+      if (f > o.ult) o.ult = f;
+    });
+    return g;
+  };
+  _be2026       = agrupar(f => f.slice(0,7));
+  _be2026Cortes = agrupar(corteDe);
+  return _be2026;
 }
 function renderUtilidad2026(fijos, mcPct, mcUnit, beUnid){
   const cont=document.getElementById('be-real'); if(!cont) return;
-  const data=_be2026||{}; const meses=Object.keys(data).sort();
+  const modo = _beModo;
+  const data=(modo==='corte' ? _be2026Cortes : _be2026)||{}; const meses=Object.keys(data).sort();
   if(!meses.length){
     cont.innerHTML=`<div class="section-card" style="margin-bottom:14px"><div style="font-size:13px;font-weight:700;margin-bottom:4px">UTILIDAD 2026 — Resultados reales</div><div style="font-size:12px;color:var(--gris-medio)">📊 Sin ventas registradas aún. Importa el reporte de Feria del Brasier (Ventas → 📊 Reportes Feria) para ver los resultados reales.</div></div>`; return;
   }
-  const esCompleto=(m,d)=>{ const dh=parseInt(String(d.ult).slice(8,10))||0; const [y,mo]=m.split('-').map(Number); const dm=new Date(y,mo,0).getDate(); return dh>=dm-2; };
+  // Completo = hay datos cubriendo el período de punta a punta, con 2 días de holgura
+  // en cada extremo: un almacén cerrado el 1.º de enero o un domingo final no significa
+  // que falten datos. La holgura al cierre ya existía; se aplica igual a la apertura,
+  // porque un corte 26→25 empieza en el mes anterior y ahí sí puede faltar el tramo.
+  const esCompleto=(m,d)=>{
+    const r=rangoPeriodo(m,modo);
+    const mas=(f,n)=>{ const x=new Date(f+'T00:00:00'); x.setDate(x.getDate()+n); return x.toISOString().slice(0,10); };
+    return d.pri<=mas(r.ini,2) && d.ult>=mas(r.fin,-2);
+  };
   let acc=0, nComp=0;
   const filas=meses.map(m=>{
     const d=data[m]; const mcGen=Math.round(d.v*mcPct); const res=mcGen-fijos; const comp=esCompleto(m,d);
     if(comp){ acc+=res; nComp++; }
     const col=res>=0?'var(--verde)':'var(--rojo)';
     return `<tr style="${comp?'':'background:var(--brand-light,#e6f7fb)'}">
-      <td><strong>${mesNombre(m)}</strong>${comp?'':` <span class="badge badge-info" style="font-size:9px">⚡ parcial</span><div style="font-size:10px;color:var(--gris-medio)">hasta ${_fechaLargaVF(d.ult)}</div>`}</td>
+      <td><strong>${rangoPeriodo(m,modo).label}</strong>${comp?'':` <span class="badge badge-info" style="font-size:9px">⚡ parcial</span><div style="font-size:10px;color:var(--gris-medio)">hasta ${_fechaLargaVF(d.ult)}</div>`}</td>
       <td style="text-align:right">${NUM(d.u)}</td>
       <td style="text-align:right">${COP(d.v)}</td>
       <td style="text-align:right">${COP(mcGen)}</td>
@@ -10360,15 +10408,17 @@ function renderUtilidad2026(fijos, mcPct, mcUnit, beUnid){
       <td style="text-align:right;font-weight:700;color:${col}">${res>=0?'🟢 +':'🔴 '}${COP(res)}</td></tr>`;
   }).join('');
   const ult=meses[meses.length-1], du=data[ult];
-  // progreso del mes en curso (si el último mes es el actual y está parcial)
+  // progreso del período en curso (el último, si aún no está completo)
   let prog='';
-  if(ult===periodoActual() && !esCompleto(ult,du)){
-    const dh=parseInt(String(du.ult).slice(8,10))||1; const [y,mo]=ult.split('-').map(Number); const dm=new Date(y,mo,0).getDate();
+  if(!esCompleto(ult,du)){
+    const r=rangoPeriodo(ult,modo);
+    const dias=(a,b)=>Math.round((new Date(b+'T00:00:00')-new Date(a+'T00:00:00'))/86400000)+1;
+    const dh=Math.max(1,dias(r.ini,du.ult)), dm=Math.max(dh,dias(r.ini,r.fin));
     const ritmo=du.u/dh, proy=Math.round(ritmo*dm), faltan=Math.max(0,beUnid-du.u), rest=Math.max(1,dm-dh), udsDia=Math.ceil(faltan/rest);
     const mcGen=Math.round(du.v*mcPct), pctU=beUnid?Math.round(du.u/beUnid*100):0, pctM=fijos?Math.round(mcGen/fijos*100):0;
     const bc=p=>p>=100?'var(--verde)':p>=60?'var(--amarillo)':'var(--rojo)';
     prog=`<div style="background:var(--gris-claro);border-radius:8px;padding:10px;margin-bottom:10px">
-      <div style="font-size:12px;font-weight:700;margin-bottom:6px">📊 ${mesNombre(ult)} en curso — datos hasta ${_fechaLargaVF(du.ult)}</div>
+      <div style="font-size:12px;font-weight:700;margin-bottom:6px">📊 ${rangoPeriodo(ult,modo).label} en curso — datos hasta ${_fechaLargaVF(du.ult)}</div>
       <div style="font-size:11px;margin-bottom:2px">Unidades: <strong>${NUM(du.u)}/${NUM(beUnid)}</strong> BE — ${pctU}%</div>
       <div style="height:10px;background:#fff;border-radius:5px;overflow:hidden;margin-bottom:6px"><div style="height:100%;width:${Math.min(100,pctU)}%;background:${bc(pctU)}"></div></div>
       <div style="font-size:11px;margin-bottom:2px">MC: <strong>${COP(mcGen)}</strong>/${COP(fijos)} — ${pctM}%</div>
@@ -10377,15 +10427,25 @@ function renderUtilidad2026(fijos, mcPct, mcUnit, beUnid){
     </div>`;
   }
   cont.innerHTML=`<div class="section-card" style="margin-bottom:14px">
-    <div style="font-size:13px;font-weight:700">UTILIDAD 2026 — Resultados reales</div>
-    <div style="font-size:11px;color:var(--gris-medio);margin-bottom:8px">Basado en ventas registradas en el sistema</div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap">
+      <div>
+        <div style="font-size:13px;font-weight:700">UTILIDAD 2026 — Resultados reales</div>
+        <div style="font-size:11px;color:var(--gris-medio);margin-bottom:8px">${modo==='corte'
+          ? 'Por corte contable del 26 al 25 — como liquida y consigna Feria'
+          : 'Por mes natural — cada mes se arma pegando dos reportes'}</div>
+      </div>
+      <div style="display:flex;gap:4px">
+        <button class="btn btn-sm ${modo==='corte'?'btn-primary':'btn-secondary'}" onclick="beSetModo('corte')">Corte 26→25</button>
+        <button class="btn btn-sm ${modo==='mes'?'btn-primary':'btn-secondary'}" onclick="beSetModo('mes')">Mes natural</button>
+      </div>
+    </div>
     ${prog}
-    <div class="tabla-wrap"><table style="font-size:12px"><thead><tr><th>Mes</th><th style="text-align:right">Unidades</th><th style="text-align:right">Ventas s/IVA</th><th style="text-align:right">MC generado</th><th style="text-align:right">Costos fijos</th><th style="text-align:right">Resultado</th></tr></thead><tbody>${filas}</tbody></table></div>
-    <div style="font-size:12px;font-weight:700;margin-top:8px">Acumulado YTD (meses completos): <span style="color:${acc>=0?'var(--verde)':'var(--rojo)'}">${acc>=0?'+':''}${COP(acc)}</span></div>
+    <div class="tabla-wrap"><table style="font-size:12px"><thead><tr><th>${modo==='corte'?'Corte':'Mes'}</th><th style="text-align:right">Unidades</th><th style="text-align:right">Ventas s/IVA</th><th style="text-align:right">MC generado</th><th style="text-align:right">Costos fijos</th><th style="text-align:right">Resultado</th></tr></thead><tbody>${filas}</tbody></table></div>
+    <div style="font-size:12px;font-weight:700;margin-top:8px">Acumulado YTD (${modo==='corte'?'cortes':'meses'} completos): <span style="color:${acc>=0?'var(--verde)':'var(--rojo)'}">${acc>=0?'+':''}${COP(acc)}</span></div>
     <div class="metrics" style="margin-top:10px">
-      <div class="metric-card"><div class="m-label">YTD acumulado</div><div class="m-val" style="font-size:16px;color:${acc>=0?'var(--verde)':'var(--rojo)'}">${acc>=0?'+':''}${COP(acc)}</div><div class="m-sub">${nComp} mes(es) completo(s)</div></div>
-      <div class="metric-card"><div class="m-label">Meses con datos</div><div class="m-val" style="font-size:16px">${meses.length}</div><div class="m-sub">${mesNombre(meses[0])}–${mesNombre(ult)}</div></div>
-      <div class="metric-card"><div class="m-label">Mes más reciente</div><div class="m-val" style="font-size:14px">${mesNombre(ult)}</div><div class="m-sub">${esCompleto(ult,du)?'completo':'⚡ parcial ('+_fechaLargaVF(du.ult)+')'}</div></div>
+      <div class="metric-card"><div class="m-label">YTD acumulado</div><div class="m-val" style="font-size:16px;color:${acc>=0?'var(--verde)':'var(--rojo)'}">${acc>=0?'+':''}${COP(acc)}</div><div class="m-sub">${nComp} ${modo==='corte'?'corte(s)':'mes(es)'} completo(s)</div></div>
+      <div class="metric-card"><div class="m-label">${modo==='corte'?'Cortes':'Meses'} con datos</div><div class="m-val" style="font-size:16px">${meses.length}</div><div class="m-sub">${rangoPeriodo(meses[0],modo).label}–${rangoPeriodo(ult,modo).label}</div></div>
+      <div class="metric-card"><div class="m-label">Último ${modo==='corte'?'corte':'mes'}</div><div class="m-val" style="font-size:14px">${rangoPeriodo(ult,modo).label}</div><div class="m-sub">${esCompleto(ult,du)?'completo':'⚡ parcial ('+_fechaLargaVF(du.ult)+')'}</div></div>
     </div>
   </div>`;
 }
