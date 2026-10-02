@@ -10453,6 +10453,49 @@ async function sincronizarConfigRemota() {
   } catch (e) { /* tabla app_config aún no creada → seguimos con localStorage local */ }
   _cfgRemotaCargada = true;
 }
+// El punto de equilibrio de la app promedia todas las referencias por igual, como si se
+// vendiera lo mismo de cada una. El real depende de la MEZCLA: la batola de tiras deja
+// ~$16.000 por prenda y el jogger ~$34.000, y la batola es casi una quinta parte de las
+// unidades. Esto pondera por lo que de verdad se vendió.
+//
+// Las referencias sin insumos propios se estiman: las OFERTAS son prendas mezcladas de
+// todas las referencias, así que no se les puede cargar un material propio. Se valoran
+// al costo de material promedio y al precio que realmente se cobró — que es lo honesto,
+// porque una prenda en oferta cuesta lo mismo de fabricar: lo único que baja es el precio.
+let _bePond = null;
+async function cargarMezclaBE(){
+  try {
+    const r = await ventasShapedDelPeriodo(null);
+    const agg = {};
+    (r.rows || []).forEach(v => {
+      const ref = v.referencia; if (!ref) return;
+      const a = agg[ref] = agg[ref] || { u:0, val:0 };
+      const u = v.cantidad || 0;
+      a.u += u; a.val += u * (v.precio_unitario || 0);   // precio con IVA
+    });
+    const mpDe = ref => (_insumos[ref] || []).reduce((s,i) => s + (i.valor||0), 0);
+    const mpList = Object.keys(_costos || {}).map(mpDe).filter(v => v > 0);
+    const mpProm = mpList.length ? Math.round(mpList.reduce((a,b)=>a+b,0)/mpList.length) : 0;
+    let U = 0, MC = 0; const est = [];
+    Object.keys(agg).forEach(ref => {
+      const a = agg[ref]; if (a.u <= 0) return;
+      const c = _costos[ref], propio = mpDe(ref);
+      let pSin, mp, estimada = false;
+      if (c && c.precio_venta && propio > 0) { pSin = baseSinIva(c.precio_venta); mp = propio; }
+      else {
+        if (!mpProm || !a.val) return;
+        pSin = baseSinIva(Math.round(a.val / a.u)); mp = mpProm; estimada = true;
+      }
+      const mc = pSin - mp - Math.round(pSin * COMISION_RATE);
+      U += a.u; MC += a.u * mc;
+      if (estimada) est.push({ ref, u: a.u, pSin, mc });
+    });
+    _bePond = U > 0 ? { mcPond: Math.round(MC/U), uds: U, mpProm,
+                        est: est.sort((x,y) => y.u - x.u) } : null;
+  } catch (e) { _bePond = null; }
+  return _bePond;
+}
+
 function beMC(){
   const list = Object.keys(_costos||{}).map(ref=>{
     const c=_costos[ref]; if(!c||!c.precio_venta) return null;
@@ -10473,6 +10516,7 @@ async function renderPuntoEquilibrio() {
   await loadCostosData();
   await cargarDepreMensual();
   await cargarVentasReales2026();
+  await cargarMezclaBE();
   const mc = beMC(); const p = beParams();
   const fmt = n => NUM(n);
   const mcTabla = mc.hayDatos ? mc.list.map(r=>{
@@ -10504,7 +10548,8 @@ async function renderPuntoEquilibrio() {
 
   <!-- S2: los tres break-even -->
   <div style="font-size:12px;font-weight:700;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em;margin:4px 0 8px">Punto de equilibrio (el mismo número, 3 formas)</div>
-  <div class="metrics" id="be-cards" style="margin-bottom:14px"></div>
+  <div class="metrics" id="be-cards" style="margin-bottom:8px"></div>
+  <div id="be-pond-note" style="margin-bottom:14px"></div>
 
   <!-- S3: simulador -->
   <div class="section-card" style="margin-bottom:14px">
@@ -10574,11 +10619,23 @@ function beRecompute(){
   const beSin = mcPct>0 ? Math.round(fijos/mcPct) : 0;
   const beConIva = Math.round(beSin*1.19), beNeto = Math.round(beSin*0.84);
   const beUnid = mcUnit>0 ? Math.ceil(fijos/mcUnit) : 0;
+  const bePond = (_bePond && _bePond.mcPond>0) ? Math.ceil(fijos/_bePond.mcPond) : 0;
   $('be-cards').innerHTML = `
     <div class="metric-card"><div class="m-label">🏷️ Con IVA</div><div class="m-val" style="font-size:16px">${COP(beConIva)}</div><div class="m-sub">lo que paga el cliente en total</div></div>
     <div class="metric-card"><div class="m-label">📄 Sin IVA</div><div class="m-val" style="font-size:16px">${COP(beSin)}</div><div class="m-sub">lo que aparece en el cierre de Solo Kukos</div></div>
     <div class="metric-card"><div class="m-label">💳 Neto en cuenta</div><div class="m-val" style="font-size:16px">${COP(beNeto)}</div><div class="m-sub">lo que Feria te consigna (×84%)</div></div>
-    <div class="metric-card accent"><div class="m-label">📦 En unidades</div><div class="m-val" style="font-size:16px">~${NUM(beUnid)} prendas/mes</div><div class="m-sub">mínimo para cubrir los fijos</div></div>`;
+    <div class="metric-card accent"><div class="m-label">📦 En unidades</div><div class="m-val" style="font-size:16px">~${NUM(beUnid)} prendas/mes</div><div class="m-sub">promedio simple de las referencias</div></div>
+    <div class="metric-card" style="border:2px solid var(--brand-dark)"><div class="m-label">🎯 Según tu mezcla real</div><div class="m-val" style="font-size:16px">${bePond ? '~'+NUM(bePond)+' prendas/mes' : '—'}</div><div class="m-sub">${_bePond ? `MC real ${COP(_bePond.mcPond)}/prenda · ${NUM(_bePond.uds)} uds vendidas` : 'sin ventas registradas'}</div></div>`;
+  const notaP = $('be-pond-note');
+  if (notaP) notaP.innerHTML = !_bePond ? '' : `<div class="alert alert-info" style="margin:0;font-size:12px">
+    <strong>El número a usar es el de tu mezcla real (${NUM(bePond)}).</strong>
+    El promedio simple (${NUM(beUnid)}) trata todas las referencias por igual, y no vendes lo mismo de cada una:
+    las que dejan menos margen pesan más de lo que ese promedio supone.
+    ${_bePond.est.length ? `<div style="margin-top:6px">${_bePond.est.length} referencia(s) sin insumos propios se estiman al material promedio
+      (${COP(_bePond.mpProm)}) y al precio que de verdad se cobró:
+      ${_bePond.est.map(e => `<strong>${e.ref}</strong> ${NUM(e.u)} uds · MC ${COP(e.mc)}`).join(' · ')}.
+      Las ofertas son prendas mezcladas de varias referencias, así que no se les puede cargar un material propio.</div>` : ''}
+  </div>`;
   // S3 simulador
   const und = parseInt($('be-und').value)||0;
   const mcGen = und*mcUnit, resultado = mcGen - fijos;
