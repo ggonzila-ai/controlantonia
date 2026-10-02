@@ -1046,6 +1046,39 @@
   <!-- PRODUCTOS · catálogo maestro -->
   <div class="page" id="page-productos">
     <div class="page-title">Productos</div>
+    <div class="tabs" style="border-radius:var(--radius) var(--radius) 0 0;overflow:hidden;margin-bottom:14px">
+      <div class="tab active" id="tab-prod-catalogo" onclick="showTab('tab-prod-catalogo')">Catálogo</div>
+      <div class="tab" id="tab-prod-pendientes" onclick="showTab('tab-prod-pendientes')">Códigos pendientes</div>
+    </div>
+
+    <div id="tab-content-prod-pendientes" style="display:none">
+      <div class="alert alert-info" style="margin-bottom:12px">
+        <div><strong>GS1 asigna los códigos después de registrar el producto.</strong>
+        Copia lo que necesitas llevar a la plataforma, y cuando vuelvas con los códigos
+        escanéalos aquí o pega la lista completa.</div>
+      </div>
+      <div class="section-card" style="margin-bottom:12px">
+        <details>
+          <summary style="padding:11px 14px;cursor:pointer;font-size:13px;font-weight:700">Pegar varios códigos de una vez</summary>
+          <div style="padding:0 14px 14px">
+            <div style="font-size:11px;color:var(--gris-medio);margin-bottom:6px">
+              Una línea por talla, en este orden: <strong>referencia · talla · código</strong>.
+              Sirve separado por comas, punto y coma o tabulaciones (pegado desde Excel).
+              Si una línea está mal, no se aplica ninguna.
+            </div>
+            <textarea id="gs1-lote" rows="5" placeholder="ANT5010, M, 7706730123457&#10;ANT5010, L, 7706730123464"
+              style="width:100%;padding:9px 11px;border:1.5px solid var(--borde);border-radius:8px;font-size:13px;font-family:ui-monospace,Menlo,monospace;resize:vertical"></textarea>
+            <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+              <button class="btn btn-primary" style="padding:8px 14px;font-size:13px" onclick="gs1AsignarLote()">Asignar</button>
+              <span id="gs1-lote-msg" style="font-size:12px"></span>
+            </div>
+          </div>
+        </details>
+      </div>
+      <div id="gs1-lista"><div class="loader"><div class="spinner"></div></div></div>
+    </div>
+
+    <div id="tab-content-prod-catalogo">
     <div class="section-card" style="margin-bottom:14px">
       <div style="padding:12px 16px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
         <div class="form-group" style="margin:0;flex:1;min-width:240px">
@@ -1072,6 +1105,7 @@
     <div class="metrics" id="cat-kpis" style="margin-bottom:14px"></div>
     <div id="cat-avisos"></div>
     <div id="cat-lista"><div class="loader"><div class="spinner"></div></div></div>
+    </div>
   </div>
 
   <div class="page" id="page-almacenes">
@@ -2771,6 +2805,8 @@ function showTab(tabId) {
   if (tabId === 'tab-inv-consolidado') cargarConsolidado();
   if (tabId === 'tab-inv-control') cargarControlMensual();
   if (tabId === 'tab-inv-remisiones') iniciarRemisionesInv();
+  if (tabId === 'tab-prod-pendientes') cargarPendientesGS1();
+  if (tabId === 'tab-prod-catalogo') renderCatalogo();
   if (tabId === 'tab-inv-fisico') {
     const f = document.getElementById('if-fecha'); if (f && !f.value) f.value = hoy();
     cargarItemsConteo();
@@ -2932,7 +2968,7 @@ async function cargarCockpit() {
   const fEl = document.getElementById('ck-fecha');
   if (fEl) fEl.textContent = '· ' + new Date().toLocaleDateString('es-CO', { weekday:'long', day:'numeric', month:'long' });
   const periodo = periodoActual();
-  await Promise.all([ (almacenes.length ? Promise.resolve() : llenarSelectAlmacenes()), loadCostosData(), sincronizarConfigRemota() ]);
+  await Promise.all([ (almacenes.length ? Promise.resolve() : llenarSelectAlmacenes()), loadCostosData(), sincronizarConfigRemota(), contarPendientesGS1() ]);
   let ventasRows = [];
   try { const r = await ventasShapedDelPeriodo(periodo); ventasRows = r.rows || []; } catch (e) { ventasRows = []; }
   const [mRes, cRes, bRes] = await Promise.all([
@@ -3049,6 +3085,9 @@ function renderCkAlertas(almRes, bodega) {
   (bodega || []).forEach(b => { const min = b.stock_minimo || 0; if (min > 0 && (b.stock || 0) <= min) al.push({ u: (b.stock||0)===0?0:1, t: `📦 ${b.referencia}: ${NUM(b.stock||0)} uds (mín ${NUM(min)})` }); });
   (almRes || []).filter(a => a.estado === 'rojo').forEach(a => al.push({ u: 0, t: `🔴 ${a.nombre} en riesgo (${a.ritmoPct != null ? Math.round(a.ritmoPct*100) : 0}% del ritmo)` }));
   alertasReposicion(_activosCache).forEach(x => al.push({ u: 0, t: `🛠 ${x.a.nombre}: se deprecia en ${x.d.mesesRestantes} mes(es) — evaluar reposición` }));
+  // Tallas esperando código de GS1: sin código no se pueden exportar ni etiquetar.
+  if (_gs1Pendientes > 0) al.push({ u: 0,
+    t: `🏷 ${NUM(_gs1Pendientes)} talla(s) pendiente(s) de código GS1` });
   al.sort((a,b) => a.u - b.u);
   const top = al.slice(0, 5);
   cont.innerHTML = `<div style="border:1px solid var(--borde);border-radius:12px;padding:14px;height:100%">
@@ -3844,6 +3883,135 @@ async function loadCostosData() {
 }
 
 // Margen bruto por referencia (reutilizable en Ventas). null si no hay precio definido.
+// ═══════════════════════════════════════════════════════════════
+//  CÓDIGOS PENDIENTES DE GS1
+//  GS1 asigna los códigos después de registrar el producto, así que una referencia
+//  nace con tallas sin código. Aquí se ve qué falta, se copia lo que hay que llevar a
+//  la plataforma, y luego se asignan — escaneando una por una o pegando la lista.
+// ═══════════════════════════════════════════════════════════════
+let _gs1Pendientes = 0;
+
+async function contarPendientesGS1(){
+  try {
+    const { count } = await sb.from('v_codigos_pendientes').select('*', { count:'exact', head:true });
+    _gs1Pendientes = count || 0;
+  } catch (e) { _gs1Pendientes = 0; }
+  return _gs1Pendientes;
+}
+
+async function cargarPendientesGS1(){
+  const cont = document.getElementById('gs1-lista'); if (!cont) return;
+  if (esVendedora()) { cont.innerHTML = ''; return; }
+  cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  const { data, error } = await sb.from('v_codigos_pendientes')
+    .select('*').order('referencia_base').order('talla');
+  if (error) { cont.innerHTML = `<div class="alert alert-err">No se pudo leer: ${escHtml(detalleError(error))}</div>`; return; }
+  const filas = data || [];
+  _gs1Pendientes = filas.length;
+  const tabPend = document.getElementById('tab-prod-pendientes');
+  if (tabPend) tabPend.textContent = 'Códigos pendientes' + (filas.length ? ` (${filas.length})` : '');
+
+  if (!filas.length) {
+    cont.innerHTML = `<div class="section-card" style="padding:22px;text-align:center">
+      <div style="font-size:14px;font-weight:700;margin-bottom:4px">✓ No hay tallas pendientes</div>
+      <div style="font-size:12px;color:var(--gris-medio)">Todas las tallas activas tienen su código de barras.</div>
+    </div>`;
+    return;
+  }
+  // Agrupadas por referencia: a GS1 se lleva un producto con todas sus tallas, no sueltas.
+  const porRef = {};
+  filas.forEach(f => (porRef[f.referencia_base] = porRef[f.referencia_base] || { ...f, tallas: [] }).tallas.push(f));
+  cont.innerHTML = Object.values(porRef).map(g => `
+    <div class="section-card" style="margin-bottom:12px">
+      <div style="padding:12px 14px;border-bottom:1px solid var(--borde);display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:700;font-size:14px">${escHtml(g.nombre)}</div>
+          <div style="font-size:12px;color:var(--gris-medio);margin-top:2px">
+            <span style="font-family:ui-monospace,Menlo,monospace">${escHtml(g.referencia_base)}</span>
+            · ${escHtml(g.categoria || '—')} · ${g.tallas.length} talla(s) sin código
+          </div>
+        </div>
+        <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px"
+          onclick="gs1Copiar('${escAttr(g.referencia_base)}')">Copiar para GS1</button>
+      </div>
+      <div class="tabla-wrap"><table>
+        <thead><tr><th style="width:80px">Talla</th><th>Código de barras</th><th style="width:120px"></th></tr></thead>
+        <tbody>${g.tallas.map((t, i) => `<tr>
+          <td><strong>${escHtml(t.talla)}</strong></td>
+          <td><input type="text" inputmode="numeric" maxlength="13" placeholder="escanea o digita"
+                 autocomplete="off" id="gs1-in-${t.variante_id}" data-ref="${escAttr(g.referencia_base)}"
+                 onkeydown="gs1Enter(event,'${t.variante_id}')" oninput="this.value=this.value.replace(/[^0-9]/g,'')"
+                 style="width:100%;padding:7px 9px;border:1.5px solid var(--borde);border-radius:6px;font-size:13px;font-family:inherit"></td>
+          <td><button class="btn btn-primary" style="padding:6px 12px;font-size:12px"
+                onclick="gs1Asignar('${t.variante_id}')">Asignar</button></td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+    </div>`).join('');
+}
+
+// Lo que hay que llevar a la plataforma de GS1.
+function gs1Copiar(refBase){
+  const filas = [...document.querySelectorAll(`#gs1-lista input[data-ref="${CSS.escape(refBase)}"]`)];
+  const tarjeta = filas[0] && filas[0].closest('.section-card');
+  const nombre = tarjeta ? tarjeta.querySelector('div[style*="font-weight:700"]').textContent.trim() : '';
+  const tallas = filas.map(i => i.closest('tr').querySelector('strong').textContent.trim());
+  const txt = tallas.map(t => `${refBase}\t${nombre}\t${t}`).join('\n');
+  navigator.clipboard.writeText(txt)
+    .then(() => toast(`✓ Copiado: ${refBase}, ${tallas.length} talla(s)`))
+    .catch(() => toast('No se pudo copiar', 'err'));
+}
+
+// El lector escribe y manda Enter: se asigna y salta a la talla siguiente.
+function gs1Enter(ev, id){
+  if (ev.key !== 'Enter') return;
+  ev.preventDefault();
+  gs1Asignar(id, true);
+}
+
+async function gs1Asignar(varianteId, saltar){
+  const el = document.getElementById('gs1-in-' + varianteId); if (!el) return;
+  const cod = (el.value || '').trim();
+  if (!cod) { toast('Escribe o escanea el código', 'err'); return; }
+  if (!ean13Valido(cod)) { el.style.borderColor = 'var(--rojo)'; toast('Dígito de control incorrecto', 'err'); return; }
+  const { data, error } = await sb.rpc('asignar_codigo_barras', { p_variante_id: varianteId, p_codigo: cod });
+  if (error) { toast('No se pudo asignar: ' + detalleError(error), 'err'); return; }
+  if (!data || data.ok === false) { el.style.borderColor = 'var(--rojo)'; toast(data?.motivo || 'No se pudo asignar', 'err'); return; }
+  toast(`✓ ${data.referencia} talla ${data.talla}`);
+  const inputs = [...document.querySelectorAll('#gs1-lista input')];
+  const i = inputs.indexOf(el);
+  await cargarPendientesGS1();
+  if (saltar) {
+    const sig = [...document.querySelectorAll('#gs1-lista input')][Math.min(i, 9999)];
+    if (sig) sig.focus();
+  }
+  _rfCodigosUsados = null;
+}
+
+// Pegar la lista completa: referencia · talla · código, una por línea.
+async function gs1AsignarLote(){
+  const ta = document.getElementById('gs1-lote'); const msg = document.getElementById('gs1-lote-msg');
+  const filas = (ta.value || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => {
+    const p = l.split(/[\t;,]+/).map(x => x.trim()).filter(Boolean);
+    return { referencia_base: p[0] || '', talla: p[1] || '', codigo: (p[2] || '').replace(/[^0-9]/g,'') };
+  });
+  if (!filas.length) { msg.style.color = 'var(--rojo)'; msg.textContent = 'Pega al menos una línea'; return; }
+  msg.style.color = 'var(--gris-medio)'; msg.textContent = 'Revisando…';
+  const { data, error } = await sb.rpc('asignar_codigos_lote', { p: { filas } });
+  if (error) { msg.style.color = 'var(--rojo)'; msg.textContent = detalleError(error); return; }
+  if (!data || data.ok === false) {
+    const errs = data?.errores || [];
+    msg.style.color = 'var(--rojo)';
+    msg.innerHTML = `No se aplicó ninguna — ${errs.length} línea(s) con problema:<br>` +
+      errs.slice(0, 6).map(e => '· ' + escHtml(e)).join('<br>') +
+      (errs.length > 6 ? `<br>… y ${errs.length - 6} más` : '');
+    return;
+  }
+  msg.style.color = 'var(--verde)'; msg.textContent = `✓ ${data.asignados} código(s) asignado(s)`;
+  ta.value = '';
+  _rfCodigosUsados = null;
+  await cargarPendientesGS1();
+}
+
 // ═══════════════════════════════════════════════════════════════
 //  FORMULARIO DE REFERENCIA — el único para crear y editar
 //  Antes había tres pantallas distintas para lo mismo (el modal de bodega, el de la
@@ -4811,6 +4979,10 @@ async function cargarCatalogo(force) {
 }
 
 async function iniciarProductos() {
+  contarPendientesGS1().then(n => {
+    const t = document.getElementById('tab-prod-pendientes');
+    if (t) t.textContent = 'Códigos pendientes' + (n ? ` (${n})` : '');
+  });
   const selCat = document.getElementById('cat-categoria');
   if (selCat && selCat.options.length <= 1)
     selCat.innerHTML = '<option value="">Todas</option>' +
