@@ -19,14 +19,16 @@
 
 BEGIN;
 
+-- OJO: `total` NO va en la lista. Es una columna GENERADA (cantidad * precio_unitario);
+-- escribirla hace que Postgres rechace el INSERT completo con el error 428C9.
 INSERT INTO ventas (fecha, almacen_id, almacen_nombre, referencia, categoria,
-                    talla, codigo, cantidad, precio_unitario, total, descuento, periodo)
+                    talla, codigo, cantidad, precio_unitario, descuento, periodo)
 SELECT v.fecha::date,
        a.id,
        a.nombre,
        v.referencia,
        coalesce((SELECT b.categoria FROM bodega b WHERE b.referencia = v.referencia LIMIT 1), 'PIJAMERIA'),
-       v.talla, v.codigo, -1, v.precio, -v.precio, 0, '2026-04'
+       v.talla, v.codigo, -1, v.precio, 0, '2026-04'
   FROM (VALUES
     ('2026-04-13','Feria del Brasier Malca 2',             'BATOLA SIZA BOLSILLO','2XL','ANT51772XL2600',39900),
     ('2026-04-15','Feria del Brasier Cra 8',               'BATOLA SIZA BOLSILLO','3XL','ANT50223XL2600',39900),
