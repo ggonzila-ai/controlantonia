@@ -10308,19 +10308,34 @@ async function vfHistorial(){
 let _be2026 = null;
 async function cargarVentasReales2026(){
   const porMes = {};
-  // 1) reportes de Feria (activos)
+  const add = (m, fecha, uds, valSinIva) => {
+    if (!m) return;
+    const o = porMes[m] = porMes[m] || { u:0, v:0, ult: fecha || (m + '-01') };
+    o.u += uds; o.v += valSinIva;
+    if (fecha && fecha > o.ult) o.ult = fecha;
+  };
+  // Los reportes de Feria mandan, pero SOLO en los días que cubren. Antes bastaba con
+  // que Feria aportara un día del mes para descartar la tabla `ventas` de ese mes
+  // entero: con el corte 26→25, agosto quedaba con los 148 uds del 26 al 31 y perdía
+  // los 467 del 1 al 25, así que el punto de equilibrio salía mal.
+  let reps = [];
+  try {
+    const { data } = await sb.from('reportes_ventas_feria')
+      .select('id, mes, periodo_desde, periodo_hasta').eq('estado','activo');
+    reps = data || [];
+  } catch(e){}
   try {
     const { data } = await sb.from('ventas_feria_detalle')
       .select('fecha,cantidad,valor_sin_iva,reportes_ventas_feria!inner(estado)')
       .eq('reportes_ventas_feria.estado','activo').gte('fecha','2026-01-01').lte('fecha','2026-12-31').limit(20000);
-    (data||[]).forEach(r=>{ const m=String(r.fecha).slice(0,7); const o=porMes[m]=porMes[m]||{u:0,v:0,ult:r.fecha}; o.u+=r.cantidad||0; o.v+=r.valor_sin_iva||0; if(r.fecha>o.ult)o.ult=r.fecha; });
+    (data||[]).forEach(r=> add(String(r.fecha).slice(0,7), r.fecha, r.cantidad||0, r.valor_sin_iva||0));
   } catch(e){}
-  // 2) tabla ventas (histórico) para meses no cubiertos por Feria
   try {
     const v = await selectAll('ventas','cantidad,precio_unitario,fecha,periodo', q=>q.gte('periodo','2026-01').lte('periodo','2026-12'));
-    const tmp={};
-    (v||[]).forEach(x=>{ const m=x.periodo||String(x.fecha||'').slice(0,7); if(!m) return; const o=tmp[m]=tmp[m]||{u:0,vcon:0,ult:x.fecha||m+'-28'}; o.u+=x.cantidad||0; o.vcon+=(x.cantidad||0)*(x.precio_unitario||0); if((x.fecha||'')>o.ult)o.ult=x.fecha; });
-    Object.entries(tmp).forEach(([m,o])=>{ if(!porMes[m]) porMes[m]={u:o.u, v:baseSinIva(o.vcon), ult:o.ult}; });
+    (v||[]).filter(x=>!cubiertaPorFeria(x, reps)).forEach(x=>{
+      const m = x.periodo || String(x.fecha||'').slice(0,7);
+      add(m, x.fecha || (m + '-28'), x.cantidad||0, baseSinIva((x.cantidad||0)*(x.precio_unitario||0)));
+    });
   } catch(e){}
   _be2026=porMes; return porMes;
 }
