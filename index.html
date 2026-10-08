@@ -6160,99 +6160,213 @@ async function deleteDespacho(id, remision) {
 }
 
 // Genera una remisión imprimible (PDF vía diálogo de impresión del navegador)
+// ═══ LA REMISIÓN COMO DOCUMENTO ═══════════════════════════════
+// Se arma con lo que quedó guardado en el despacho, no con los datos de hoy: el precio
+// y el código de barras se congelaron al despachar, así que una reimpresión dentro de un
+// año muestra lo que de verdad se entregó.
 async function imprimirRemision(id) {
-  // abrir la ventana YA (dentro del gesto del usuario) para que no la bloquee el navegador
+  // La ventana se abre YA, dentro del gesto del usuario, o el navegador la bloquea.
   const w = window.open('', '_blank');
   if (w) w.document.write('<!doctype html><meta charset="utf-8"><p style="font-family:sans-serif;padding:24px;color:#777">Generando remisión…</p>');
 
   const { data: d } = await sb.from('despachos').select('*').eq('id', id).single();
   if (!d) { if (w) w.close(); toast('No se encontró el despacho', 'err'); return; }
-  const { data: items } = await sb.from('despacho_items').select('referencia, categoria, talla, cantidad').eq('despacho_id', id);
-  const its = (items || []).slice().sort((a, b) =>
-    (a.referencia || '').localeCompare(b.referencia || '') ||
-    (ORDEN_TALLAS.indexOf((a.talla || '—').toUpperCase()) - ORDEN_TALLAS.indexOf((b.talla || '—').toUpperCase())));
-  const totUds = its.reduce((s, i) => s + (i.cantidad || 0), 0);
-  const totRefs = new Set(its.map(i => i.referencia)).size;
-  const fechaFmt = new Date(d.fecha + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' });
-  const genFmt = new Date().toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
-  const esc = s => String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-  // Datos de la remisión (origen y responsable) si el despacho nació del flujo nuevo
-  let origenNom = 'Bodega Central', responsable = '';
+  const { data: items } = await sb.from('despacho_items')
+    .select('referencia, categoria, talla, cantidad, codigo_barras, precio_venta, descripcion, color, marca')
+    .eq('despacho_id', id);
+
+  // Los despachos viejos no tienen el detalle congelado: se completa con lo que haya hoy,
+  // y se avisa en el documento para que nadie lo lea como el precio de entonces.
+  const faltaSnapshot = (items || []).some(i => i.precio_venta == null);
+  let porRefTalla = {}, curvas = {};
+  if (faltaSnapshot) {
+    try {
+      const { data: prods } = await sb.from('productos')
+        .select('nombre, referencia_inventario, precio_venta, desc_larga, color, marca, tipo_inventario, productos_variantes(talla, codigo_barras)');
+      (prods || []).forEach(p => {
+        const clave = p.referencia_inventario || p.nombre;
+        curvas[clave] = p.tipo_inventario;
+        (p.productos_variantes || []).forEach(v => {
+          porRefTalla[clave + '|' + (v.talla || '').toUpperCase()] =
+            { cod: v.codigo_barras, precio: p.precio_venta, desc: p.desc_larga || p.nombre, color: p.color, marca: p.marca };
+        });
+        porRefTalla[clave + '|'] = { precio: p.precio_venta, desc: p.desc_larga || p.nombre, color: p.color, marca: p.marca };
+      });
+    } catch (e) { }
+  }
+  const dato = (i, campo, alt) => {
+    if (i[campo] != null && i[campo] !== '') return i[campo];
+    const f = porRefTalla[i.referencia + '|' + (i.talla || '').toUpperCase()] || porRefTalla[i.referencia + '|'] || {};
+    return f[alt] != null ? f[alt] : null;
+  };
+
+  // Las tallas se ordenan por la curva de su tipo de inventario, nunca alfabéticamente.
+  let tiposTallas = {};
   try {
-    const { data: rr } = await sb.from('remisiones')
-      .select('responsable, confirmada_por, ubicacion_origen').eq('despacho_id', id).maybeSingle();
-    if (rr) {
-      responsable = rr.responsable || rr.confirmada_por || '';
-      const us = await cargarUbicaciones();
-      const uo = us.find(u => u.id === rr.ubicacion_origen);
-      if (uo && uo.nombre) origenNom = uo.nombre;
-    }
-  } catch (e) { /* despacho antiguo: se imprime igual */ }
-  const logoUrl = location.origin + '/antonia-sorev-logo.png';
-  // Las remisiones nuevas van por referencia; solo se muestra la talla si la traen
-  const hayTallas = its.some(i => i.talla && i.talla !== '—');
-  const filas = its.map((i, n) => `<tr><td class="n">${n + 1}</td><td>${esc(i.referencia)}</td><td class="ce">${esc(i.categoria || '')}</td>${hayTallas ? `<td class="ce b">${esc(i.talla || '—')}</td>` : ''}<td class="ce b">${i.cantidad}</td></tr>`).join('');
-  const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Remisión ${esc(d.remision)}</title>
+    const { data: ti } = await sb.from('tipos_inventario').select('codigo, tallas');
+    (ti || []).forEach(t => { tiposTallas[t.codigo] = t.tallas || []; });
+  } catch (e) { }
+  const ordenTalla = (ref, talla) => {
+    const curva = tiposTallas[curvas[ref] || 'INV002'] || ORDEN_TALLAS;
+    const k = curva.indexOf((talla || '').toUpperCase());
+    return k < 0 ? 999 : k;
+  };
+
+  // Agrupadas por referencia en orden alfabético, y dentro de cada una por curva de talla.
+  const grupos = {};
+  (items || []).forEach(i => (grupos[i.referencia] = grupos[i.referencia] || []).push(i));
+  const refs = Object.keys(grupos).sort((a, b) => a.localeCompare(b, 'es'));
+  refs.forEach(r => grupos[r].sort((a, b) => ordenTalla(r, a.talla) - ordenTalla(r, b.talla)));
+
+  const totUds = (items || []).reduce((s, i) => s + (i.cantidad || 0), 0);
+  const sinCodigo = (items || []).filter(i => !dato(i, 'codigo_barras', 'cod')).length;
+
+  let emp = {};
+  try {
+    const { data: c } = await sb.from('app_config').select('valor').eq('clave', 'empresa').maybeSingle();
+    emp = (c && c.valor) || {};
+  } catch (e) { }
+
+  let almCodigo = '';
+  try {
+    const { data: a } = await sb.from('almacenes').select('codigo').eq('id', d.almacen_id).maybeSingle();
+    almCodigo = (a && a.codigo) ? a.codigo + ' ' : '';
+  } catch (e) { }
+
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+  const cop = n => n == null ? '' : '$ ' + Number(n).toLocaleString('es-CO', { maximumFractionDigits: 0 });
+  const MES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  const [yy, mm, dd] = String(d.fecha).split('-').map(Number);
+  const fechaLarga = `${dd} de ${MES[(mm || 1) - 1]} de ${yy}`;
+  const anulada = d.estado === 'anulada';
+
+  let n = 0;
+  const cuerpo = refs.map(ref => {
+    const sub = grupos[ref].reduce((s, i) => s + (i.cantidad || 0), 0);
+    const filas = grupos[ref].map(i => {
+      n++;
+      const cod = dato(i, 'codigo_barras', 'cod');
+      return `<tr>
+        <td class="cod">${cod ? esc(cod) : '<span class="sin">SIN CÓDIGO GS1</span>'}</td>
+        <td>${esc(i.referencia)}</td>
+        <td>${esc(dato(i, 'descripcion', 'desc') || i.referencia)}</td>
+        <td class="ce">${esc(dato(i, 'color', 'color') || '2600-SURTIDOS')}</td>
+        <td class="ce b">${esc(i.talla || '—')}</td>
+        <td class="ce">${esc(dato(i, 'marca', 'marca') || 'Antonia Sorev')}</td>
+        <td class="de">${cop(dato(i, 'precio_venta', 'precio'))}</td>
+        <td class="ce b">${i.cantidad}</td></tr>`;
+    }).join('');
+    return filas + `<tr class="sub"><td colspan="7">Total ${esc(ref)}</td><td class="ce">${sub} unidades</td></tr>`;
+  }).join('');
+
+  const html = `<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Remisión ${esc(d.remision)}</title>
 <style>
-  *{box-sizing:border-box}@page{size:A4;margin:14mm}
-  body{font-family:-apple-system,'Segoe UI',Arial,sans-serif;color:#1a1a1a;margin:0;padding:22px;font-size:13px}
-  .top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2.5px solid #014A5E;padding-bottom:14px;margin-bottom:18px}
-  .brand{font-size:26px;font-weight:800;letter-spacing:.12em}.brand b{color:#014A5E}
-  .brand .sub{display:block;font-size:11px;font-weight:600;letter-spacing:.18em;color:#888;margin-top:3px}
-  .doc{text-align:right}.doc .t{font-size:14px;font-weight:800;letter-spacing:.06em;color:#014A5E}
-  .doc .rem{font-family:monospace;font-size:20px;font-weight:700;margin-top:4px}.doc .f{font-size:12px;color:#555;margin-top:2px}
-  .meta{display:flex;gap:28px;background:#E0F6FC;border:1px solid #A0DDEE;border-radius:8px;padding:12px 16px;margin-bottom:16px}
-  .meta .k{color:#999;text-transform:uppercase;letter-spacing:.05em;font-size:10px;font-weight:700}
-  .meta .v{font-size:14px;font-weight:700;margin-top:2px}
-  table{width:100%;border-collapse:collapse;margin-bottom:6px}
-  thead th{background:#1a1a1a;color:#fff;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;padding:8px 10px;text-align:left}
-  thead th.ce{text-align:center}
-  tbody td{padding:7px 10px;border-bottom:1px solid #eee;font-size:12.5px}
-  tbody tr:nth-child(even) td{background:#fafafa}
-  td.n{color:#bbb;width:28px;text-align:center}td.ce{text-align:center}td.b{font-weight:700}
-  tfoot td{padding:10px;font-weight:800;font-size:13px;border-top:2px solid #1a1a1a}.tot{text-align:right}
-  .firmas{display:flex;gap:50px;margin-top:56px}
-  .firmas div{flex:1;border-top:1.5px solid #333;padding-top:6px;font-size:11px;color:#555;text-align:center}
-  .pie{margin-top:26px;font-size:10px;color:#bbb;text-align:center}
-  .bar{text-align:center;margin-top:22px}
-  .bar button{background:#014A5E;color:#fff;border:0;padding:11px 24px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin:0 4px}
-  .bar button.alt{background:#eee;color:#333}
-  .logo{height:52px;width:auto;display:block;margin-bottom:4px}
-  @media print{body{padding:0}.bar{display:none}.logo{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+  *{box-sizing:border-box}
+  @page{size:letter portrait;margin:12mm}
+  body{font-family:-apple-system,'Segoe UI',Arial,sans-serif;color:#111;margin:0;padding:18px;font-size:12px}
+  .top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2.5px solid #111;padding-bottom:12px;margin-bottom:14px}
+  .brand .n{font-size:24px;font-weight:800;letter-spacing:.1em}
+  .brand .e{font-size:11px;color:#444;margin-top:4px;line-height:1.5}
+  .doc{text-align:right}
+  .doc .t{font-size:12px;font-weight:800;letter-spacing:.06em}
+  .doc .num{font-family:ui-monospace,Menlo,monospace;font-size:21px;font-weight:700;margin-top:2px}
+  .doc .f{font-size:11px;color:#444;margin-top:3px}
+  .anulada{border:3px solid #b00;color:#b00;font-size:20px;font-weight:800;letter-spacing:.2em;
+           text-align:center;padding:7px;margin-bottom:12px;border-radius:6px}
+  .meta{display:flex;gap:34px;border:1px solid #bbb;border-radius:6px;padding:10px 14px;margin-bottom:12px}
+  .meta .k{color:#666;text-transform:uppercase;letter-spacing:.05em;font-size:9.5px;font-weight:700}
+  .meta .v{font-size:13px;font-weight:700;margin-top:2px}
+  .aviso{border:1px solid #999;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:11px}
+  table{width:100%;border-collapse:collapse}
+  thead th{background:#111;color:#fff;font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;
+           padding:7px 8px;text-align:left}
+  thead th.ce{text-align:center}thead th.de{text-align:right}
+  tbody td{padding:5px 8px;border-bottom:1px solid #e4e4e4;font-size:11.5px}
+  td.ce{text-align:center}td.de{text-align:right}td.b{font-weight:700}
+  td.cod{font-family:ui-monospace,Menlo,monospace;font-size:11px;white-space:nowrap}
+  .sin{color:#b00;font-weight:700;font-size:10px;letter-spacing:.03em}
+  tr.sub td{background:#f0f0f0;font-weight:700;font-size:11px;text-align:right;border-bottom:1.5px solid #bbb}
+  tr.sub td.ce{text-align:center}
+  .totales{display:flex;justify-content:flex-end;gap:34px;margin-top:14px;padding-top:10px;border-top:2.5px solid #111}
+  .totales .k{font-size:10px;color:#666;text-transform:uppercase;letter-spacing:.05em;font-weight:700}
+  .totales .v{font-size:19px;font-weight:800;text-align:right}
+  .obs{margin-top:16px;border:1px solid #bbb;border-radius:6px;padding:10px 12px;font-size:11px;min-height:48px}
+  .obs .k{font-size:9.5px;color:#666;text-transform:uppercase;letter-spacing:.05em;font-weight:700;margin-bottom:4px}
+  .firmas{display:flex;gap:46px;margin-top:40px;page-break-inside:avoid}
+  .firmas div{flex:1}
+  .firmas .linea{border-top:1.5px solid #111;margin-top:40px;padding-top:5px;font-size:10.5px;color:#444}
+  .firmas .rot{font-size:11px;font-weight:700}
+  .pie{margin-top:18px;font-size:9.5px;color:#777;text-align:center}
+  .barra{position:fixed;top:0;left:0;right:0;background:#111;color:#fff;padding:9px 14px;
+         display:flex;gap:9px;justify-content:center;z-index:9}
+  .barra button{background:#fff;border:0;border-radius:6px;padding:8px 16px;font-size:13px;
+                font-weight:700;cursor:pointer;font-family:inherit}
+  .hoja{margin-top:52px}
+  @media print{
+    .barra{display:none}.hoja{margin-top:0}
+    thead{display:table-header-group}      /* el encabezado se repite en cada página */
+    tr{page-break-inside:avoid}
+    .pie-pag{position:fixed;bottom:6mm;right:0;font-size:9px;color:#666}
+  }
 </style></head><body>
+<div class="barra">
+  <button onclick="window.print()">Imprimir</button>
+  <button onclick="window.print()">Descargar PDF</button>
+  <button onclick="window.close()" style="background:#444;color:#fff">Cerrar</button>
+</div>
+<div class="hoja">
+  ${anulada ? `<div class="anulada">ANULADA${d.anulada_motivo ? ' · ' + esc(d.anulada_motivo) : ''}</div>` : ''}
   <div class="top">
-    <div class="brand"><img src="${logoUrl}" alt="ANTONIA" class="logo"
-         onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><span class="brandTxt" style="display:none">ANTON<b>IA</b></span><span class="sub">FERIA DEL BRASIER</span></div>
-    <div class="doc"><div class="t">REMISIÓN DE DESPACHO</div><div class="rem">${esc(d.remision)}</div><div class="f">${fechaFmt}</div></div>
+    <div class="brand">
+      <div class="n">${esc(emp.nombre_comercial || 'ANTONIA')}</div>
+      <div class="e">
+        ${emp.razon_social ? esc(emp.razon_social) + '<br>' : ''}
+        ${emp.nit ? 'NIT ' + esc(emp.nit) + '<br>' : ''}
+        ${emp.direccion ? esc(emp.direccion) + (emp.ciudad ? ', ' + esc(emp.ciudad) : '') + '<br>' : ''}
+        ${emp.telefono ? 'Tel. ' + esc(emp.telefono) : ''}
+      </div>
+    </div>
+    <div class="doc">
+      <div class="t">REMISIÓN N.º</div>
+      <div class="num">${esc(d.remision)}</div>
+      <div class="f">${fechaLarga}</div>
+    </div>
   </div>
   <div class="meta">
-    <div><div class="k">Bodega origen</div><div class="v">${esc(origenNom)}</div></div>
-    <div><div class="k">Almacén destino</div><div class="v">${esc(d.almacen_nombre)}</div></div>
-    ${responsable ? `<div><div class="k">Responsable</div><div class="v">${esc(responsable)}</div></div>` : ''}
-    <div><div class="k">Referencias</div><div class="v">${totRefs}</div></div>
-    <div><div class="k">Total unidades</div><div class="v">${totUds}</div></div>
+    <div><div class="k">Origen</div><div class="v">Bodega Antonia</div></div>
+    <div><div class="k">Destino</div><div class="v">${esc(almCodigo + (d.almacen_nombre || ''))}</div></div>
   </div>
+  ${sinCodigo ? `<div class="aviso"><strong>${sinCodigo} talla(s) sin código de barras.</strong>
+     Están pendientes de GS1 y no se podrán vender en caja hasta que se les asigne el código.</div>` : ''}
+  ${faltaSnapshot ? `<div class="aviso">Remisión anterior al registro de precios por despacho:
+     el precio y el código mostrados son los vigentes hoy, no necesariamente los del día del envío.</div>` : ''}
   <table>
-    <thead><tr><th class="ce">#</th><th>Referencia</th><th>Categoría</th>${hayTallas ? '<th class="ce">Talla</th>' : ''}<th class="ce">Cant.</th></tr></thead>
-    <tbody>${filas || '<tr><td colspan="5" style="text-align:center;color:#999;padding:18px">Sin prendas registradas</td></tr>'}</tbody>
-    <tfoot><tr><td colspan="${hayTallas ? 4 : 3}" class="tot">TOTAL UNIDADES</td><td class="ce">${totUds}</td></tr></tfoot>
+    <thead><tr>
+      <th>Código de barras</th><th>Referencia</th><th>Descripción</th>
+      <th class="ce">Color</th><th class="ce">Talla</th><th class="ce">Marca</th>
+      <th class="de">Precio venta</th><th class="ce">Cant.</th>
+    </tr></thead>
+    <tbody>${cuerpo}</tbody>
   </table>
-  <div class="firmas">
-    <div>Entregado por</div>
-    <div>Recibido conforme<div style="font-size:9px;color:#999;margin-top:2px">Nombre, cédula y fecha</div></div>
+  <div class="totales">
+    <div><div class="k">Referencias enviadas</div><div class="v">${refs.length}</div></div>
+    <div><div class="k">Total unidades enviadas</div><div class="v">${totUds}</div></div>
   </div>
-  <div class="pie">Generado por Antonia — Gestión de Inventario · ${genFmt}</div>
-  <div class="bar"><button onclick="window.print()">Imprimir / Guardar PDF</button><button class="alt" onclick="window.close()">Cerrar</button></div>
-  <script>window.addEventListener('load',function(){setTimeout(function(){try{window.focus();window.print();}catch(e){}},300);});<\/script>
+  <div class="obs"><div class="k">Observaciones</div>${esc(d.observaciones || '')}</div>
+  <div class="firmas">
+    <div><div class="rot">Entregado por</div>
+      <div class="linea">Nombre, firma y fecha</div></div>
+    <div><div class="rot">Recibido por</div>
+      <div class="linea">Nombre, firma y fecha</div></div>
+  </div>
+  <div class="pie">Remisión ${esc(d.remision)} · ${esc(emp.razon_social || '')} · generada el ${new Date().toLocaleDateString('es-CO')}</div>
+</div>
 </body></html>`;
 
-  if (w) { w.document.open(); w.document.write(html); w.document.close(); return; }
-  // respaldo: si el navegador bloqueó la ventana, imprimir vía iframe oculto
-  let f = document.getElementById('remision-frame'); if (f) f.remove();
-  f = document.createElement('iframe'); f.id = 'remision-frame';
-  f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-  document.body.appendChild(f);
-  const fd = f.contentWindow.document; fd.open(); fd.write(html); fd.close();
+  if (w) { w.document.open(); w.document.write(html); w.document.close(); }
+  else toast('El navegador bloqueó la ventana. Permite las ventanas emergentes para imprimir.', 'err');
 }
 
 // ─── VENTAS ───────────────────────────────────
