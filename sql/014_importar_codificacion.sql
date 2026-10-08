@@ -29,7 +29,10 @@
 -- DEPORTIVO. Si alguna queda mal, se corrige desde el formulario de producto.
 -- ══════════════════════════════════════════════════════════════════
 
-BEGIN;
+-- Sin BEGIN/COMMIT a propósito: Supabase reparte las sentencias entre conexiones del
+-- pooler, y dentro de una transacción abierta la tabla auxiliar no es visible para la
+-- siguiente. Cada paso confirma por su cuenta y todos son idempotentes, así que se puede
+-- volver a correr sin duplicar nada.
 
 -- Tabla normal, no temporal: Supabase reparte las sentencias entre conexiones del
 -- pooler y una tabla temporal no sobrevive de una a otra. Se borra al final.
@@ -283,6 +286,4 @@ SELECT v.codigo_barras, p.referencia_base, v.talla
 -- Esperado: ANT2001 2XL · ANT5015 2XL · ANT5022 4XL · ANT6215 2XL
 --           ANT8022 S · ANT8051 3XL · ANT8155 3XL
 
-DROP TABLE _imp;
-
-COMMIT;
+DROP TABLE IF EXISTS _imp;
