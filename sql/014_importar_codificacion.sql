@@ -31,11 +31,14 @@
 
 BEGIN;
 
-CREATE TEMP TABLE _imp (
+-- Tabla normal, no temporal: Supabase reparte las sentencias entre conexiones del
+-- pooler y una tabla temporal no sobrevive de una a otra. Se borra al final.
+DROP TABLE IF EXISTS _imp;
+CREATE TABLE _imp (
   codigo text, base text, talla text, pvp int, kukos int,
   nombre text, dlarga text, dcorta text,
   linea text, genero text, comp text, sil text, uso text, cat text, color text, inv text
-) ON COMMIT DROP;
+);
 
 INSERT INTO _imp VALUES
   ('7706730455433','ANT5302','M',55900,39500,'PIJAMA DE CAPRI VERA','PIJAMA DE CAPRI VERA','PJ VERA','2003-PIJAMAS','5001-DAMA','7043-POLIESTER ALGODÓN','8066-DOS PIEZAS','9002-ROPA EXTERIOR','PIJAMERIA','2600-SURTIDOS','INV002'),
@@ -279,5 +282,7 @@ SELECT v.codigo_barras, p.referencia_base, v.talla
  ORDER BY p.referencia_base;
 -- Esperado: ANT2001 2XL · ANT5015 2XL · ANT5022 4XL · ANT6215 2XL
 --           ANT8022 S · ANT8051 3XL · ANT8155 3XL
+
+DROP TABLE _imp;
 
 COMMIT;
