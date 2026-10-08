@@ -73,12 +73,12 @@ BEGIN
   -- ('Malca 2') y el código ANT####; se traducen a ubicación y variante.
   WITH det AS (
     SELECT d.almacen,
-           coalesce(sk.referencia, d.desc_item) AS referencia,
+           coalesce(sk.referencia, p.referencia_inventario, d.desc_item) AS referencia,
            upper(btrim(d.talla))                AS talla,
            sum(d.cantidad)                      AS uds
       FROM ventas_feria_detalle d
-      LEFT JOIN codigos_sku sk
-             ON sk.codigo = 'ANT' || upper(btrim(d.referencia_base))
+      LEFT JOIN codigos_sku sk ON sk.codigo = 'ANT' || upper(btrim(d.referencia_base))
+      LEFT JOIN productos   p  ON p.referencia_base = 'ANT' || upper(btrim(d.referencia_base))
      WHERE d.reporte_id = p_reporte_id AND d.cantidad > 0
        AND d.fecha > v_corte          -- lo anterior al backfill ya está en el saldo
      GROUP BY 1,2,3
@@ -119,10 +119,11 @@ BEGIN
                                                'talla', talla, 'uds', uds)), '[]'::jsonb)
     INTO v_sin_variante
     FROM (
-      SELECT d.almacen, coalesce(sk.referencia, d.desc_item) AS referencia,
+      SELECT d.almacen, coalesce(sk.referencia, p.referencia_inventario, d.desc_item) AS referencia,
              upper(btrim(d.talla)) AS talla, sum(d.cantidad) AS uds
         FROM ventas_feria_detalle d
         LEFT JOIN codigos_sku sk ON sk.codigo = 'ANT' || upper(btrim(d.referencia_base))
+        LEFT JOIN productos   p  ON p.referencia_base = 'ANT' || upper(btrim(d.referencia_base))
        WHERE d.reporte_id = p_reporte_id AND d.cantidad > 0
        GROUP BY 1,2,3
       ) x
@@ -145,7 +146,8 @@ SELECT r.mes, r.periodo_desde::text || ' → ' || r.periodo_hasta::text AS perio
   FROM reportes_ventas_feria r
   JOIN ventas_feria_detalle d ON d.reporte_id = r.id AND d.cantidad > 0
   LEFT JOIN codigos_sku sk ON sk.codigo = 'ANT' || upper(btrim(d.referencia_base))
-  LEFT JOIN variantes v ON v.referencia = coalesce(sk.referencia, d.desc_item)
+  LEFT JOIN productos   p  ON p.referencia_base = 'ANT' || upper(btrim(d.referencia_base))
+  LEFT JOIN variantes v ON v.referencia = coalesce(sk.referencia, p.referencia_inventario, d.desc_item)
                        AND upper(btrim(v.talla)) = upper(btrim(d.talla))
  WHERE r.estado = 'activo'
  GROUP BY r.mes, r.periodo_desde, r.periodo_hasta, r.total_unidades
