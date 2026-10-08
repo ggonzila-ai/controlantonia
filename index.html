@@ -5908,7 +5908,36 @@ function llenarDropdownDespacho() {
   if (cont) { cont.innerHTML = ''; cont.style.display = 'none'; }
 }
 
-function agregarReferenciaDespacho(ref) {
+// Tallas de cada referencia, con su código de barras, en el orden de su curva.
+// El despacho necesita la talla: el código de barras es por talla, no por referencia,
+// así que sin ella la remisión no puede mostrar el código que lleva la prenda.
+let _tallasRef = null;
+async function cargarTallasPorRef(force) {
+  if (_tallasRef && !force) return _tallasRef;
+  const m = {};
+  try {
+    const [{ data: prods }, { data: tipos }] = await Promise.all([
+      sb.from('productos').select('nombre, referencia_inventario, tipo_inventario, activo, productos_variantes(talla, codigo_barras, activo)'),
+      sb.from('tipos_inventario').select('codigo, tallas')
+    ]);
+    const curvas = {}; (tipos || []).forEach(t => { curvas[t.codigo] = t.tallas || []; });
+    (prods || []).forEach(p => {
+      const clave = p.referencia_inventario || p.nombre; if (!clave) return;
+      const curva = curvas[p.tipo_inventario] || ORDEN_TALLAS;
+      const tallas = (p.productos_variantes || [])
+        .filter(v => v.activo !== false)
+        .map(v => ({ talla: v.talla, codigo: v.codigo_barras }))
+        .sort((a, b) => {
+          const ia = curva.indexOf(a.talla), ib = curva.indexOf(b.talla);
+          return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
+        });
+      if (tallas.length) m[clave] = tallas;
+    });
+  } catch (e) { }
+  _tallasRef = m; return m;
+}
+
+async function agregarReferenciaDespacho(ref) {
   if (!ref || despachoActual[ref]) return;
   const p = bodegaData.find(x => x.referencia === ref); if (!p) return;
   if (_controlBodega && despStockRef(ref).total <= 0) {
@@ -5916,9 +5945,12 @@ function agregarReferenciaDespacho(ref) {
       + `Si la mercancía existe, registra primero su entrada en Bodega → Registro.`, 'err');
     return;
   }
-  // Solo referencia y unidades: los almacenes llevan el inventario por
-  // referencia, y el reparto entre tallas de bodega lo resuelve el servidor.
-  despachoActual[ref] = { categoria: p.categoria || '', cantidad: 0 };
+  // Una cantidad por talla. Si la referencia no tiene tallas en el catálogo, se
+  // despacha sin talla como antes, para no bloquear lo que todavía no está codificado.
+  await cargarTallasPorRef();
+  const tallas = (_tallasRef && _tallasRef[ref]) || [];
+  despachoActual[ref] = { categoria: p.categoria || '', cantidad: 0,
+                          tallas: tallas.map(t => ({ ...t, cant: 0 })) };
   const cont = document.getElementById('despacho-refs');
   const div = document.createElement('div'); div.innerHTML = renderTarjetaDespacho(ref);
   cont.appendChild(div.firstElementChild);
@@ -5926,6 +5958,34 @@ function agregarReferenciaDespacho(ref) {
   if (inp) inp.focus();
   llenarDropdownDespacho();
   actualizarTotalGlobal();
+}
+
+function actualizarCantidadTalla(input) {
+  const ref = input.dataset.ref, i = +input.dataset.talla;
+  const d = despachoActual[ref]; if (!d || !d.tallas || !d.tallas[i]) return;
+  const limpio = String(input.value || '').replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
+  if (limpio !== input.value) input.value = limpio;
+  d.tallas[i].cant = parseInt(limpio) || 0;
+  d.cantidad = d.tallas.reduce((s, t) => s + (t.cant || 0), 0);
+  if (_controlBodega) {
+    const tope = despStockRef(ref).total;
+    if (d.cantidad > tope) {
+      const sobra = d.cantidad - tope;
+      d.tallas[i].cant = Math.max(0, d.tallas[i].cant - sobra);
+      input.value = d.tallas[i].cant || '';
+      d.cantidad = d.tallas.reduce((s, t) => s + (t.cant || 0), 0);
+      input.style.borderColor = 'var(--rojo)'; setTimeout(() => { input.style.borderColor = ''; }, 1500);
+      toast(`En bodega solo hay ${NUM(tope)} de ${ref}`, 'err');
+    }
+  }
+  actualizarTotalGlobal();
+}
+
+function quitarRefDespacho(ref) {
+  delete despachoActual[ref];
+  const card = document.querySelector(`.tarjeta-desp[data-refcard="${String(ref).replace(/"/g,'&quot;')}"]`);
+  if (card) card.remove();
+  llenarDropdownDespacho(); actualizarTotalGlobal();
 }
 
 function actualizarCantidadRef(input) {
@@ -5948,11 +6008,39 @@ function renderTarjetaDespacho(ref) {
   const ea = s => String(s).replace(/"/g, '&quot;');
   const data = despachoActual[ref];
   const disp = _controlBodega ? despStockRef(ref).total : null;
+  // Con tallas: una casilla por talla, en orden de curva, avisando cuál no tiene código.
+  if (data.tallas && data.tallas.length) {
+    const sinCod = data.tallas.filter(t => !t.codigo).length;
+    return `<div class="tarjeta-desp" data-refcard="${ea(ref)}" style="border:1px solid var(--borde);border-radius:10px;padding:12px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:9px">
+        <div style="min-width:0;flex:1">
+          <div style="font-size:14px;font-weight:700">${ref}</div>
+          <div style="font-size:11px;color:var(--gris-medio)">${data.categoria || '—'}${
+            disp != null ? ` · ${NUM(disp)} en bodega` : ''}</div>
+        </div>
+        <button type="button" onclick="quitarRefDespacho('${ea(ref)}')" aria-label="Quitar ${ea(ref)}"
+          style="background:none;border:none;color:var(--rojo);font-size:17px;cursor:pointer;line-height:1">×</button>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${data.tallas.map((t, i) => `<div style="text-align:center">
+          <div style="font-size:11px;font-weight:700;color:${t.codigo ? 'var(--gris-medio)' : 'var(--rojo)'}">${ea(t.talla)}</div>
+          <input type="text" inputmode="numeric" value="${t.cant || ''}" placeholder="0"
+            data-ref="${ea(ref)}" data-talla="${i}" oninput="actualizarCantidadTalla(this)"
+            onkeydown="bloquearFlechas(event)" autocomplete="off"
+            aria-label="Unidades talla ${ea(t.talla)} de ${ea(ref)}"
+            title="${t.codigo ? t.codigo : 'Sin código de barras: no se podrá vender en caja'}"
+            style="width:58px;padding:8px 6px;border:1.5px solid ${t.codigo ? 'var(--borde)' : 'var(--rojo)'};border-radius:7px;text-align:center;font-size:14px;font-weight:700;font-family:inherit">
+        </div>`).join('')}
+      </div>
+      ${sinCod ? `<div style="font-size:10.5px;color:var(--rojo);margin-top:7px">
+        ${sinCod} talla(s) sin código de barras: se pueden despachar, pero no se venderán en caja hasta que GS1 les asigne el código.</div>` : ''}
+    </div>`;
+  }
   return `<div class="tarjeta-desp" data-refcard="${ea(ref)}" style="border:1px solid var(--borde);border-radius:10px;padding:12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
     <div style="min-width:0;flex:1">
       <div style="font-size:14px;font-weight:700">${ref}</div>
       <div style="font-size:11px;color:var(--gris-medio)">${data.categoria || '—'}${
-        disp != null ? ` · ${NUM(disp)} en bodega` : ''}</div>
+        disp != null ? ` · ${NUM(disp)} en bodega` : ''} · sin tallas en el catálogo</div>
     </div>
     <div style="display:flex;align-items:center;gap:10px">
       <input type="text" inputmode="numeric" value="${data.cantidad || ''}" placeholder="0"
@@ -6029,9 +6117,16 @@ async function confirmarDespacho() {
   const remisionManual = document.getElementById('d-remision').value.trim();
   if (!almId || !fecha) { toast('Selecciona almacén y fecha', 'err'); return; }
 
+  // Una línea por talla: es lo que permite que la remisión muestre el código de barras.
   const items = [];
   Object.entries(despachoActual).forEach(([ref, r]) => {
-    if (r.cantidad > 0) items.push({ referencia: ref, categoria: r.categoria || '', talla: '—', cantidad: r.cantidad });
+    if (r.tallas && r.tallas.length) {
+      r.tallas.forEach(t => {
+        if (t.cant > 0) items.push({ referencia: ref, categoria: r.categoria || '', talla: t.talla, cantidad: t.cant });
+      });
+    } else if (r.cantidad > 0) {
+      items.push({ referencia: ref, categoria: r.categoria || '', talla: '—', cantidad: r.cantidad });
+    }
   });
   if (!items.length) { toast('Escribe las unidades de al menos una referencia', 'err'); return; }
 
@@ -6075,6 +6170,32 @@ async function confirmarDespacho() {
       await sb.from('remision_items').delete().eq('remision_id', remId);
       await sb.from('remisiones').delete().eq('id', remId);
       fin(detalleError(e3)); return;
+    }
+
+    // Congelar en cada línea el código y el precio del momento: una reimpresión dentro
+    // de un año debe mostrar lo que se entregó, no el catálogo de entonces.
+    if (res && res.despacho_id) {
+      try {
+        await cargarTallasPorRef();
+        const { data: prods } = await sb.from('productos')
+          .select('nombre, referencia_inventario, precio_venta, desc_larga, color, marca');
+        const ficha = {};
+        (prods || []).forEach(p => { ficha[p.referencia_inventario || p.nombre] = p; });
+        const { data: dits } = await sb.from('despacho_items')
+          .select('id, referencia, talla').eq('despacho_id', res.despacho_id);
+        for (const di of (dits || [])) {
+          const f = ficha[di.referencia] || {};
+          const tl = ((_tallasRef && _tallasRef[di.referencia]) || [])
+            .find(t => t.talla === di.talla);
+          await sb.from('despacho_items').update({
+            codigo_barras: tl ? tl.codigo : null,
+            precio_venta: f.precio_venta || null,
+            descripcion: f.desc_larga || f.nombre || di.referencia,
+            color: f.color || '2600-SURTIDOS',
+            marca: f.marca || 'Antonia Sorev'
+          }).eq('id', di.id);
+        }
+      } catch (e) { console.warn('No se pudo congelar el detalle de la remisión', e); }
     }
 
     const numero = (res && res.numero) || rem.numero;
@@ -6267,6 +6388,7 @@ async function imprimirRemision(id) {
   @page{size:letter portrait;margin:12mm}
   body{font-family:-apple-system,'Segoe UI',Arial,sans-serif;color:#111;margin:0;padding:18px;font-size:12px}
   .top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2.5px solid #111;padding-bottom:12px;margin-bottom:14px}
+  .brand img{height:52px;width:auto;display:block;margin-bottom:6px}
   .brand .n{font-size:24px;font-weight:800;letter-spacing:.1em}
   .brand .e{font-size:11px;color:#444;margin-top:4px;line-height:1.5}
   .doc{text-align:right}
@@ -6320,7 +6442,9 @@ async function imprimirRemision(id) {
   ${anulada ? `<div class="anulada">ANULADA${d.anulada_motivo ? ' · ' + esc(d.anulada_motivo) : ''}</div>` : ''}
   <div class="top">
     <div class="brand">
-      <div class="n">${esc(emp.nombre_comercial || 'ANTONIA')}</div>
+      <img src="${location.origin}/antonia-sorev-logo.png" alt="Antonia Sorev"
+           onerror="this.style.display='none';document.getElementById('marca-txt').style.display='block'">
+      <div class="n" id="marca-txt" style="display:none">${esc(emp.marca || 'Antonia Sorev')}</div>
       <div class="e">
         ${emp.razon_social ? esc(emp.razon_social) + '<br>' : ''}
         ${emp.nit ? 'NIT ' + esc(emp.nit) + '<br>' : ''}
