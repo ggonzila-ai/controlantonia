@@ -264,6 +264,31 @@ UPDATE productos_variantes v SET activo = false
  WHERE v.producto_id = p.id AND v.talla = 'S' AND v.codigo_barras IS NULL
    AND p.referencia_base IN (SELECT DISTINCT base FROM _imp);
 
+-- ─── 5 · Espejo en bodega y precio para Costos ────────────────────
+-- Bodega, Costos y Rentabilidad se alimentan de `bodega` y `referencia_costos`, no del
+-- catálogo. Una referencia que solo exista en `productos` no aparece en esas pantallas:
+-- pasó con las 11 importadas y hubo que repararlo a mano el 2026-10-09.
+-- Las ofertas no llevan referencia propia: van todas a la línea OFERTAS.
+UPDATE productos SET referencia_inventario = 'OFERTAS'
+ WHERE referencia_base IN ('ANT1215','ANT6201') AND coalesce(referencia_inventario,'') = '';
+
+INSERT INTO bodega (referencia, categoria, stock, costo, stock_minimo)
+SELECT p.nombre, p.categoria, 0, 0, coalesce(p.stock_minimo, 10)
+  FROM productos p
+ WHERE coalesce(p.referencia_inventario,'') = ''
+   AND NOT EXISTS (SELECT 1 FROM bodega b WHERE b.referencia = p.nombre);
+
+UPDATE productos p SET referencia_inventario = p.nombre
+ WHERE coalesce(p.referencia_inventario,'') = ''
+   AND EXISTS (SELECT 1 FROM bodega b WHERE b.referencia = p.nombre);
+
+INSERT INTO referencia_costos (referencia, precio_venta)
+SELECT p.referencia_inventario, max(p.precio_venta)
+  FROM productos p
+ WHERE p.referencia_inventario IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM referencia_costos rc WHERE rc.referencia = p.referencia_inventario)
+ GROUP BY p.referencia_inventario;
+
 -- ─── Comprobación ─────────────────────────────────────────────────
 SELECT (SELECT count(*) FROM productos)                                        AS productos,
        (SELECT count(*) FROM productos_variantes WHERE activo)                 AS tallas_activas,
