@@ -11465,10 +11465,11 @@ function beSetModo(m){ _beModo = m; beRecompute(); }
 
 async function cargarVentasReales2026(){
   const porDia = {};
-  const add = (m, fecha, uds, valSinIva) => {
+  // u = unidades · v = ventas sin IVA · c = ventas con IVA (lo que pagó la clienta)
+  const add = (m, fecha, uds, valSinIva, valConIva) => {
     const f = fecha || ((m || '') + '-28'); if (!f) return;
-    const o = porDia[f] = porDia[f] || { u:0, v:0 };
-    o.u += uds; o.v += valSinIva;
+    const o = porDia[f] = porDia[f] || { u:0, v:0, c:0 };
+    o.u += uds; o.v += valSinIva; o.c += valConIva;
   };
   // Los reportes de Feria mandan, pero SOLO en los días que cubren. Antes bastaba con
   // que Feria aportara un día del mes para descartar la tabla `ventas` de ese mes
@@ -11482,23 +11483,29 @@ async function cargarVentasReales2026(){
   } catch(e){}
   try {
     const { data } = await sb.from('ventas_feria_detalle')
-      .select('fecha,cantidad,valor_sin_iva,reportes_ventas_feria!inner(estado)')
+      .select('fecha,cantidad,valor_sin_iva,valor_con_iva,reportes_ventas_feria!inner(estado)')
       .eq('reportes_ventas_feria.estado','activo').gte('fecha','2026-01-01').lte('fecha','2026-12-31').limit(20000);
-    (data||[]).forEach(r=> add(String(r.fecha).slice(0,7), r.fecha, r.cantidad||0, r.valor_sin_iva||0));
+    (data||[]).forEach(r=>{
+      const sin = Number(r.valor_sin_iva)||0;
+      // el reporte de Feria trae el valor con IVA; si alguna fila viniera vacía se reconstruye
+      const con = r.valor_con_iva != null ? (Number(r.valor_con_iva)||0) : Math.round(sin*(1+IVA_RATE));
+      add(String(r.fecha).slice(0,7), r.fecha, r.cantidad||0, sin, con);
+    });
   } catch(e){}
   try {
     const v = await selectAll('ventas','cantidad,precio_unitario,fecha,periodo', q=>q.gte('periodo','2026-01').lte('periodo','2026-12'));
     (v||[]).filter(x=>!cubiertaPorFeria(x, reps)).forEach(x=>{
       const m = x.periodo || String(x.fecha||'').slice(0,7);
-      add(m, x.fecha || (m + '-28'), x.cantidad||0, baseSinIva((x.cantidad||0)*(x.precio_unitario||0)));
+      const con = (x.cantidad||0)*(x.precio_unitario||0);   // precio_unitario ya incluye IVA
+      add(m, x.fecha || (m + '-28'), x.cantidad||0, baseSinIva(con), con);
     });
   } catch(e){}
   const agrupar = clave => {
     const g = {};
     Object.keys(porDia).sort().forEach(f => {
       const k = clave(f); if (!k) return;
-      const o = g[k] = g[k] || { u:0, v:0, pri:f, ult:f };
-      o.u += porDia[f].u; o.v += porDia[f].v;
+      const o = g[k] = g[k] || { u:0, v:0, c:0, pri:f, ult:f };
+      o.u += porDia[f].u; o.v += porDia[f].v; o.c += porDia[f].c;
       if (f < o.pri) o.pri = f;
       if (f > o.ult) o.ult = f;
     });
@@ -11524,19 +11531,43 @@ function renderUtilidad2026(fijos, mcPct, mcUnit, beUnid){
     const mas=(f,n)=>{ const x=new Date(f+'T00:00:00'); x.setDate(x.getDate()+n); return x.toISOString().slice(0,10); };
     return d.pri<=mas(r.ini,2) && d.ult>=mas(r.fin,-2);
   };
-  let acc=0, nComp=0;
+  // Acumulados de TODAS las columnas: uno con solo períodos completos (comparable mes a mes)
+  // y otro con todo lo registrado a la fecha (incluye el período parcial en curso).
+  const nuevoTot=()=>({ u:0, c:0, v:0, mc:0, f:0, res:0, n:0 });
+  const totComp=nuevoTot(), totTodo=nuevoTot(); const parciales=[];
+  const sumar=(t,d,mcGen,res)=>{ t.u+=d.u; t.c+=(d.c||0); t.v+=d.v; t.mc+=mcGen; t.f+=fijos; t.res+=res; t.n++; };
+  const NUMR='text-align:right;white-space:nowrap';
   const filas=meses.map(m=>{
     const d=data[m]; const mcGen=Math.round(d.v*mcPct); const res=mcGen-fijos; const comp=esCompleto(m,d);
-    if(comp){ acc+=res; nComp++; }
+    sumar(totTodo,d,mcGen,res);
+    if(comp) sumar(totComp,d,mcGen,res); else parciales.push(m);
     const col=res>=0?'var(--verde)':'var(--rojo)';
     return `<tr style="${comp?'':'background:var(--brand-light,#e6f7fb)'}">
       <td><strong>${rangoPeriodo(m,modo).label}</strong>${comp?'':` <span class="badge badge-info" style="font-size:9px">⚡ parcial</span><div style="font-size:10px;color:var(--gris-medio)">hasta ${_fechaLargaVF(d.ult)}</div>`}</td>
-      <td style="text-align:right">${NUM(d.u)}</td>
-      <td style="text-align:right">${COP(d.v)}</td>
-      <td style="text-align:right">${COP(mcGen)}</td>
-      <td style="text-align:right;color:var(--gris-medio)">${COP(fijos)}</td>
-      <td style="text-align:right;font-weight:700;color:${col}">${res>=0?'🟢 +':'🔴 '}${COP(res)}</td></tr>`;
+      <td style="${NUMR}">${NUM(d.u)}</td>
+      <td style="${NUMR}">${COP(d.c||0)}</td>
+      <td style="${NUMR}">${COP(d.v)}</td>
+      <td style="${NUMR}">${COP(mcGen)}</td>
+      <td style="${NUMR};color:var(--gris-medio)">${COP(fijos)}</td>
+      <td style="${NUMR};font-weight:700;color:${col}">${res>=0?'🟢 +':'🔴 '}${COP(res)}</td></tr>`;
   }).join('');
+  const acc=totComp.res, nComp=totComp.n;
+  const filaTot=(t,titulo,sub,fondo)=>`<tr style="background:${fondo};font-weight:700">
+      <td>${titulo}${sub?`<div style="font-size:10px;font-weight:400;color:var(--gris-medio)">${sub}</div>`:''}</td>
+      <td style="${NUMR}">${NUM(t.u)}</td>
+      <td style="${NUMR}">${COP(t.c)}</td>
+      <td style="${NUMR}">${COP(t.v)}</td>
+      <td style="${NUMR}">${COP(t.mc)}</td>
+      <td style="${NUMR}">${COP(t.f)}</td>
+      <td style="${NUMR};color:${t.res>=0?'var(--verde)':'var(--rojo)'}">${t.res>=0?'+':''}${COP(t.res)}</td></tr>`;
+  const unidadP = n => modo==='corte' ? (n===1?'corte':'cortes') : (n===1?'mes':'meses');
+  let pie='';
+  if(!parciales.length){
+    pie = filaTot(totTodo, 'ACUMULADO 2026', `${totTodo.n} ${unidadP(totTodo.n)} completo${totTodo.n===1?'':'s'}`, 'var(--gris-claro)');
+  } else {
+    if(nComp) pie += filaTot(totComp, 'ACUMULADO COMPLETOS', `${nComp} ${unidadP(nComp)} completo${nComp===1?'':'s'}`, 'var(--gris-claro)');
+    pie += filaTot(totTodo, 'TOTAL A LA FECHA', `incluye ${parciales.map(m=>rangoPeriodo(m,modo).label).join(', ')} (parcial)`, nComp?'transparent':'var(--gris-claro)');
+  }
   const ult=meses[meses.length-1], du=data[ult];
   // progreso del período en curso (el último, si aún no está completo)
   let prog='';
@@ -11570,8 +11601,8 @@ function renderUtilidad2026(fijos, mcPct, mcUnit, beUnid){
       </div>
     </div>
     ${prog}
-    <div class="tabla-wrap"><table style="font-size:12px"><thead><tr><th>${modo==='corte'?'Corte':'Mes'}</th><th style="text-align:right">Unidades</th><th style="text-align:right">Ventas s/IVA</th><th style="text-align:right">MC generado</th><th style="text-align:right">Costos fijos</th><th style="text-align:right">Resultado</th></tr></thead><tbody>${filas}</tbody></table></div>
-    <div style="font-size:12px;font-weight:700;margin-top:8px">Acumulado YTD (${modo==='corte'?'cortes':'meses'} completos): <span style="color:${acc>=0?'var(--verde)':'var(--rojo)'}">${acc>=0?'+':''}${COP(acc)}</span></div>
+    <div class="tabla-wrap"><table style="font-size:12px"><thead><tr><th>${modo==='corte'?'Corte':'Mes'}</th><th style="text-align:right">Unidades</th><th style="text-align:right">Ventas c/IVA</th><th style="text-align:right">Ventas s/IVA</th><th style="text-align:right">MC generado</th><th style="text-align:right">Costos fijos</th><th style="text-align:right">Resultado</th></tr></thead><tbody>${filas}</tbody>
+      <tfoot style="border-top:2px solid var(--borde)">${pie}</tfoot></table></div>
     <div class="metrics" style="margin-top:10px">
       <div class="metric-card"><div class="m-label">YTD acumulado</div><div class="m-val" style="font-size:16px;color:${acc>=0?'var(--verde)':'var(--rojo)'}">${acc>=0?'+':''}${COP(acc)}</div><div class="m-sub">${nComp} ${modo==='corte'?'corte(s)':'mes(es)'} completo(s)</div></div>
       <div class="metric-card"><div class="m-label">${modo==='corte'?'Cortes':'Meses'} con datos</div><div class="m-val" style="font-size:16px">${meses.length}</div><div class="m-sub">${rangoPeriodo(meses[0],modo).label}–${rangoPeriodo(ult,modo).label}</div></div>
