@@ -555,6 +555,10 @@
               <input type="text" id="d-remision" placeholder="REM-001">
             </div>
             <div class="form-group">
+              <label>Entregado por <span style="font-weight:400;color:var(--gris-medio)">· opcional</span></label>
+              <input type="text" id="d-entregado" autocomplete="off" placeholder="quien lleva la mercancía">
+            </div>
+            <div class="form-group">
               <label>Número de cajas</label>
               <input type="text" inputmode="numeric" id="d-cajas" value="1" autocomplete="off"
                      oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,2)" onkeydown="bloquearFlechas(event)">
@@ -5837,7 +5841,7 @@ async function llenarSelectAlmacenes() {
   });
 }
 
-let despachoActual = {};   // { referencia: { categoria, tallas: { talla: {disponible, cantidad} } } }
+let despachoActual = {};   // { referencia: { categoria, cantidad, sinTalla, productos:[{ base, precio, tallas:[{talla, codigo, cant}] }] } }
 async function llenarSelectDespachoRef() {
   if (bodegaData.length === 0) { const { data } = await sb.from('bodega').select('*').order('referencia'); bodegaData = data || []; }
   await cargarTallas();
@@ -5981,28 +5985,37 @@ function llenarDropdownDespacho() {
 // Tallas de cada referencia, con su código de barras, en el orden de su curva.
 // El despacho necesita la talla: el código de barras es por talla, no por referencia,
 // así que sin ella la remisión no puede mostrar el código que lleva la prenda.
-let _tallasRef = null;
+// Productos de catálogo de cada referencia de inventario, con sus tallas y códigos en
+// el orden de su curva. Ojo: una referencia de inventario puede agrupar VARIOS productos
+// con códigos y precios distintos (BATOLA TIRAS = ANT5011 y ANT5110; OFERTAS = diez).
+// Antes se guardaba una sola lista de tallas por referencia y el último producto pisaba
+// a los demás, así que la remisión podía salir con el código y el precio del otro.
+let _tallasRef = null;          // referencia → [{ base, nombre, precio, desc, color, marca, tallas:[{talla, codigo}] }]
+const REF_SIN_TALLA = ['OFERTAS'];   // se despachan sin talla: muchos productos, precios distintos
+
 async function cargarTallasPorRef(force) {
   if (_tallasRef && !force) return _tallasRef;
   const m = {};
   try {
     const [{ data: prods }, { data: tipos }] = await Promise.all([
-      sb.from('productos').select('nombre, referencia_inventario, tipo_inventario, activo, productos_variantes(talla, codigo_barras, activo)'),
+      sb.from('productos').select('referencia_base, nombre, referencia_inventario, tipo_inventario, activo, precio_venta, desc_larga, color, marca, productos_variantes(talla, codigo_barras, activo)'),
       sb.from('tipos_inventario').select('codigo, tallas')
     ]);
     const curvas = {}; (tipos || []).forEach(t => { curvas[t.codigo] = t.tallas || []; });
-    (prods || []).forEach(p => {
+    (prods || []).filter(p => p.activo !== false).forEach(p => {
       const clave = p.referencia_inventario || p.nombre; if (!clave) return;
       const curva = curvas[p.tipo_inventario] || ORDEN_TALLAS;
       const tallas = (p.productos_variantes || [])
         .filter(v => v.activo !== false)
         .map(v => ({ talla: v.talla, codigo: v.codigo_barras }))
-        .sort((a, b) => {
-          const ia = curva.indexOf(a.talla), ib = curva.indexOf(b.talla);
+        .sort((x, y) => {
+          const ia = curva.indexOf(x.talla), ib = curva.indexOf(y.talla);
           return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
         });
-      if (tallas.length) m[clave] = tallas;
+      (m[clave] = m[clave] || []).push({ base: p.referencia_base, nombre: p.nombre, precio: p.precio_venta,
+        desc: p.desc_larga || p.nombre, color: p.color, marca: p.marca, tallas });
     });
+    Object.values(m).forEach(lst => lst.sort((x, y) => String(x.base).localeCompare(String(y.base))));
   } catch (e) { }
   _tallasRef = m; return m;
 }
@@ -6015,12 +6028,17 @@ async function agregarReferenciaDespacho(ref) {
       + `Si la mercancía existe, registra primero su entrada en Bodega → Registro.`, 'err');
     return;
   }
-  // Una cantidad por talla. Si la referencia no tiene tallas en el catálogo, se
-  // despacha sin talla como antes, para no bloquear lo que todavía no está codificado.
+  // Talla obligatoria cuando la referencia tiene curva: sin talla no hay código GS1 en la
+  // remisión ni curva en los insights. Las ofertas y lo que no tiene tallas en el catálogo
+  // se despachan sin talla, como antes.
   await cargarTallasPorRef();
-  const tallas = (_tallasRef && _tallasRef[ref]) || [];
-  despachoActual[ref] = { categoria: p.categoria || '', cantidad: 0,
-                          tallas: tallas.map(t => ({ ...t, cant: 0 })) };
+  const prods = ((_tallasRef && _tallasRef[ref]) || []).filter(x => x.tallas.length);
+  const sinTalla = REF_SIN_TALLA.includes(ref) || !prods.length;
+  despachoActual[ref] = { categoria: p.categoria || '', cantidad: 0, sinTalla,
+    productos: sinTalla ? [] : prods.map(x => ({ ...x, tallas: x.tallas.map(t => ({ ...t, cant: 0 })) })),
+    // sin talla, el precio solo se congela si la referencia es UN producto; con varios no se adivina
+    precioUnico: (!REF_SIN_TALLA.includes(ref) && ((_tallasRef && _tallasRef[ref]) || []).length === 1)
+      ? _tallasRef[ref][0] : null };
   const cont = document.getElementById('despacho-refs');
   const div = document.createElement('div'); div.innerHTML = renderTarjetaDespacho(ref);
   cont.appendChild(div.firstElementChild);
@@ -6031,19 +6049,20 @@ async function agregarReferenciaDespacho(ref) {
 }
 
 function actualizarCantidadTalla(input) {
-  const ref = input.dataset.ref, i = +input.dataset.talla;
-  const d = despachoActual[ref]; if (!d || !d.tallas || !d.tallas[i]) return;
+  const ref = input.dataset.ref, pi = +input.dataset.prod, ti = +input.dataset.talla;
+  const d = despachoActual[ref]; if (!d || !d.productos[pi] || !d.productos[pi].tallas[ti]) return;
   const limpio = String(input.value || '').replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
   if (limpio !== input.value) input.value = limpio;
-  d.tallas[i].cant = parseInt(limpio) || 0;
-  d.cantidad = d.tallas.reduce((s, t) => s + (t.cant || 0), 0);
+  const t = d.productos[pi].tallas[ti];
+  t.cant = parseInt(limpio) || 0;
+  const suma = () => d.productos.reduce((s, x) => s + x.tallas.reduce((u, y) => u + (y.cant || 0), 0), 0);
+  d.cantidad = suma();
   if (_controlBodega) {
     const tope = despStockRef(ref).total;
     if (d.cantidad > tope) {
-      const sobra = d.cantidad - tope;
-      d.tallas[i].cant = Math.max(0, d.tallas[i].cant - sobra);
-      input.value = d.tallas[i].cant || '';
-      d.cantidad = d.tallas.reduce((s, t) => s + (t.cant || 0), 0);
+      t.cant = Math.max(0, t.cant - (d.cantidad - tope));
+      input.value = t.cant || '';
+      d.cantidad = suma();
       input.style.borderColor = 'var(--rojo)'; setTimeout(() => { input.style.borderColor = ''; }, 1500);
       toast(`En bodega solo hay ${NUM(tope)} de ${ref}`, 'err');
     }
@@ -6078,30 +6097,35 @@ function renderTarjetaDespacho(ref) {
   const ea = s => String(s).replace(/"/g, '&quot;');
   const data = despachoActual[ref];
   const disp = _controlBodega ? despStockRef(ref).total : null;
-  // Con tallas: una casilla por talla, en orden de curva, avisando cuál no tiene código.
-  if (data.tallas && data.tallas.length) {
-    const sinCod = data.tallas.filter(t => !t.codigo).length;
+  // Con tallas: una fila por producto (casi siempre uno solo), una casilla por talla en
+  // orden de curva, y en rojo la talla que no tiene código de barras.
+  if (!data.sinTalla && data.productos && data.productos.length) {
+    const varios = data.productos.length > 1;
+    const sinCod = data.productos.reduce((s, x) => s + x.tallas.filter(t => !t.codigo).length, 0);
     return `<div class="tarjeta-desp" data-refcard="${ea(ref)}" style="border:1px solid var(--borde);border-radius:10px;padding:12px;margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:9px">
         <div style="min-width:0;flex:1">
           <div style="font-size:14px;font-weight:700">${ref}</div>
           <div style="font-size:11px;color:var(--gris-medio)">${data.categoria || '—'}${
-            disp != null ? ` · ${NUM(disp)} en bodega` : ''}</div>
+            disp != null ? ` · ${NUM(disp)} en bodega` : ''}${varios ? ` · ${data.productos.length} productos distintos` : ''}</div>
         </div>
         <button type="button" onclick="quitarRefDespacho('${ea(ref)}')" aria-label="Quitar ${ea(ref)}"
           style="background:none;border:none;color:var(--rojo);font-size:17px;cursor:pointer;line-height:1">×</button>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:8px">
-        ${data.tallas.map((t, i) => `<div style="text-align:center">
+      ${data.productos.map((x, pi) => `
+        ${varios ? `<div style="font-size:11.5px;font-weight:700;margin:8px 0 4px">${ea(x.base)} · ${ea(x.nombre)}
+          <span style="font-weight:400;color:var(--gris-medio)">${x.precio ? '· ' + COP(x.precio) : ''}</span></div>` : ''}
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${x.tallas.map((t, ti) => `<div style="text-align:center">
           <div style="font-size:11px;font-weight:700;color:${t.codigo ? 'var(--gris-medio)' : 'var(--rojo)'}">${ea(t.talla)}</div>
           <input type="text" inputmode="numeric" value="${t.cant || ''}" placeholder="0"
-            data-ref="${ea(ref)}" data-talla="${i}" oninput="actualizarCantidadTalla(this)"
+            data-ref="${ea(ref)}" data-prod="${pi}" data-talla="${ti}" oninput="actualizarCantidadTalla(this)"
             onkeydown="bloquearFlechas(event)" autocomplete="off"
-            aria-label="Unidades talla ${ea(t.talla)} de ${ea(ref)}"
+            aria-label="Unidades talla ${ea(t.talla)} de ${ea(x.base)}"
             title="${t.codigo ? t.codigo : 'Sin código de barras: no se podrá vender en caja'}"
             style="width:58px;padding:8px 6px;border:1.5px solid ${t.codigo ? 'var(--borde)' : 'var(--rojo)'};border-radius:7px;text-align:center;font-size:14px;font-weight:700;font-family:inherit">
         </div>`).join('')}
-      </div>
+        </div>`).join('')}
       ${sinCod ? `<div style="font-size:10.5px;color:var(--rojo);margin-top:7px">
         ${sinCod} talla(s) sin código de barras: se pueden despachar, pero no se venderán en caja hasta que GS1 les asigne el código.</div>` : ''}
     </div>`;
@@ -6110,7 +6134,7 @@ function renderTarjetaDespacho(ref) {
     <div style="min-width:0;flex:1">
       <div style="font-size:14px;font-weight:700">${ref}</div>
       <div style="font-size:11px;color:var(--gris-medio)">${data.categoria || '—'}${
-        disp != null ? ` · ${NUM(disp)} en bodega` : ''} · sin tallas en el catálogo</div>
+        disp != null ? ` · ${NUM(disp)} en bodega` : ''} · ${REF_SIN_TALLA.includes(ref) ? 'se despacha sin talla' : 'sin tallas en el catálogo'}</div>
     </div>
     <div style="display:flex;align-items:center;gap:10px">
       <input type="text" inputmode="numeric" value="${data.cantidad || ''}" placeholder="0"
@@ -6188,17 +6212,47 @@ async function confirmarDespacho() {
   if (!almId || !fecha) { toast('Selecciona almacén y fecha', 'err'); return; }
 
   // Una línea por talla: es lo que permite que la remisión muestre el código de barras.
-  const items = [];
+  // `fuentes` guarda, por referencia y talla, de qué producto sale cada unidad, con su
+  // código y su precio tal como se vieron en pantalla. Con eso se congela la remisión
+  // después, sin volver a buscar en el catálogo (donde una referencia puede ser varios
+  // productos y no hay forma de saber cuál era).
+  const items = [], fuentes = {};
   Object.entries(despachoActual).forEach(([ref, r]) => {
-    if (r.tallas && r.tallas.length) {
-      r.tallas.forEach(t => {
-        if (t.cant > 0) items.push({ referencia: ref, categoria: r.categoria || '', talla: t.talla, cantidad: t.cant });
-      });
+    if (!r.sinTalla && r.productos && r.productos.length) {
+      const porTalla = {};
+      r.productos.forEach(x => x.tallas.forEach(t => {
+        if (!(t.cant > 0)) return;
+        porTalla[t.talla] = (porTalla[t.talla] || 0) + t.cant;
+        (fuentes[ref + '|' + t.talla] = fuentes[ref + '|' + t.talla] || []).push({
+          cantidad: t.cant, codigo_barras: t.codigo || null, precio_venta: x.precio || null,
+          descripcion: x.desc || ref, color: x.color || '2600-SURTIDOS', marca: x.marca || 'Antonia Sorev' });
+      }));
+      Object.entries(porTalla).forEach(([talla, cant]) =>
+        items.push({ referencia: ref, categoria: r.categoria || '', talla, cantidad: cant }));
     } else if (r.cantidad > 0) {
       items.push({ referencia: ref, categoria: r.categoria || '', talla: '—', cantidad: r.cantidad });
+      const u = r.precioUnico;
+      fuentes[ref + '|—'] = [{ cantidad: r.cantidad, codigo_barras: null,
+        precio_venta: u ? (u.precio || null) : null,          // varios productos: no se adivina
+        descripcion: u ? (u.desc || ref) : ref, color: u ? (u.color || '2600-SURTIDOS') : '2600-SURTIDOS',
+        marca: u ? (u.marca || 'Antonia Sorev') : 'Antonia Sorev' }];
     }
   });
   if (!items.length) { toast('Escribe las unidades de al menos una referencia', 'err'); return; }
+
+  // Número de remisión manual: lo normal es dejarlo vacío y la base pone el consecutivo.
+  // Si se escribe, que no esté repetido y, si no sigue el formato, que sea a propósito.
+  if (remisionManual) {
+    const [{ data: d1 }, { data: d2 }] = await Promise.all([
+      sb.from('despachos').select('id').eq('remision', remisionManual).limit(1),
+      sb.from('remisiones').select('id').eq('numero', remisionManual).limit(1)
+    ]);
+    if ((d1 && d1.length) || (d2 && d2.length)) {
+      toast(`Ya existe una remisión ${remisionManual}. Deja el número vacío y la app pone el siguiente.`, 'err'); return;
+    }
+    if (!/^REM-\d{5}$/i.test(remisionManual) && !confirm(
+        `"${remisionManual}" no sigue el formato REM-00000. Lo normal es dejar el número vacío: la app pone el consecutivo.\n\n¿Usarlo igual?`)) return;
+  }
 
   const totalUnd = items.reduce((a, i) => a + i.cantidad, 0);
   const btnC = document.getElementById('btn-confirmar-despacho'); if (btnC) btnC.disabled = true;
@@ -6244,27 +6298,28 @@ async function confirmarDespacho() {
 
     // Congelar en cada línea el código y el precio del momento: una reimpresión dentro
     // de un año debe mostrar lo que se entregó, no el catálogo de entonces.
+    // Si una misma talla salió de dos productos (las dos BATOLA TIRAS), la base la guarda
+    // en una sola línea; aquí se parte en una línea por producto con su código y precio.
+    // Partir esa línea no toca el stock: las cantidades suman exactamente lo mismo.
     if (res && res.despacho_id) {
       try {
-        await cargarTallasPorRef();
-        const { data: prods } = await sb.from('productos')
-          .select('nombre, referencia_inventario, precio_venta, desc_larga, color, marca');
-        const ficha = {};
-        (prods || []).forEach(p => { ficha[p.referencia_inventario || p.nombre] = p; });
         const { data: dits } = await sb.from('despacho_items')
-          .select('id, referencia, talla').eq('despacho_id', res.despacho_id);
+          .select('id, despacho_id, referencia, categoria, talla, cantidad').eq('despacho_id', res.despacho_id);
         for (const di of (dits || [])) {
-          const f = ficha[di.referencia] || {};
-          const tl = ((_tallasRef && _tallasRef[di.referencia]) || [])
-            .find(t => t.talla === di.talla);
-          await sb.from('despacho_items').update({
-            codigo_barras: tl ? tl.codigo : null,
-            precio_venta: f.precio_venta || null,
-            descripcion: f.desc_larga || f.nombre || di.referencia,
-            color: f.color || '2600-SURTIDOS',
-            marca: f.marca || 'Antonia Sorev'
-          }).eq('id', di.id);
+          const fs = fuentes[di.referencia + '|' + (di.talla || '—')] || [];
+          const suma = fs.reduce((a, f) => a + f.cantidad, 0);
+          if (!fs.length || suma !== di.cantidad) continue;     // no cuadra: no se inventa nada
+          const [primera, ...resto] = fs;
+          const ficha = f => ({ codigo_barras: f.codigo_barras, precio_venta: f.precio_venta,
+                                descripcion: f.descripcion, color: f.color, marca: f.marca });
+          await sb.from('despacho_items').update({ ...ficha(primera), cantidad: primera.cantidad }).eq('id', di.id);
+          if (resto.length) await sb.from('despacho_items').insert(resto.map(f => ({
+            despacho_id: di.despacho_id, referencia: di.referencia, categoria: di.categoria,
+            talla: di.talla, cantidad: f.cantidad, ...ficha(f) })));
         }
+        const entregado = (document.getElementById('d-entregado') || {}).value;
+        if (entregado && entregado.trim())
+          await sb.from('despachos').update({ entregado_por: entregado.trim() }).eq('id', res.despacho_id);
       } catch (e) { console.warn('No se pudo congelar el detalle de la remisión', e); }
     }
 
@@ -7137,9 +7192,10 @@ async function descargarRemisionPDF(id){
   fy += 26;
 
   const mitad = (AN - 2 * M - 12) / 2;
-  [['Entregado por', M], ['Recibido por', M + mitad + 12]].forEach(([rot, x]) => {
+  [['Entregado por', M, r.d.entregado_por], ['Recibido por', M + mitad + 12, null]].forEach(([rot, x, nombre]) => {
     doc.setFont('helvetica', 'bold').setFontSize(8.5).setTextColor(25);
     doc.text(rot, x, fy);
+    if (nombre) { doc.setFont('helvetica', 'normal').setFontSize(10).setTextColor(25); doc.text(String(nombre), x, fy + 13); }
     doc.setDrawColor(30).setLineWidth(0.3).line(x, fy + 16, x + mitad, fy + 16);
     doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(110);
     doc.text('Nombre, firma y fecha', x, fy + 20);
@@ -7168,9 +7224,15 @@ async function datosRemision(id){
   try {
     const { data: prods } = await sb.from('productos')
       .select('nombre, referencia_inventario, precio_venta, desc_larga, color, marca, tipo_inventario, productos_variantes(talla, codigo_barras)');
+    // Si una referencia agrupa varios productos (OFERTAS, BATOLA TIRAS…), no hay forma de
+    // saber de cuál era una línea vieja sin precio congelado: no se adivina precio ni código.
+    const n = {};
+    (prods || []).forEach(p => { const k = p.referencia_inventario || p.nombre; n[k] = (n[k] || 0) + 1; });
     (prods || []).forEach(p => {
       const k = p.referencia_inventario || p.nombre;
-      ficha[k] = p; curvas[k] = p.tipo_inventario;
+      curvas[k] = p.tipo_inventario;
+      if (n[k] > 1) { ficha[k] = { desc_larga: null, nombre: k, color: p.color, marca: p.marca }; return; }
+      ficha[k] = p;
       (p.productos_variantes || []).forEach(v => { codigos[k + '|' + (v.talla || '').toUpperCase()] = v.codigo_barras; });
     });
   } catch (e) { }
@@ -7378,7 +7440,7 @@ async function imprimirRemision(id){
   </div>
   <div class="obs"><div class="k">Observaciones</div>${esc(r.d.observaciones || '')}</div>
   <div class="firmas">
-    <div><div class="rot">Entregado por</div><div class="linea">Nombre, firma y fecha</div></div>
+    <div><div class="rot">Entregado por</div>${r.d.entregado_por ? `<div style="font-size:12px;margin-top:22px">${esc(r.d.entregado_por)}</div>` : ''}<div class="linea"${r.d.entregado_por ? ' style="margin-top:4px"' : ''}>Nombre, firma y fecha</div></div>
     <div><div class="rot">Recibido por</div><div class="linea">Nombre, firma y fecha</div></div>
   </div>
   ${r.anulada ? '' : `<div class="rotulos">${Array.from({ length: r.cajas }, (_, i) => rotuloHTML(r, i + 1, r.cajas)).join('')}</div>`}
