@@ -534,6 +534,35 @@
 
     <!-- DESPACHOS (integrado en Bodega) -->
     <div id="tab-content-bod-despachos" style="display:none">
+      <div class="tabs" style="margin:0 0 14px">
+        <div class="tab active" id="tab-desp-nuevo" onclick="showTab('tab-desp-nuevo')">Nuevo</div>
+        <div class="tab" id="tab-desp-historial" onclick="showTab('tab-desp-historial')">Historial</div>
+        <div class="tab" id="tab-desp-insights" onclick="showTab('tab-desp-insights')">Insights</div>
+      </div>
+
+      <div id="tab-content-desp-historial" style="display:none">
+        <div class="section-card" style="margin-bottom:12px">
+          <div style="padding:12px 14px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+            <div class="form-group" style="margin:0;flex:1;min-width:150px">
+              <label>Período</label>
+              <select id="hd-periodo" onchange="renderHistorialDespachos()"></select>
+            </div>
+            <div class="form-group" style="margin:0;flex:1;min-width:150px">
+              <label>Almacén</label>
+              <select id="hd-almacen" onchange="renderHistorialDespachos()"><option value="">Todos</option></select>
+            </div>
+          </div>
+          <div class="metrics" id="hd-kpis" style="margin:0 14px 14px"></div>
+        </div>
+        <div id="hd-lista"><div class="loader"><div class="spinner"></div></div></div>
+        <div id="hd-detalle"></div>
+      </div>
+
+      <div id="tab-content-desp-insights" style="display:none">
+        <div class="alert alert-info">Los insights de despachos se construyen en la siguiente fase.</div>
+      </div>
+
+      <div id="tab-content-desp-nuevo">
       <div class="section-card" style="border-radius:0 0 var(--radius) var(--radius);margin-bottom:14px">
         <div style="padding:14px 16px 0;font-size:12px;font-weight:600;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Nuevo despacho</div>
         <div style="padding:12px 16px 0"><div id="d-control-bodega"></div></div>
@@ -576,14 +605,9 @@
           </button>
         </div>
       </div>
-      <div style="padding:4px 16px 8px;font-size:12px;font-weight:600;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Historial de despachos</div>
-      <div class="section-card">
-        <div class="tabla-wrap">
-          <table>
-            <thead><tr><th>Fecha</th><th>Remisión</th><th>Almacén</th><th>Uds.</th><th></th></tr></thead>
-            <tbody id="despacho-hist-tbody"><tr><td colspan="5"><div class="loader"><div class="spinner"></div></div></td></tr></tbody>
-          </table>
-        </div>
+      <div style="padding:4px 16px 14px;font-size:12px;color:var(--gris-medio)">
+        Los envíos registrados están en la pestaña <strong>Historial</strong>.
+      </div>
       </div>
     </div>
 
@@ -2780,7 +2804,7 @@ function showTab(tabId) {
   document.querySelectorAll(`[id^="tab-content-${prefix}-"]`).forEach(c => c.style.display = 'none');
   document.getElementById(tabId).classList.add('active');
   document.getElementById('tab-content-' + tabId.replace('tab-', '')).style.display = 'block';
-  if (tabId === 'tab-despacho-hist') cargarHistDespachos();
+
   if (tabId === 'tab-ventas-rank') {
     if (_usuarioActual?.rol === 'vendedora') cargarVentasVendedora();
     else cargarVentasRank();
@@ -2799,11 +2823,16 @@ function showTab(tabId) {
   if (tabId === 'tab-bod-despachos') {
     cargarControlBodega(true).then(pintarControlBodega);
     llenarSelectAlmacenes();
-    const addSel = document.getElementById('d-add-ref');
-    if (addSel && addSel.options.length <= 1) llenarSelectDespachoRef();
+    // d-add-ref es un <input> con buscador, no un <select>: pedirle .options lanzaba un
+    // TypeError que mataba el resto del bloque, y por eso el historial se quedaba en el
+    // spinner. Se carga la lista de referencias sin tocar propiedades que no tiene.
+    llenarSelectDespachoRef();
     const df = document.getElementById('d-fecha'); if (df && !df.value) df.value = hoy();
-    cargarHistDespachos();
+    // Insights es solo para administración.
+    const tIns = document.getElementById('tab-desp-insights');
+    if (tIns) tIns.style.display = esVendedora() ? 'none' : '';
   }
+  if (tabId === 'tab-desp-historial') renderHistorialDespachos();
   if (tabId === 'tab-inv-consolidado') cargarConsolidado();
   if (tabId === 'tab-inv-control') cargarControlMensual();
   if (tabId === 'tab-inv-remisiones') iniciarRemisionesInv();
@@ -6236,25 +6265,226 @@ async function editarFechaDespacho(despachoId, remision, fechaActual) {
   if (res && res.sin_cambios) { toast('La fecha ya era esa'); return; }
   toast(`✓ ${remision}: ${res.fecha_anterior} → ${res.fecha_nueva}`);
   await loadInvCache(true);
-  cargarHistDespachos();
+  await renderHistorialDespachos();
 }
 
-async function cargarHistDespachos() {
-  const ea = s => String(s == null ? '' : s).replace(/'/g, "\\'").replace(/"/g, '&quot;');
-  const { data } = await sb.from('despachos').select('*').order('fecha', { ascending: false }).limit(50);
-  document.getElementById('despacho-hist-tbody').innerHTML = (data || []).map(d => `
-    <tr>
-      <td>${d.fecha}</td>
-      <td><span style="font-family:monospace;font-size:12px">${d.remision}</span></td>
-      <td style="font-size:12px">${d.almacen_nombre.replace('Feria del Brasier ','')}</td>
-      <td>${NUM(d.total_unidades)}</td>
-      <td style="white-space:nowrap">
-        ${esVendedora() ? '' : `<button onclick="editarFechaDespacho('${d.id}','${ea(d.remision)}','${d.fecha}')" title="Corregir la fecha del envío" style="background:none;border:none;color:var(--brand-mid);cursor:pointer;font-size:15px;padding:2px 6px">📅</button>`}
-        <button onclick="descargarRemisionPDF('${d.id}')" title="Descargar la remisión en PDF (carta vertical)" style="background:none;border:none;color:var(--rosa-oscuro);cursor:pointer;font-size:15px;padding:2px 6px">📄</button>
-        <button onclick="imprimirRemision('${d.id}')" title="Ver e imprimir" style="background:none;border:none;color:var(--gris-medio);cursor:pointer;font-size:15px;padding:2px 6px">🖨</button>
-        ${esVendedora() ? '' : `<button onclick="deleteDespacho('${d.id}','${ea(d.remision)}')" title="Anular despacho y devolver stock" style="background:none;border:none;color:var(--rojo);cursor:pointer;font-size:15px;padding:2px 6px">✕</button>`}
-      </td>
-    </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--gris-medio)">Sin despachos registrados.</td></tr>';
+// ═══ HISTORIAL DE DESPACHOS ═══════════════════════════════════
+// Un solo componente. Antes había dos con lógica distinta —este y el de Inventario—
+// y podían mostrar cifras diferentes del mismo despacho.
+//
+// Dos consultas para toda la lista: las cabeceras y luego los items con .in(ids).
+// Nunca una consulta por tarjeta.
+let _hdCache = null;          // { despachos, items } del último período cargado
+let _hdMostrar = 30;          // "Cargar más" de 30 en 30
+const HD_TOPE_REFS = 6;       // referencias que se listan antes del "+N más"
+
+function hdPeriodoOpciones(){
+  const sel = document.getElementById('hd-periodo'); if (!sel || sel.options.length) return;
+  const hoy = new Date(), y = hoy.getFullYear();
+  const op = [];
+  for (let m = hoy.getMonth(); m >= 0; m--) {
+    const k = `${y}-${String(m+1).padStart(2,'0')}`;
+    op.push(`<option value="${k}">${mesNombre(k)}</option>`);
+  }
+  op.push('<option value="3m">Últimos 3 meses</option>');
+  op.push(`<option value="${y}">Todo el año</option>`);
+  sel.innerHTML = op.join('');
+}
+
+function hdRango(){
+  const v = (document.getElementById('hd-periodo') || {}).value || periodoActual();
+  const hoy = new Date();
+  if (v === '3m') {
+    const d = new Date(hoy.getFullYear(), hoy.getMonth() - 2, 1);
+    return { desde: d.toISOString().slice(0,10), hasta: '9999-12-31', etiqueta: 'los últimos 3 meses' };
+  }
+  if (/^\d{4}$/.test(v)) return { desde: v + '-01-01', hasta: v + '-12-31', etiqueta: 'el año ' + v };
+  const [y, m] = v.split('-').map(Number);
+  const fin = new Date(y, m, 0).getDate();
+  return { desde: `${v}-01`, hasta: `${v}-${String(fin).padStart(2,'0')}`, etiqueta: mesNombre(v) };
+}
+
+async function cargarHistDespachos(){ return renderHistorialDespachos(); }
+
+async function renderHistorialDespachos(reiniciar){
+  const cont = document.getElementById('hd-lista'); if (!cont) return;
+  if (reiniciar !== false) _hdMostrar = 30;
+  hdPeriodoOpciones();
+  const selAlm = document.getElementById('hd-almacen');
+  if (selAlm && selAlm.options.length <= 1) {
+    try {
+      const { data } = await sb.from('almacenes').select('codigo, nombre').eq('activo', true).order('codigo');
+      selAlm.innerHTML = '<option value="">Todos</option>' +
+        (data || []).map(a => `<option value="${escAttr(a.nombre)}">${escHtml((a.codigo ? a.codigo + ' · ' : '') + limpiarAlm(a.nombre))}</option>`).join('');
+    } catch (e) { }
+  }
+  const r = hdRango();
+  const alm = selAlm ? selAlm.value : '';
+  cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  document.getElementById('hd-detalle').innerHTML = '';
+
+  // ── Consulta 1: cabeceras ──
+  let q = sb.from('despachos').select('*').gte('fecha', r.desde).lte('fecha', r.hasta)
+             .order('fecha', { ascending: false });
+  if (alm) q = q.eq('almacen_nombre', alm);
+  const { data: desp, error } = await q;
+  if (error) {
+    cont.innerHTML = `<div class="section-card" style="padding:18px">
+      <div class="alert alert-err" style="margin:0 0 10px">No se pudo leer el historial: ${escHtml(detalleError(error))}</div>
+      <button class="btn btn-secondary" onclick="renderHistorialDespachos()">Reintentar</button></div>`;
+    return;
+  }
+  if (!desp || !desp.length) {
+    cont.innerHTML = `<div class="section-card" style="padding:22px;text-align:center;color:var(--gris-medio);font-size:13px">
+      No hay despachos en ${escHtml(r.etiqueta)}${alm ? ' para ' + escHtml(limpiarAlm(alm)) : ''}.</div>`;
+    document.getElementById('hd-kpis').innerHTML = '';
+    return;
+  }
+
+  // ── Consulta 2: todas las líneas de esos despachos ──
+  const ids = desp.map(d => d.id);
+  const { data: items, error: e2 } = await sb.from('despacho_items')
+    .select('despacho_id, referencia, categoria, talla, cantidad, precio_venta, codigo_barras')
+    .in('despacho_id', ids);
+  if (e2) {
+    cont.innerHTML = `<div class="section-card" style="padding:18px">
+      <div class="alert alert-err" style="margin:0 0 10px">No se pudieron leer las prendas: ${escHtml(detalleError(e2))}</div>
+      <button class="btn btn-secondary" onclick="renderHistorialDespachos()">Reintentar</button></div>`;
+    return;
+  }
+  _hdCache = { despachos: desp, items: items || [] };
+
+  const porDesp = {};
+  (items || []).forEach(i => (porDesp[i.despacho_id] = porDesp[i.despacho_id] || []).push(i));
+  const resumenes = desp.map(d => hdResumen(d, porDesp[d.id] || []));
+
+  // Las anuladas se ven, pero no suman en los totales.
+  const vivos = resumenes.filter(x => !x.anulada);
+  const kpis = document.getElementById('hd-kpis');
+  if (kpis) {
+    const valor = vivos.reduce((s, x) => s + x.valor, 0);
+    const parcial = vivos.some(x => x.sinPrecio > 0);
+    kpis.innerHTML = `
+      <div class="metric-card"><div class="m-label">Remisiones</div><div class="m-val">${NUM(vivos.length)}</div>
+        <div class="m-sub">${resumenes.length > vivos.length ? (resumenes.length - vivos.length) + ' anulada(s) aparte' : 'ninguna anulada'}</div></div>
+      <div class="metric-card"><div class="m-label">Unidades</div><div class="m-val">${NUM(vivos.reduce((s,x)=>s+x.uds,0))}</div>
+        <div class="m-sub">${escHtml(r.etiqueta)}</div></div>
+      <div class="metric-card"><div class="m-label">Valor a PVP</div><div class="m-val" style="font-size:16px">${COP(valor)}</div>
+        <div class="m-sub">${parcial ? 'parcial: hay líneas sin precio' : 'precio congelado al despachar'}</div></div>
+      <div class="metric-card"><div class="m-label">Almacenes atendidos</div><div class="m-val">${new Set(vivos.map(x=>x.d.almacen_nombre)).size}</div>
+        <div class="m-sub">de los activos</div></div>`;
+  }
+
+  const lote = resumenes.slice(0, _hdMostrar);
+  cont.innerHTML = lote.map(hdTarjeta).join('') +
+    (resumenes.length > _hdMostrar
+      ? `<div style="text-align:center;padding:10px"><button class="btn btn-secondary"
+           onclick="_hdMostrar+=30;renderHistorialDespachos(false)">Cargar más (${resumenes.length - _hdMostrar} restantes)</button></div>`
+      : '');
+}
+
+// Resume un despacho a partir de sus líneas: referencias, mezcla y valor.
+function hdResumen(d, lineas){
+  const uds = lineas.reduce((s, i) => s + (i.cantidad || 0), 0);
+  const porRef = {}, porCat = {};
+  let valor = 0, sinPrecio = 0, sinTalla = 0, sinCodigo = 0;
+  lineas.forEach(i => {
+    const ref = refCanon(i.referencia || '—');
+    porRef[ref] = (porRef[ref] || 0) + (i.cantidad || 0);
+    const cat = i.categoria || '—';
+    porCat[cat] = (porCat[cat] || 0) + (i.cantidad || 0);
+    // Solo precio congelado: de los despachos viejos no se adivina nada.
+    if (i.precio_venta) valor += (i.cantidad || 0) * i.precio_venta;
+    else sinPrecio += (i.cantidad || 0);
+    if (!i.talla || i.talla === '—') sinTalla += (i.cantidad || 0);
+    if (!i.codigo_barras) sinCodigo++;
+  });
+  const refs = Object.entries(porRef).sort((a, b) => b[1] - a[1]);
+  const cats = Object.entries(porCat).sort((a, b) => b[1] - a[1]);
+  return { d, lineas, uds, valor, sinPrecio, sinTalla, sinCodigo,
+           refs, cats, nRefs: refs.length, anulada: d.estado === 'anulada' };
+}
+
+const hdFecha = f => { const [y,m,dd] = String(f).split('-').map(Number);
+  const MS = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  return `${dd} ${MS[(m||1)-1]} ${y}`; };
+const hdOracion = s => { const t = String(s || '').toLowerCase();
+  return t.charAt(0).toUpperCase() + t.slice(1); };
+
+function hdTarjeta(x){
+  const d = x.d, ea = v => escAttr(v);
+  const top = x.refs.slice(0, HD_TOPE_REFS);
+  const resto = x.refs.slice(HD_TOPE_REFS);
+  const restoUds = resto.reduce((s, r) => s + r[1], 0);
+  const listaRefs = top.map(r => `${hdOracion(r[0])} <strong>${r[1]}</strong>`).join(' · ')
+    + (resto.length ? ` · +${resto.length} más (${restoUds})` : '');
+  const mezcla = x.cats.map(c => `${hdOracion(c[0])} ${Math.round(c[1] / (x.uds || 1) * 100)}%`).join(' · ');
+  const alertas = [];
+  if (x.sinCodigo) alertas.push(`${x.sinCodigo} talla(s) sin código GS1`);
+  if (x.sinTalla)  alertas.push(`${x.sinTalla} unidad(es) sin talla`);
+  const gris = x.anulada ? 'opacity:.55;' : '';
+  return `<div class="section-card" style="margin-bottom:10px;padding:13px 14px;${gris}">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap">
+      <div style="min-width:0">
+        <span style="font-family:ui-monospace,Menlo,monospace;font-weight:700;font-size:14px;${x.anulada?'text-decoration:line-through':''}">${escHtml(d.remision || '—')}</span>
+        <span style="color:var(--gris-medio);font-size:13px"> · ${escHtml(limpiarAlm(d.almacen_nombre || '—'))}</span>
+        ${x.anulada ? '<span class="badge badge-err" style="font-size:9px;margin-left:5px">ANULADA</span>'
+                    : '<span class="badge badge-ok" style="font-size:9px;margin-left:5px">confirmada</span>'}
+      </div>
+      <div style="font-size:12px;color:var(--gris-medio);white-space:nowrap">${hdFecha(d.fecha)}</div>
+    </div>
+    <div style="font-size:13px;font-weight:700;margin-top:5px">
+      ${NUM(x.uds)} unidades · ${x.nRefs} referencia${x.nRefs===1?'':'s'}
+      ${x.valor ? ` · ${COP(x.valor)} a PVP` : ''}
+      ${x.sinPrecio ? `<span style="font-weight:400;color:var(--gris-medio);font-size:11px"> (valor parcial: ${NUM(x.sinPrecio)} uds sin precio registrado)</span>` : ''}
+    </div>
+    ${x.refs.length ? `<div style="font-size:12px;color:var(--carbon);margin-top:5px;line-height:1.5">${listaRefs}</div>` : ''}
+    ${x.cats.length ? `<div style="font-size:11.5px;color:var(--gris-medio);margin-top:3px">${mezcla}</div>` : ''}
+    ${alertas.length ? `<div style="font-size:11px;color:var(--ambar);margin-top:5px">⚠ ${alertas.join(' · ')}</div>` : ''}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:9px">
+      ${x.anulada ? '' : `<button class="btn btn-secondary" style="padding:6px 11px;font-size:12px" onclick="descargarRemisionPDF('${d.id}')">📄 Remisión</button>`}
+      <button class="btn btn-secondary" style="padding:6px 11px;font-size:12px" onclick="hdVerDetalle('${d.id}')">Ver detalle</button>
+      ${esVendedora() || x.anulada ? '' : `
+        <button class="btn btn-secondary" style="padding:6px 9px;font-size:12px" title="Corregir la fecha"
+          onclick="editarFechaDespacho('${d.id}','${ea(d.remision)}','${d.fecha}')">📅</button>
+        <button class="btn btn-secondary" style="padding:6px 9px;font-size:12px;color:var(--rojo)" title="Anular"
+          onclick="deleteDespacho('${d.id}','${ea(d.remision)}')">✕</button>`}
+    </div>
+  </div>`;
+}
+
+// Detalle por referencia y talla, desde lo que ya se trajo: sin consulta nueva.
+function hdVerDetalle(id){
+  const wrap = document.getElementById('hd-detalle'); if (!wrap || !_hdCache) return;
+  const d = _hdCache.despachos.find(x => x.id === id); if (!d) return;
+  const lineas = _hdCache.items.filter(i => i.despacho_id === id);
+  const porRef = {};
+  lineas.forEach(i => (porRef[refCanon(i.referencia || '—')] = porRef[refCanon(i.referencia || '—')] || []).push(i));
+  const refs = Object.keys(porRef).sort((a, b) => a.localeCompare(b, 'es'));
+  const filas = refs.map(ref => {
+    const ls = porRef[ref].slice().sort((a, b) =>
+      ORDEN_TALLAS.indexOf((a.talla || '—').toUpperCase()) - ORDEN_TALLAS.indexOf((b.talla || '—').toUpperCase()));
+    const sub = ls.reduce((s, i) => s + (i.cantidad || 0), 0);
+    return ls.map((i, k) => `<tr>
+        <td>${k === 0 ? escHtml(hdOracion(ref)) : ''}</td>
+        <td style="text-align:center;font-weight:700">${escHtml(i.talla || '—')}</td>
+        <td style="font-family:ui-monospace,Menlo,monospace;font-size:11px">${i.codigo_barras ? escHtml(i.codigo_barras) : '<span style="color:var(--rojo)">sin código</span>'}</td>
+        <td style="text-align:right">${i.precio_venta ? COP(i.precio_venta) : '—'}</td>
+        <td style="text-align:center;font-weight:700">${NUM(i.cantidad)}</td></tr>`).join('')
+      + `<tr><td colspan="4" style="text-align:right;font-size:11px;color:var(--gris-medio)">Total ${escHtml(hdOracion(ref))}</td>
+          <td style="text-align:center;font-weight:700;background:var(--gris-claro)">${sub}</td></tr>`;
+  }).join('');
+  wrap.innerHTML = `<div class="section-card" style="margin-top:4px">
+    <div style="padding:11px 14px;border-bottom:1px solid var(--borde);display:flex;justify-content:space-between;align-items:center">
+      <strong style="font-size:13px">Detalle de ${escHtml(d.remision || '')}</strong>
+      <button onclick="document.getElementById('hd-detalle').innerHTML=''"
+        style="background:none;border:none;color:var(--gris-medio);font-size:17px;cursor:pointer">×</button>
+    </div>
+    <div class="tabla-wrap"><table style="font-size:12px">
+      <thead><tr><th>Referencia</th><th style="text-align:center">Talla</th><th>Código</th>
+        <th style="text-align:right">PVP</th><th style="text-align:center">Uds</th></tr></thead>
+      <tbody>${filas}</tbody></table></div></div>`;
+  wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 async function deleteDespacho(id, remision) {
@@ -6279,7 +6509,7 @@ async function deleteDespacho(id, remision) {
     toast(`✓ ${remision} anulado, stock devuelto`);
   }
   await loadInvCache(true);
-  cargarHistDespachos();
+  await renderHistorialDespachos();
   cargarBodega();
 }
 
