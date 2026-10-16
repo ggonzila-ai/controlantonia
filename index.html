@@ -6401,6 +6401,11 @@ async function renderHistorialDespachos(reiniciar){
 // Todo sale de insights_despachos() en el servidor: misma base de cálculo que el
 // historial, y sin el tope de 1.000 filas que tendría traer `ventas` al navegador.
 let _insModo = 'uds';   // matriz referencia × almacén: 'uds' o 'pct'
+// Despachos está en beta: no todos los envíos se registran todavía, así que comparar
+// lo despachado con lo vendido da relaciones sin sentido (las tiendas "venden" 3 a 15
+// veces lo que reciben). Mientras sea true, el bloque F muestra un aviso y las frases
+// automáticas no usan esa comparación. Pasar a false cuando se use MIP de verdad.
+const DESPACHOS_BETA = true;
 let _insData = null;
 
 function insRango(){
@@ -6483,7 +6488,7 @@ function insFrases(){
   if (olvidados.length) f.push(`${olvidados.length} almacén(es) activo(s) sin despacho hace más de 30 días: ${olvidados.map(a => escHtml(insAlm(a.nombre))).join(', ')}.`);
   const vend = {}; (d.vendido || []).forEach(v => { vend[v.almacen] = v.unidades; });
   const desp = {}; (d.despachado_cmp || []).forEach(v => { desp[v.almacen] = v.unidades; });
-  (d.almacenes || []).forEach(a => {
+  if (!DESPACHOS_BETA) (d.almacenes || []).forEach(a => {
     if (!desp[a.nombre] || vend[a.nombre] == null) return;
     const rel = insPct(vend[a.nombre], desp[a.nombre]);
     if (rel > 150) f.push(`${escHtml(insAlm(a.nombre))} vendió ${rel}% de lo que recibió: se está vaciando o hay despachos sin registrar.`);
@@ -6612,6 +6617,10 @@ function insBloqueE(){
 // ── F · ¿lo que mando se vende? ──
 function insBloqueF(){
   const d = _insData;
+  if (DESPACHOS_BETA) return insCard('F · Despachado vs vendido', '¿Lo que mando se vende?',
+    `<div style="font-size:12px;color:var(--gris-medio)">En pausa mientras despachos esté en beta: todavía no se registran
+     todos los envíos, así que comparar con las ventas daría cifras sin sentido. Se activa cuando el módulo se use para
+     todos los despachos.</div>`);
   const vend = {}; (d.vendido || []).forEach(v => { vend[v.almacen] = (vend[v.almacen] || 0) + v.unidades; });
   const desp = {}; (d.despachado_cmp || []).forEach(v => { desp[v.almacen] = (desp[v.almacen] || 0) + v.unidades; });
   const ult = d.ultima_venta ? mesNombre(String(d.ultima_venta).slice(0,7)) : null;
