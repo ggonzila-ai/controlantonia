@@ -534,48 +534,7 @@
 
     <!-- DESPACHOS (integrado en Bodega) -->
     <div id="tab-content-bod-despachos" style="display:none">
-      <div class="tabs" style="margin:0 0 14px">
-        <div class="tab active" id="tab-desp-nuevo" onclick="showTab('tab-desp-nuevo')">Nuevo</div>
-        <div class="tab" id="tab-desp-historial" onclick="showTab('tab-desp-historial')">Historial</div>
-        <div class="tab" id="tab-desp-insights" onclick="showTab('tab-desp-insights')">Insights</div>
-      </div>
-
-      <div id="tab-content-desp-historial" style="display:none">
-        <div class="section-card" style="margin-bottom:12px">
-          <div style="padding:12px 14px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
-            <div class="form-group" style="margin:0;flex:1;min-width:150px">
-              <label>Período</label>
-              <select id="hd-periodo" onchange="renderHistorialDespachos()"></select>
-            </div>
-            <div class="form-group" style="margin:0;flex:1;min-width:150px">
-              <label>Almacén</label>
-              <select id="hd-almacen" onchange="renderHistorialDespachos()"><option value="">Todos</option></select>
-            </div>
-          </div>
-          <div class="metrics" id="hd-kpis" style="margin:0 14px 14px"></div>
-        </div>
-        <div id="hd-lista"><div class="loader"><div class="spinner"></div></div></div>
-        <div id="hd-detalle"></div>
-      </div>
-
-      <div id="tab-content-desp-insights" style="display:none">
-        <div class="section-card" style="margin-bottom:12px">
-          <div style="padding:12px 14px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
-            <div class="form-group" style="margin:0;flex:1;min-width:150px">
-              <label>Período</label>
-              <select id="ins-periodo" onchange="renderInsightsDespachos()"></select>
-            </div>
-            <div class="form-group" style="margin:0;flex:1;min-width:150px">
-              <label>Almacén</label>
-              <select id="ins-almacen" onchange="renderInsightsDespachos()"><option value="">Todos</option></select>
-            </div>
-          </div>
-          <div id="ins-desde" style="padding:0 14px 12px;font-size:11px;color:var(--gris-medio)"></div>
-        </div>
-        <div id="ins-cuerpo"><div class="loader"><div class="spinner"></div></div></div>
-      </div>
-
-      <div id="tab-content-desp-nuevo">
+      <!-- Una sola página que se recorre deslizando: nuevo despacho, historial e insights. -->
       <div class="section-card" style="border-radius:0 0 var(--radius) var(--radius);margin-bottom:14px">
         <div style="padding:14px 16px 0;font-size:12px;font-weight:600;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Nuevo despacho</div>
         <div style="padding:12px 16px 0"><div id="d-control-bodega"></div></div>
@@ -618,9 +577,42 @@
           </button>
         </div>
       </div>
-      <div style="padding:4px 16px 14px;font-size:12px;color:var(--gris-medio)">
-        Los envíos registrados están en la pestaña <strong>Historial</strong>.
+
+      <div style="padding:6px 2px 8px;font-size:12px;font-weight:700;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Historial de despachos</div>
+      <div id="desp-historial">
+        <div class="section-card" style="margin-bottom:12px">
+          <div style="padding:12px 14px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+            <div class="form-group" style="margin:0;flex:1;min-width:150px">
+              <label>Período</label>
+              <select id="hd-periodo" onchange="renderHistorialDespachos()"></select>
+            </div>
+            <div class="form-group" style="margin:0;flex:1;min-width:150px">
+              <label>Almacén</label>
+              <select id="hd-almacen" onchange="renderHistorialDespachos()"><option value="">Todos</option></select>
+            </div>
+          </div>
+          <div class="metrics" id="hd-kpis" style="margin:0 14px 14px"></div>
+        </div>
+        <div id="hd-lista"><div class="loader"><div class="spinner"></div></div></div>
+        <div id="hd-detalle"></div>
       </div>
+
+      <div id="desp-insights">
+      <div style="padding:6px 2px 8px;font-size:12px;font-weight:700;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Insights de despachos</div>
+        <div class="section-card" style="margin-bottom:12px">
+          <div style="padding:12px 14px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+            <div class="form-group" style="margin:0;flex:1;min-width:150px">
+              <label>Período</label>
+              <select id="ins-periodo" onchange="renderInsightsDespachos()"></select>
+            </div>
+            <div class="form-group" style="margin:0;flex:1;min-width:150px">
+              <label>Almacén</label>
+              <select id="ins-almacen" onchange="renderInsightsDespachos()"><option value="">Todos</option></select>
+            </div>
+          </div>
+          <div id="ins-desde" style="padding:0 14px 12px;font-size:11px;color:var(--gris-medio)"></div>
+        </div>
+        <div id="ins-cuerpo"><div class="loader"><div class="spinner"></div></div></div>
       </div>
     </div>
 
@@ -2841,12 +2833,12 @@ function showTab(tabId) {
     // spinner. Se carga la lista de referencias sin tocar propiedades que no tiene.
     llenarSelectDespachoRef();
     const df = document.getElementById('d-fecha'); if (df && !df.value) df.value = hoy();
-    // Insights es solo para administración.
-    const tIns = document.getElementById('tab-desp-insights');
-    if (tIns) tIns.style.display = esVendedora() ? 'none' : '';
+    renderHistorialDespachos();
+    // Insights es solo para administración: a las asesoras ni se les muestra ni se calcula.
+    const secIns = document.getElementById('desp-insights');
+    if (secIns) secIns.style.display = esVendedora() ? 'none' : '';
+    if (!esVendedora()) renderInsightsDespachos();
   }
-  if (tabId === 'tab-desp-historial') renderHistorialDespachos();
-  if (tabId === 'tab-desp-insights') renderInsightsDespachos();
   if (tabId === 'tab-inv-consolidado') cargarConsolidado();
   if (tabId === 'tab-inv-control') cargarControlMensual();
   if (tabId === 'tab-inv-remisiones') iniciarRemisionesInv();
