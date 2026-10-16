@@ -559,7 +559,20 @@
       </div>
 
       <div id="tab-content-desp-insights" style="display:none">
-        <div class="alert alert-info">Los insights de despachos se construyen en la siguiente fase.</div>
+        <div class="section-card" style="margin-bottom:12px">
+          <div style="padding:12px 14px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+            <div class="form-group" style="margin:0;flex:1;min-width:150px">
+              <label>Período</label>
+              <select id="ins-periodo" onchange="renderInsightsDespachos()"></select>
+            </div>
+            <div class="form-group" style="margin:0;flex:1;min-width:150px">
+              <label>Almacén</label>
+              <select id="ins-almacen" onchange="renderInsightsDespachos()"><option value="">Todos</option></select>
+            </div>
+          </div>
+          <div id="ins-desde" style="padding:0 14px 12px;font-size:11px;color:var(--gris-medio)"></div>
+        </div>
+        <div id="ins-cuerpo"><div class="loader"><div class="spinner"></div></div></div>
       </div>
 
       <div id="tab-content-desp-nuevo">
@@ -2833,6 +2846,7 @@ function showTab(tabId) {
     if (tIns) tIns.style.display = esVendedora() ? 'none' : '';
   }
   if (tabId === 'tab-desp-historial') renderHistorialDespachos();
+  if (tabId === 'tab-desp-insights') renderInsightsDespachos();
   if (tabId === 'tab-inv-consolidado') cargarConsolidado();
   if (tabId === 'tab-inv-control') cargarControlMensual();
   if (tabId === 'tab-inv-remisiones') iniciarRemisionesInv();
@@ -6381,6 +6395,242 @@ async function renderHistorialDespachos(reiniciar){
       ? `<div style="text-align:center;padding:10px"><button class="btn btn-secondary"
            onclick="_hdMostrar+=30;renderHistorialDespachos(false)">Cargar más (${resumenes.length - _hdMostrar} restantes)</button></div>`
       : '');
+}
+
+// ═══ INSIGHTS DE DESPACHOS (solo administración) ════════════════
+// Todo sale de insights_despachos() en el servidor: misma base de cálculo que el
+// historial, y sin el tope de 1.000 filas que tendría traer `ventas` al navegador.
+let _insModo = 'uds';   // matriz referencia × almacén: 'uds' o 'pct'
+let _insData = null;
+
+function insRango(){
+  const v = (document.getElementById('ins-periodo') || {}).value || periodoActual();
+  const hoy = new Date();
+  if (v === '3m') {
+    const d = new Date(hoy.getFullYear(), hoy.getMonth() - 2, 1);
+    return { desde: d.toISOString().slice(0,10), hasta: hoy.toISOString().slice(0,10), etiqueta: 'los últimos 3 meses' };
+  }
+  if (/^\d{4}$/.test(v)) return { desde: v + '-01-01', hasta: v + '-12-31', etiqueta: 'el año ' + v };
+  const [y, m] = v.split('-').map(Number);
+  const fin = new Date(y, m, 0).getDate();
+  return { desde: `${v}-01`, hasta: `${v}-${String(fin).padStart(2,'0')}`, etiqueta: mesNombre(v) };
+}
+
+async function renderInsightsDespachos(){
+  const cuerpo = document.getElementById('ins-cuerpo'); if (!cuerpo) return;
+  if (esVendedora()) { cuerpo.innerHTML = ''; return; }
+  // mismas opciones de período que el historial
+  const sp = document.getElementById('ins-periodo');
+  if (sp && !sp.options.length) {
+    hdPeriodoOpciones();
+    sp.innerHTML = document.getElementById('hd-periodo').innerHTML;
+  }
+  const sa = document.getElementById('ins-almacen');
+  if (sa && sa.options.length <= 1) {
+    try {
+      const { data } = await sb.from('almacenes').select('codigo, nombre').eq('activo', true).order('codigo');
+      sa.innerHTML = '<option value="">Todos</option>' + (data || []).map(a =>
+        `<option value="${escAttr(a.nombre)}">${escHtml((a.codigo ? a.codigo + ' · ' : '') + limpiarAlm(a.nombre))}</option>`).join('');
+    } catch (e) { }
+  }
+  const r = insRango();
+  cuerpo.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  const { data, error } = await sb.rpc('insights_despachos',
+    { p_desde: r.desde, p_hasta: r.hasta, p_almacen: (sa && sa.value) || null });
+  if (error) {
+    cuerpo.innerHTML = `<div class="section-card" style="padding:18px">
+      <div class="alert alert-err" style="margin:0 0 10px">No se pudieron calcular los insights: ${escHtml(detalleError(error))}</div>
+      <button class="btn btn-secondary" onclick="renderInsightsDespachos()">Reintentar</button></div>`;
+    return;
+  }
+  _insData = { ...data, rango: r };
+  const desde = data.primer_despacho ? mesNombre(String(data.primer_despacho).slice(0,7)) : null;
+  document.getElementById('ins-desde').textContent = desde
+    ? `Datos de despachos desde ${desde}. Antes de esa fecha no hay registro: no compares contra meses anteriores.` : '';
+  if (!data.resumen || !data.resumen.unidades) {
+    cuerpo.innerHTML = `<div class="section-card" style="padding:22px;text-align:center;color:var(--gris-medio);font-size:13px">
+      No hay despachos en ${escHtml(r.etiqueta)}${sa && sa.value ? ' para ' + escHtml(limpiarAlm(sa.value)) : ''}.</div>`;
+    return;
+  }
+  cuerpo.innerHTML = [insFrases(), insBloqueA(), insBloqueB(), insBloqueC(), insBloqueD(), insBloqueE(), insBloqueF()]
+    .filter(Boolean).join('');
+}
+
+const insCard = (titulo, pregunta, html) => `<div class="section-card" style="margin-bottom:12px">
+  <div style="padding:11px 14px;border-bottom:1px solid var(--borde)">
+    <div style="font-size:13px;font-weight:700">${titulo}</div>
+    <div style="font-size:11px;color:var(--gris-medio)">${pregunta}</div></div>
+  <div style="padding:12px 14px">${html}</div></div>`;
+const insAlm = n => limpiarAlm(n || '—');
+const insPct = (a, b) => b ? Math.round(a / b * 100) : 0;
+const insTallaIdx = t => { const k = ORDEN_TALLAS.indexOf(t); return t === '(sin talla)' ? 9999 : (k < 0 ? 900 : k); };
+
+// ── G · frases automáticas, con reglas (no IA). Si no hay datos, la frase no sale. ──
+function insFrases(){
+  const d = _insData, f = [];
+  const tot = d.resumen.unidades;
+  const alms = (d.almacenes || []).filter(a => a.unidades > 0);
+  if (alms.length) f.push(`<strong>${escHtml(insAlm(alms[0].nombre))}</strong> recibió ${NUM(alms[0].unidades)} unidades, el ${insPct(alms[0].unidades, tot)}% de lo despachado.`);
+  const porRef = {};
+  (d.matriz_ref || []).forEach(x => { const k = refCanon(x.referencia);
+    porRef[k] = porRef[k] || { t: 0, a: {} }; porRef[k].t += x.unidades; porRef[k].a[x.almacen] = (porRef[k].a[x.almacen] || 0) + x.unidades; });
+  const top = Object.entries(porRef).sort((a, b) => b[1].t - a[1].t)[0];
+  if (top) {
+    const [almTop, udsTop] = Object.entries(top[1].a).sort((a, b) => b[1] - a[1])[0];
+    f.push(`La referencia más despachada fue <strong>${escHtml(hdOracion(top[0]))}</strong> (${NUM(top[1].t)} uds); el ${insPct(udsTop, top[1].t)}% fue a ${escHtml(insAlm(almTop))}.`);
+  }
+  const olvidados = (d.almacenes || []).filter(a => a.dias == null || a.dias > 30);
+  if (olvidados.length) f.push(`${olvidados.length} almacén(es) activo(s) sin despacho hace más de 30 días: ${olvidados.map(a => escHtml(insAlm(a.nombre))).join(', ')}.`);
+  const vend = {}; (d.vendido || []).forEach(v => { vend[v.almacen] = v.unidades; });
+  const desp = {}; (d.despachado_cmp || []).forEach(v => { desp[v.almacen] = v.unidades; });
+  (d.almacenes || []).forEach(a => {
+    if (!desp[a.nombre] || vend[a.nombre] == null) return;
+    const rel = insPct(vend[a.nombre], desp[a.nombre]);
+    if (rel > 150) f.push(`${escHtml(insAlm(a.nombre))} vendió ${rel}% de lo que recibió: se está vaciando o hay despachos sin registrar.`);
+    else if (rel < 50) f.push(`${escHtml(insAlm(a.nombre))} vendió solo el ${rel}% de lo que recibió: la mercancía se está acumulando.`);
+  });
+  if (!f.length) return '';
+  return `<div class="section-card" style="margin-bottom:12px;padding:12px 14px;border-left:3px solid var(--brand)">
+    ${f.slice(0, 5).map(x => `<div style="font-size:12.5px;padding:3px 0">• ${x}</div>`).join('')}</div>`;
+}
+
+// ── A · ¿cuánto despaché? ──
+function insBloqueA(){
+  const d = _insData, r = d.resumen, a = d.resumen_anterior || {};
+  const varPct = (x, y) => !y ? '' : (() => { const p = Math.round((x - y) / y * 100);
+    return `<span style="color:${p >= 0 ? 'var(--verde)' : 'var(--rojo)'};font-size:11px">${p >= 0 ? '▲' : '▼'} ${Math.abs(p)}%</span>`; })();
+  const prom = r.remisiones ? Math.round(r.unidades / r.remisiones) : 0;
+  const meses = d.por_mes || [];
+  const max = Math.max(1, ...meses.map(m => m.unidades));
+  const barras = meses.map(m => `<div style="display:flex;align-items:center;gap:8px;font-size:11px;margin:3px 0">
+      <span style="width:92px;color:var(--gris-medio)">${mesNombre(m.mes)}</span>
+      <div style="flex:1;background:var(--gris-claro);border-radius:3px;height:12px">
+        <div style="width:${insPct(m.unidades, max)}%;background:var(--brand);height:12px;border-radius:3px"></div></div>
+      <span style="width:42px;text-align:right;font-weight:700">${NUM(m.unidades)}</span></div>`).join('');
+  return insCard('A · Volumen', '¿Cuánto despaché?', `
+    <div class="metrics" style="margin-bottom:10px">
+      <div class="metric-card"><div class="m-label">Unidades</div><div class="m-val">${NUM(r.unidades)}</div><div class="m-sub">${varPct(r.unidades, a.unidades) || 'sin período anterior'}</div></div>
+      <div class="metric-card"><div class="m-label">Remisiones</div><div class="m-val">${NUM(r.remisiones)}</div><div class="m-sub">${varPct(r.remisiones, a.remisiones) || '—'}</div></div>
+      <div class="metric-card"><div class="m-label">Valor a PVP</div><div class="m-val" style="font-size:16px">${COP(r.valor)}</div><div class="m-sub">${r.uds_sin_precio ? 'parcial: ' + NUM(r.uds_sin_precio) + ' uds sin precio' : 'precio congelado'}</div></div>
+      <div class="metric-card"><div class="m-label">Promedio por remisión</div><div class="m-val">${NUM(prom)}</div><div class="m-sub">unidades</div></div>
+    </div>
+    <div style="font-size:11px;font-weight:700;color:var(--gris-medio);margin-bottom:4px">Últimos 12 meses</div>${barras}`);
+}
+
+// ── B · ¿a qué local va? Los ceros se muestran: también informan. ──
+function insBloqueB(){
+  const d = _insData, tot = d.resumen.unidades;
+  const filas = (d.almacenes || []).map(a => `<tr${a.unidades ? '' : ' style="color:var(--gris-medio)"'}>
+      <td>${escHtml((a.codigo ? a.codigo + ' · ' : '') + insAlm(a.nombre))}</td>
+      <td style="text-align:right;font-weight:700">${NUM(a.unidades)}</td>
+      <td style="text-align:right">${insPct(a.unidades, tot)}%</td>
+      <td style="text-align:center">${NUM(a.remisiones)}</td>
+      <td style="text-align:right;white-space:nowrap">${a.ultimo ? hdFecha(a.ultimo) : '—'}</td>
+      <td style="text-align:right;${a.dias > 30 || a.dias == null ? 'color:var(--rojo);font-weight:700' : ''}">${a.dias == null ? 'nunca' : a.dias + ' d'}</td></tr>`).join('');
+  return insCard('B · Destinos', '¿A qué local va la mercancía?', `<div class="tabla-wrap"><table style="font-size:12px">
+    <thead><tr><th>Almacén</th><th style="text-align:right">Uds</th><th style="text-align:right">%</th>
+      <th style="text-align:center">Rem.</th><th style="text-align:right">Último</th><th style="text-align:right">Hace</th></tr></thead>
+    <tbody>${filas}</tbody></table></div>`);
+}
+
+// Matriz genérica con intensidad de color y totales.
+function insMatriz(filasK, colsK, valor, opts){
+  opts = opts || {};
+  const totCol = {}, totFila = {};
+  filasK.forEach(f => colsK.forEach(c => { const v = valor(f, c) || 0;
+    totCol[c] = (totCol[c] || 0) + v; totFila[f] = (totFila[f] || 0) + v; }));
+  const gran = Object.values(totFila).reduce((s, v) => s + v, 0);
+  const maxV = Math.max(1, ...filasK.flatMap(f => colsK.map(c => opts.pctCol ? insPct(valor(f, c) || 0, totCol[c]) : (valor(f, c) || 0))));
+  const celda = (f, c) => {
+    const v = valor(f, c) || 0;
+    const mostrado = opts.pctCol ? (totCol[c] ? insPct(v, totCol[c]) : 0) : v;
+    const int = mostrado / maxV;
+    return `<td style="text-align:center;background:rgba(1,74,94,${(int * 0.55).toFixed(2)});color:${int > 0.55 ? '#fff' : 'inherit'}">${v ? (opts.pctCol ? mostrado + '%' : NUM(v)) : '·'}</td>`;
+  };
+  return `<div class="tabla-wrap"><table style="font-size:11.5px">
+    <thead><tr><th>${opts.titulo || ''}</th>${colsK.map(c => `<th style="text-align:center;white-space:nowrap">${escHtml(opts.etqCol ? opts.etqCol(c) : c)}</th>`).join('')}<th style="text-align:right">Total</th></tr></thead>
+    <tbody>${filasK.map(f => `<tr><td style="white-space:nowrap">${escHtml(opts.etqFila ? opts.etqFila(f) : f)}</td>${colsK.map(c => celda(f, c)).join('')}<td style="text-align:right;font-weight:700">${NUM(totFila[f] || 0)}</td></tr>`).join('')}
+      <tr style="background:var(--gris-claro);font-weight:700"><td>Total</td>${colsK.map(c => `<td style="text-align:center">${NUM(totCol[c] || 0)}</td>`).join('')}<td style="text-align:right">${NUM(gran)}</td></tr>
+    </tbody></table></div>`;
+}
+
+// ── C · ¿qué referencias van a qué local? ──
+function insBloqueC(){
+  const d = _insData, m = {};
+  (d.matriz_ref || []).forEach(x => { const k = refCanon(x.referencia);
+    m[k] = m[k] || {}; m[k][x.almacen] = (m[k][x.almacen] || 0) + x.unidades; });
+  const tot = k => Object.values(m[k]).reduce((s, v) => s + v, 0);
+  const orden = Object.keys(m).sort((a, b) => tot(b) - tot(a));
+  const top = orden.slice(0, 15), otras = orden.slice(15);
+  if (otras.length) { m['Otras'] = {}; otras.forEach(k => Object.entries(m[k]).forEach(([a, v]) => { m['Otras'][a] = (m['Otras'][a] || 0) + v; })); top.push('Otras'); }
+  const cols = [...new Set((d.matriz_ref || []).map(x => x.almacen))].sort((a, b) => insAlm(a).localeCompare(insAlm(b)));
+  const btn = (k, t) => `<button class="btn ${_insModo === k ? 'btn-primary' : 'btn-secondary'}" style="padding:4px 10px;font-size:11px"
+    onclick="_insModo='${k}';document.getElementById('ins-c').innerHTML=insBloqueCTabla()">${t}</button>`;
+  window.insBloqueCTabla = () => insMatriz(top, cols, (f, c) => (m[f] || {})[c],
+    { titulo: 'Referencia', etqFila: f => f === 'Otras' ? `Otras (${otras.length})` : hdOracion(f), etqCol: insAlm, pctCol: _insModo === 'pct' });
+  return insCard('C · Referencias por local', '¿Qué referencias van a qué local?',
+    `<div style="display:flex;gap:6px;margin-bottom:8px">${btn('uds', 'Unidades')}${btn('pct', '% de la columna')}</div>
+     <div id="ins-c">${window.insBloqueCTabla()}</div>`);
+}
+
+// ── D · curva de tallas por local. Lo que no tiene talla va aparte, nunca repartido. ──
+function insBloqueD(){
+  const d = _insData, m = {};
+  (d.matriz_talla || []).forEach(x => { m[x.talla] = m[x.talla] || {}; m[x.talla][x.almacen] = (m[x.talla][x.almacen] || 0) + x.unidades; });
+  const tallas = Object.keys(m).filter(t => t !== '(sin talla)').sort((a, b) => insTallaIdx(a) - insTallaIdx(b));
+  const conTalla = tallas.reduce((s, t) => s + Object.values(m[t]).reduce((x, y) => x + y, 0), 0);
+  const total = d.resumen.unidades, cob = insPct(conTalla, total);
+  const cols = [...new Set((d.matriz_talla || []).map(x => x.almacen))].sort((a, b) => insAlm(a).localeCompare(insAlm(b)));
+  const sinT = m['(sin talla)'] || {};
+  const aviso = cob < 70 ? `<div class="alert alert-warn" style="margin:0 0 8px;font-size:11.5px">
+      Lectura parcial: solo el ${cob}% de las unidades tiene talla registrada. Los despachos por talla irán completando esta curva.</div>` : '';
+  const sinTxt = Object.keys(sinT).length ? `<div style="font-size:11px;color:var(--gris-medio);margin-top:6px">Sin talla (no se reparten): ${
+      Object.entries(sinT).map(([a, v]) => `${escHtml(insAlm(a))} ${NUM(v)}`).join(' · ')}</div>` : '';
+  return insCard('D · Curva de tallas por local', '¿Qué tallas van a qué local?',
+    `<div style="font-size:11px;color:var(--gris-medio);margin-bottom:6px">Basado en ${NUM(conTalla)} de ${NUM(total)} unidades con talla registrada.</div>
+     ${aviso}${tallas.length ? insMatriz(tallas, cols, (f, c) => (m[f] || {})[c], { titulo: 'Talla', etqCol: insAlm, pctCol: true }) : ''}${sinTxt}`);
+}
+
+// ── E · mezcla por categoría en cada local ──
+function insBloqueE(){
+  const d = _insData, m = {};
+  (d.matriz_cat || []).forEach(x => { m[x.almacen] = m[x.almacen] || {}; m[x.almacen][x.categoria] = (m[x.almacen][x.categoria] || 0) + x.unidades; });
+  const cats = [...new Set((d.matriz_cat || []).map(x => x.categoria))].sort();
+  const tonos = ['#014A5E', '#2E8BA3', '#7CC4D6', '#C9A227', '#B5525C', '#6B7F3A', '#888'];
+  const color = c => tonos[cats.indexOf(c) % tonos.length];
+  const filas = Object.keys(m).sort((a, b) => insAlm(a).localeCompare(insAlm(b))).map(a => {
+    const tot = Object.values(m[a]).reduce((s, v) => s + v, 0);
+    return `<div style="margin:6px 0"><div style="font-size:11.5px;margin-bottom:2px">${escHtml(insAlm(a))} <span style="color:var(--gris-medio)">· ${NUM(tot)} uds</span></div>
+      <div style="display:flex;height:14px;border-radius:3px;overflow:hidden">${cats.filter(c => m[a][c]).map(c =>
+        `<div title="${escAttr(hdOracion(c))} ${insPct(m[a][c], tot)}%" style="width:${m[a][c] / tot * 100}%;background:${color(c)}"></div>`).join('')}</div></div>`;
+  }).join('');
+  const ley = cats.map(c => `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;font-size:11px">
+      <span style="width:10px;height:10px;background:${color(c)};border-radius:2px"></span>${escHtml(hdOracion(c))}</span>`).join('');
+  return insCard('E · Mezcla por local', '¿Qué mezcla recibe cada local?', `<div style="margin-bottom:6px">${ley}</div>${filas}`);
+}
+
+// ── F · ¿lo que mando se vende? ──
+function insBloqueF(){
+  const d = _insData;
+  const vend = {}; (d.vendido || []).forEach(v => { vend[v.almacen] = (vend[v.almacen] || 0) + v.unidades; });
+  const desp = {}; (d.despachado_cmp || []).forEach(v => { desp[v.almacen] = (desp[v.almacen] || 0) + v.unidades; });
+  const ult = d.ultima_venta ? mesNombre(String(d.ultima_venta).slice(0,7)) : null;
+  const cmp = d.comparable || {};
+  if (!cmp.desde || !cmp.hasta || cmp.desde > cmp.hasta) return insCard('F · Despachado vs vendido', '¿Lo que mando se vende?',
+    `<div style="font-size:12px;color:var(--gris-medio)">En este período no hay meses con despachos y ventas a la vez${ult ? ' (ventas cargadas hasta ' + ult + ')' : ''}.</div>`);
+  const filas = (d.almacenes || []).filter(a => desp[a.nombre] || vend[a.nombre]).map(a => {
+    const du = desp[a.nombre] || 0, v = vend[a.nombre] || 0, rel = du ? insPct(v, du) : null;
+    const lect = rel == null ? 'sin despacho' : rel > 100 ? 'vende más de lo que recibe' : rel < 50 ? 'se acumula' : 'equilibrado';
+    const col = rel == null ? 'var(--gris-medio)' : rel > 100 ? 'var(--ambar)' : rel < 50 ? 'var(--rojo)' : 'var(--verde)';
+    return `<tr><td>${escHtml(insAlm(a.nombre))}</td><td style="text-align:right">${NUM(du)}</td>
+      <td style="text-align:right">${NUM(v)}</td><td style="text-align:right;font-weight:700;color:${col}">${rel == null ? '—' : rel + '%'}</td>
+      <td style="font-size:11px;color:${col}">${lect}</td></tr>`;
+  }).join('');
+  return insCard('F · Despachado vs vendido', '¿Lo que mando se vende?',
+    `<div style="font-size:11px;color:var(--gris-medio);margin-bottom:6px">Compara del ${hdFecha(cmp.desde)} al ${hdFecha(cmp.hasta)}, donde hay despachos y ventas a la vez${ult ? ' (ventas cargadas hasta ' + ult + ')' : ''}. Más de 100%: se vacía o hay despachos sin registrar. Menos de 50%: se acumula.</div>
+     <div class="tabla-wrap"><table style="font-size:12px"><thead><tr><th>Almacén</th><th style="text-align:right">Despachado</th>
+       <th style="text-align:right">Vendido</th><th style="text-align:right">Venta/desp.</th><th>Lectura</th></tr></thead>
+       <tbody>${filas}</tbody></table></div>`);
 }
 
 // Resume un despacho a partir de sus líneas: referencias, mezcla y valor.
