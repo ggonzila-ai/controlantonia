@@ -554,6 +554,11 @@
               <label>Remisión #</label>
               <input type="text" id="d-remision" placeholder="REM-001">
             </div>
+            <div class="form-group">
+              <label>Número de cajas</label>
+              <input type="text" inputmode="numeric" id="d-cajas" value="1" autocomplete="off"
+                     oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,2)" onkeydown="bloquearFlechas(event)">
+            </div>
           </div>
         </div>
         <div style="padding:0 16px 8px;font-size:12px;font-weight:600;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Prendas a despachar</div>
@@ -575,6 +580,7 @@
             <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/></svg>
             Confirmar despacho
           </button>
+          <div id="d-confirmado"></div>
         </div>
       </div>
 
@@ -1140,8 +1146,9 @@
   </div>
 
   <div class="page" id="page-almacenes">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:8px">
       <div class="page-title" style="margin:0">Almacenes</div>
+      <button class="btn btn-secondary btn-sm" onclick="abrirDatosEntrega()">📦 Datos de entrega</button>
     </div>
 
     <!-- Chips selector -->
@@ -1599,6 +1606,32 @@
 </nav>
 
 <!-- MODAL NUEVA ENTRADA -->
+
+<!-- MODAL DATOS DE ENTREGA · lo que sale en los rótulos de caja -->
+<div class="modal-overlay" id="modal-entrega">
+  <div class="modal rf-modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Datos de entrega</div>
+    <div class="rf-body">
+      <div style="font-size:12px;color:var(--gris-medio);margin-bottom:10px">
+        Salen en los rótulos de caja. Lo que dejes vacío se imprime como una raya para escribir a mano.
+      </div>
+      <div class="rf-sec">
+        <div style="padding:11px 14px;font-size:13px;font-weight:700;border-bottom:1px solid var(--borde)">Empresa (remitente)</div>
+        <div class="rf-sec-cuerpo">
+          <div class="form-group"><label>Teléfono de la bodega</label>
+            <input type="text" inputmode="tel" id="de-emp-tel" autocomplete="off" placeholder="ej. 300 123 4567"></div>
+          <div id="de-emp-resto" style="font-size:11px;color:var(--gris-medio)"></div>
+        </div>
+      </div>
+      <div id="de-almacenes"></div>
+    </div>
+    <div class="rf-pie">
+      <button type="button" class="btn btn-secondary" onclick="cerrarModal('modal-entrega')">Cancelar</button>
+      <button type="button" class="btn btn-primary" id="de-guardar" onclick="guardarDatosEntrega()">Guardar</button>
+    </div>
+  </div>
+</div>
 
 <!-- MODAL REFERENCIA · el único formulario para crear y editar un producto -->
 <div class="modal-overlay" id="modal-ref">
@@ -6246,7 +6279,20 @@ async function confirmarDespacho() {
     await loadInvCache(true);
     cargarHistDespachos();
     if (btnC) btnC.disabled = false;
-    if (res && res.despacho_id && confirm(`Remisión ${numero} confirmada. ¿Descargar el PDF?`)) descargarRemisionPDF(res.despacho_id);
+    if (res && res.despacho_id) {
+      const cajas = Math.min(99, Math.max(1, parseInt(document.getElementById('d-cajas').value) || 1));
+      try { await sb.from('despachos').update({ cajas }).eq('id', res.despacho_id); } catch (e) { }
+      document.getElementById('d-cajas').value = '1';
+      const av = document.getElementById('d-confirmado');
+      if (av) av.innerHTML = `<div class="alert alert-ok" style="margin:10px 0 0;display:block">
+        <div style="font-weight:700;margin-bottom:6px">✓ ${escHtml(numero)} confirmada · ${NUM(totalUnd)} uds · ${cajas} caja${cajas === 1 ? '' : 's'}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-primary" style="padding:7px 12px;font-size:12px" onclick="descargarRemisionPDF('${res.despacho_id}')">📄 Descargar remisión + rótulos</button>
+          <button class="btn btn-secondary" style="padding:7px 12px;font-size:12px" onclick="descargarRotulosPDF('${res.despacho_id}')">Solo rótulos</button>
+          <button class="btn btn-secondary" style="padding:7px 12px;font-size:12px" onclick="document.getElementById('d-confirmado').innerHTML=''">Cerrar</button>
+        </div></div>`;
+      renderHistorialDespachos();
+    }
   } catch (err) {
     if (remId) { try { await sb.from('remision_items').delete().eq('remision_id', remId);
                        await sb.from('remisiones').delete().eq('id', remId); } catch (e) {} }
@@ -6693,7 +6739,10 @@ function hdTarjeta(x){
     ${x.cats.length ? `<div style="font-size:11.5px;color:var(--gris-medio);margin-top:3px">${mezcla}</div>` : ''}
     ${alertas.length ? `<div style="font-size:11px;color:var(--ambar);margin-top:5px">⚠ ${alertas.join(' · ')}</div>` : ''}
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:9px">
-      ${x.anulada ? '' : `<button class="btn btn-secondary" style="padding:6px 11px;font-size:12px" onclick="descargarRemisionPDF('${d.id}')">📄 Remisión</button>`}
+      ${x.anulada ? '' : `<button class="btn btn-primary" style="padding:6px 11px;font-size:12px" onclick="descargarRemisionPDF('${d.id}')">📄 Remisión + rótulos</button>
+        <button class="btn btn-secondary" style="padding:6px 11px;font-size:12px" onclick="descargarRotulosPDF('${d.id}')">Solo rótulos</button>`}
+      ${x.anulada || esVendedora() ? '' : `<button class="btn btn-secondary" style="padding:6px 9px;font-size:12px" title="Cambiar el número de cajas"
+          onclick="hdEditarCajas('${d.id}', ${d.cajas || 1})">📦 ${d.cajas || 1} caja${(d.cajas || 1) === 1 ? '' : 's'}</button>`}
       <button class="btn btn-secondary" style="padding:6px 11px;font-size:12px" onclick="hdVerDetalle('${d.id}')">Ver detalle</button>
       ${esVendedora() || x.anulada ? '' : `
         <button class="btn btn-secondary" style="padding:6px 9px;font-size:12px" title="Corregir la fecha"
@@ -6702,6 +6751,17 @@ function hdTarjeta(x){
           onclick="deleteDespacho('${d.id}','${ea(d.remision)}')">✕</button>`}
     </div>
   </div>`;
+}
+
+async function hdEditarCajas(id, actual){
+  const v = prompt('¿Cuántas cajas lleva este envío?', String(actual || 1));
+  if (v == null) return;
+  const n = parseInt(String(v).replace(/[^0-9]/g, ''), 10);
+  if (!n || n < 1 || n > 99) { toast('Escribe un número de cajas entre 1 y 99', 'err'); return; }
+  const { error } = await sb.from('despachos').update({ cajas: n }).eq('id', id);
+  if (error) { toast('No se pudo guardar: ' + detalleError(error), 'err'); return; }
+  toast(`✓ ${n} caja${n === 1 ? '' : 's'}`);
+  renderHistorialDespachos(false);
 }
 
 // Detalle por referencia y talla, desde lo que ya se trajo: sin consulta nueva.
@@ -6780,6 +6840,184 @@ async function _logoDataURL(){
     const b = await r.blob();
     return await new Promise(res => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => res(null); fr.readAsDataURL(b); });
   } catch (e) { return null; }
+}
+
+// ═══ RÓTULOS DE CAJA ═══════════════════════════════════════════
+// Uno por caja, al final del PDF de la remisión. Tienen que leerse a dos metros: el
+// código del almacén y "CAJA 1 DE 3" son lo más grande.
+//
+// Tamaño en una sola constante. Hoy: media carta horizontal, dos por hoja carta con
+// línea de corte (impresora normal). Para una impresora de etiquetas de 10×15 cm
+// bastaría con { ancho: 150, alto: 100, porHoja: 1 }.
+const ROTULO = { ancho: 215.9, alto: 139.7, porHoja: 2 };
+
+function _dibujarRotulo(doc, r, logo, x0, y0, n, total){
+  const W = ROTULO.ancho, H = ROTULO.alto, k = W / 215.9;     // todo escala con el ancho
+  const M = 8 * k, fs = t => t * k;
+  const alm = r.alm || {}, emp = r.emp || {};
+  const linea = (txt, etq, x, y, ancho) => {                   // valor, o raya para escribir a mano
+    doc.setFont('helvetica', 'normal').setFontSize(fs(9)).setTextColor(110);
+    doc.text(etq, x, y);
+    const xv = x + doc.getTextWidth(etq) + 2 * k;
+    if (txt) { doc.setFont('helvetica', 'bold').setFontSize(fs(10.5)).setTextColor(20); doc.text(String(txt), xv, y); }
+    else { doc.setDrawColor(150).setLineWidth(0.3); doc.line(xv, y + 0.8 * k, x + ancho, y + 0.8 * k); }
+  };
+  doc.setDrawColor(30).setLineWidth(0.6 * k).rect(x0 + M / 2, y0 + M / 2, W - M, H - M);
+
+  // ── PARA (lo más grande) ──
+  const xP = x0 + M + 2 * k, colDer = x0 + W * 0.64;
+  doc.setFont('helvetica', 'bold').setFontSize(fs(10)).setTextColor(110);
+  doc.text('PARA', xP, y0 + M + 7 * k);
+  doc.setFontSize(fs(58)).setTextColor(10);
+  doc.text(String(alm.codigo || '—'), xP, y0 + M + 29 * k);
+  doc.setFontSize(fs(24));
+  const corto = limpiarAlm(alm.nombre || r.d.almacen_nombre || '').toUpperCase();
+  doc.text(doc.splitTextToSize(corto, colDer - xP - 4 * k)[0] || '', xP, y0 + M + 40 * k);
+  doc.setFont('helvetica', 'normal').setFontSize(fs(12)).setTextColor(60);
+  doc.text('Feria del Brasier', xP, y0 + M + 47 * k);
+  const anchoL = colDer - xP - 6 * k;
+  linea(alm.direccion, 'Dirección:', xP, y0 + M + 57 * k, anchoL);
+  linea(alm.telefono,  'Teléfono:',  xP, y0 + M + 64 * k, anchoL);
+  linea(alm.contacto,  'Recibe:',    xP, y0 + M + 71 * k, anchoL);
+  if (alm.notas_entrega) {
+    doc.setFont('helvetica', 'italic').setFontSize(fs(8.5)).setTextColor(90);
+    doc.text(doc.splitTextToSize(alm.notas_entrega, anchoL)[0], xP, y0 + M + 77 * k);
+  }
+
+  // ── CAJA y REMISIÓN, a la derecha ──
+  const cw = x0 + W - M - 2 * k - colDer;
+  doc.setFillColor(20, 20, 20).rect(colDer, y0 + M + 2 * k, cw, 34 * k, 'F');
+  doc.setFont('helvetica', 'bold').setFontSize(fs(11)).setTextColor(255);
+  doc.text('CAJA', colDer + cw / 2, y0 + M + 10 * k, { align: 'center' });
+  doc.setFontSize(fs(30));
+  doc.text(`${n} DE ${total}`, colDer + cw / 2, y0 + M + 27 * k, { align: 'center' });
+  doc.setFont('helvetica', 'bold').setFontSize(fs(9)).setTextColor(110);
+  doc.text('REMISIÓN N.º', colDer, y0 + M + 45 * k);
+  doc.setFontSize(fs(17)).setTextColor(10);
+  doc.text(String(r.d.remision || ''), colDer, y0 + M + 53 * k);
+  doc.setFont('helvetica', 'normal').setFontSize(fs(11)).setTextColor(40);
+  doc.text(hdFecha(r.d.fecha), colDer, y0 + M + 60 * k);
+  doc.setFont('helvetica', 'bold').setFontSize(fs(9)).setTextColor(110);
+  doc.text('CONTENIDO', colDer, y0 + M + 69 * k);
+  doc.setFontSize(fs(10.5)).setTextColor(20);
+  const cats = (r.categorias || []).map(c => hdOracion(c)).join(', ');
+  doc.text(doc.splitTextToSize(`${NUM(r.totUds)} uds${cats ? ' · ' + cats : ''}`, cw), colDer, y0 + M + 75 * k);
+
+  // ── DE ──
+  const yDe = y0 + H - M - 30 * k;
+  doc.setDrawColor(30).setLineWidth(0.3 * k).line(x0 + M + 2 * k, yDe, x0 + W - M - 2 * k, yDe);
+  doc.setFont('helvetica', 'bold').setFontSize(fs(9)).setTextColor(110);
+  doc.text('DE', xP, yDe + 6 * k);
+  if (logo) { try { doc.addImage(logo, 'PNG', xP, yDe + 8 * k, 34 * k, 13 * k, undefined, 'FAST'); } catch (e) {} }
+  const xE = xP + 40 * k;
+  doc.setFont('helvetica', 'bold').setFontSize(fs(10)).setTextColor(20);
+  doc.text(emp.razon_social || '', xE, yDe + 10 * k);
+  doc.setFont('helvetica', 'normal').setFontSize(fs(9)).setTextColor(60);
+  if (emp.nit) doc.text('NIT ' + emp.nit, xE, yDe + 15 * k);
+  doc.text([emp.direccion, emp.ciudad].filter(Boolean).join(', '), xE, yDe + 20 * k);
+  linea(emp.telefono, 'Tel.', xE, yDe + 25 * k, W * 0.62);
+}
+
+// Agrega los rótulos al documento. Una remisión anulada no lleva rótulos.
+function agregarRotulos(doc, r, logo, usarPaginaActual){
+  if (r.anulada) return 0;
+  const total = r.cajas;
+  for (let n = 1; n <= total; n++) {
+    const enHoja = (n - 1) % ROTULO.porHoja;
+    if (enHoja === 0 && !(usarPaginaActual && n === 1)) {
+      if (ROTULO.porHoja === 1) doc.addPage([ROTULO.ancho, ROTULO.alto], ROTULO.ancho > ROTULO.alto ? 'landscape' : 'portrait');
+      else doc.addPage('letter', 'portrait');
+    }
+    const y0 = enHoja * ROTULO.alto;
+    _dibujarRotulo(doc, r, logo, 0, y0, n, total);
+    if (ROTULO.porHoja > 1 && enHoja === 0) {             // línea de corte entre los dos
+      doc.setDrawColor(150).setLineWidth(0.3).setLineDashPattern([2, 2], 0);
+      doc.line(4, ROTULO.alto, ROTULO.ancho - 4, ROTULO.alto);
+      doc.setLineDashPattern([], 0);
+      doc.setFont('helvetica', 'normal').setFontSize(7).setTextColor(150);
+      doc.text('cortar aquí', ROTULO.ancho / 2, ROTULO.alto - 1.2, { align: 'center' });
+    }
+  }
+  return total;
+}
+
+function _avisoTelefonoEmpresa(r){
+  if (!(r.emp && r.emp.telefono))
+    toast('Falta el teléfono de la empresa en los rótulos: llénalo en Almacenes → Datos de entrega', 'err');
+}
+
+// ── Datos de entrega: dirección, teléfono y contacto de cada almacén + teléfono de la empresa ──
+let _deAlms = [];
+async function abrirDatosEntrega(){
+  if (esVendedora()) { toast('Solo administración', 'err'); return; }
+  const [{ data: alms, error }, { data: cfg }] = await Promise.all([
+    sb.from('almacenes').select('*').eq('activo', true).order('codigo'),
+    sb.from('app_config').select('valor').eq('clave', 'empresa').maybeSingle()
+  ]);
+  if (error) { toast('No se pudieron leer los almacenes: ' + detalleError(error), 'err'); return; }
+  if (alms && alms.length && !('direccion' in alms[0])) {
+    toast('Falta pegar sql/016 en Supabase: los campos de entrega todavía no existen', 'err'); return;
+  }
+  _deAlms = alms || [];
+  const emp = (cfg && cfg.valor) || {};
+  document.getElementById('de-emp-tel').value = emp.telefono || '';
+  document.getElementById('de-emp-resto').textContent =
+    [emp.razon_social, emp.nit ? 'NIT ' + emp.nit : '', [emp.direccion, emp.ciudad].filter(Boolean).join(', ')].filter(Boolean).join(' · ');
+  const campo = (id, etq, v, ph) => `<div class="form-group" style="margin-bottom:8px"><label>${etq}</label>
+    <input type="text" id="${id}" value="${escAttr(v || '')}" placeholder="${escAttr(ph || '')}" autocomplete="off"></div>`;
+  document.getElementById('de-almacenes').innerHTML = _deAlms.map(a => `<div class="rf-sec">
+    <div style="padding:11px 14px;font-size:13px;font-weight:700;border-bottom:1px solid var(--borde)">
+      ${escHtml((a.codigo ? a.codigo + ' · ' : '') + limpiarAlm(a.nombre))}</div>
+    <div class="rf-sec-cuerpo">
+      ${campo('de-dir-' + a.id, 'Dirección', a.direccion)}
+      <div class="form-row">
+        ${campo('de-tel-' + a.id, 'Teléfono', a.telefono)}
+        ${campo('de-con-' + a.id, 'Quién recibe', a.contacto)}
+      </div>
+      ${campo('de-not-' + a.id, 'Notas de entrega (opcional)', a.notas_entrega, 'ej. recibo de 9 a 12')}
+    </div></div>`).join('');
+  document.getElementById('modal-entrega').classList.add('open');
+}
+
+async function guardarDatosEntrega(){
+  const btn = document.getElementById('de-guardar'); btn.disabled = true;
+  const val = id => { const el = document.getElementById(id); const v = el ? el.value.trim() : ''; return v || null; };
+  try {
+    for (const a of _deAlms) {
+      const nuevo = { direccion: val('de-dir-' + a.id), telefono: val('de-tel-' + a.id),
+                      contacto: val('de-con-' + a.id), notas_entrega: val('de-not-' + a.id) };
+      const cambio = Object.keys(nuevo).some(k => (a[k] || null) !== nuevo[k]);
+      if (!cambio) continue;
+      const { error } = await sb.from('almacenes').update(nuevo).eq('id', a.id);
+      if (error) throw new Error(limpiarAlm(a.nombre) + ': ' + detalleError(error));
+    }
+    // El teléfono de la empresa vive dentro del JSON de app_config: se lee, se cambia
+    // solo ese campo y se vuelve a guardar, para no pisar razón social, NIT ni dirección.
+    const { data: cfg } = await sb.from('app_config').select('valor').eq('clave', 'empresa').maybeSingle();
+    const emp = (cfg && cfg.valor) || {};
+    const tel = val('de-emp-tel') || '';
+    if ((emp.telefono || '') !== tel) {
+      const { error } = await sb.from('app_config').update({ valor: { ...emp, telefono: tel } }).eq('clave', 'empresa');
+      if (error) throw new Error('teléfono de la empresa: ' + detalleError(error));
+    }
+    toast('✓ Datos de entrega guardados');
+    cerrarModal('modal-entrega');
+  } catch (e) {
+    toast('No se pudo guardar ' + (e.message || e), 'err');
+  } finally { btn.disabled = false; }
+}
+
+async function descargarRotulosPDF(id){
+  if (!window.jspdf || !window.jspdf.jsPDF) { toast('No se pudo cargar el generador de PDF', 'err'); return; }
+  const r = await datosRemision(id); if (!r) return;
+  if (r.anulada) { toast('Una remisión anulada no lleva rótulos', 'err'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = ROTULO.porHoja === 1
+    ? new jsPDF({ unit: 'mm', format: [ROTULO.ancho, ROTULO.alto], orientation: ROTULO.ancho > ROTULO.alto ? 'landscape' : 'portrait' })
+    : new jsPDF({ unit: 'mm', format: 'letter', orientation: 'portrait' });
+  agregarRotulos(doc, r, await _logoDataURL(), true);
+  _avisoTelefonoEmpresa(r);
+  doc.save(`Rótulos ${r.d.remision}.pdf`);
 }
 
 async function descargarRemisionPDF(id){
@@ -6907,6 +7145,7 @@ async function descargarRemisionPDF(id){
     doc.text('Nombre, firma y fecha', x, fy + 20);
   });
 
+  if (agregarRotulos(doc, r, logo, false)) _avisoTelefonoEmpresa(r);
   doc.save(`Remisión ${r.d.remision}.pdf`);
 }
 
@@ -6981,9 +7220,10 @@ async function datosRemision(id){
     const { data: c } = await sb.from('app_config').select('valor').eq('clave', 'empresa').maybeSingle();
     emp = (c && c.valor) || {};
   } catch (e) { }
-  let almCodigo = '';
+  let almCodigo = '', alm = {};
   try {
-    const { data: a } = await sb.from('almacenes').select('codigo').eq('id', d.almacen_id).maybeSingle();
+    const { data: a } = await sb.from('almacenes').select('*').eq('id', d.almacen_id).maybeSingle();
+    alm = a || {};
     almCodigo = (a && a.codigo) ? a.codigo + ' ' : '';
   } catch (e) { }
 
@@ -7000,9 +7240,40 @@ async function datosRemision(id){
     destino: almCodigo + (d.almacen_nombre || ''),
     fechaLarga: `${dd} de ${MES[(mm || 1) - 1]} de ${yy}`,
     anulada: d.estado === 'anulada',
+    alm, cajas: Math.max(1, d.cajas || 1),
+    categorias: [...new Set((items || []).map(i => i.categoria).filter(Boolean))],
     colorComun: colores.length === 1 ? colores[0] : 'varios',
     marcaComun: marcas.length === 1 ? marcas[0] : 'varias'
   };
+}
+
+// Rótulo en HTML para la vista imprimible: mismo contenido que el del PDF.
+function rotuloHTML(r, n, total){
+  const e = v => escHtml(v == null ? '' : String(v));
+  const alm = r.alm || {}, emp = r.emp || {};
+  const ln = (etq, v) => `<div class="rl"><span>${etq}</span>${v ? `<b>${e(v)}</b>` : '<i></i>'}</div>`;
+  return `<div class="rotulo">
+    <div class="rp">
+      <div class="rk">PARA</div>
+      <div class="rcod">${e(alm.codigo || '—')}</div>
+      <div class="rnom">${e(limpiarAlm(alm.nombre || r.d.almacen_nombre || '').toUpperCase())}</div>
+      <div class="rfer">Feria del Brasier</div>
+      ${ln('Dirección:', alm.direccion)}${ln('Teléfono:', alm.telefono)}${ln('Recibe:', alm.contacto)}
+      ${alm.notas_entrega ? `<div class="rnot">${e(alm.notas_entrega)}</div>` : ''}
+    </div>
+    <div class="rd">
+      <div class="rcaja"><div>CAJA</div><b>${n} DE ${total}</b></div>
+      <div class="rk">REMISIÓN N.º</div><div class="rrem">${e(r.d.remision)}</div><div>${hdFecha(r.d.fecha)}</div>
+      <div class="rk" style="margin-top:8px">CONTENIDO</div>
+      <div><b>${NUM(r.totUds)} uds${(r.categorias || []).length ? ' · ' + e(r.categorias.map(hdOracion).join(', ')) : ''}</b></div>
+    </div>
+    <div class="rde">
+      <div class="rk">DE</div>
+      <img src="${location.origin}/antonia-sorev-logo.png" alt="" onerror="this.style.display='none'">
+      <div><b>${e(emp.razon_social)}</b><br>${emp.nit ? 'NIT ' + e(emp.nit) + '<br>' : ''}${e([emp.direccion, emp.ciudad].filter(Boolean).join(', '))}
+        ${ln('Tel.', emp.telefono)}</div>
+    </div>
+  </div>`;
 }
 
 // Vista en pantalla. La impresora de Laura funciona desde aquí; para archivar está el PDF.
@@ -7055,6 +7326,23 @@ async function imprimirRemision(id){
   .barra{position:fixed;top:0;left:0;right:0;background:#111;padding:9px;display:flex;gap:8px;justify-content:center;z-index:9}
   .barra button{background:#fff;border:0;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
   .hoja{margin-top:50px}
+  .rotulos{page-break-before:always;margin-top:24px}
+  .rotulo{border:1.5px solid #111;height:122mm;padding:12px 14px;display:grid;grid-template-columns:62% 38%;
+          grid-template-rows:1fr auto;gap:6px 12px;margin-bottom:6mm;page-break-inside:avoid}
+  .rotulo:nth-child(2n){margin-bottom:0}
+  .rotulo:nth-child(2n+1):not(:first-child){page-break-before:always}
+  .rk{font-size:9px;font-weight:700;color:#666;letter-spacing:.05em}
+  .rcod{font-size:64px;font-weight:800;line-height:1}
+  .rnom{font-size:26px;font-weight:800}
+  .rfer{font-size:13px;color:#444;margin-bottom:8px}
+  .rl{display:flex;gap:6px;font-size:11px;color:#666;margin-top:6px;align-items:flex-end}
+  .rl b{color:#111}.rl i{flex:1;border-bottom:1px solid #999;height:12px}
+  .rnot{font-size:10px;font-style:italic;color:#555;margin-top:5px}
+  .rcaja{background:#111;color:#fff;text-align:center;padding:8px 6px;margin-bottom:10px;font-size:11px;font-weight:700}
+  .rcaja b{display:block;font-size:34px}
+  .rrem{font-size:18px;font-weight:800}
+  .rde{grid-column:1 / span 2;border-top:1px solid #111;padding-top:6px;display:flex;gap:12px;align-items:flex-start;font-size:10.5px}
+  .rde img{height:34px}
   @media print{ .barra{display:none} .hoja{margin-top:0} thead{display:table-header-group} tr{page-break-inside:avoid} }
 </style></head><body>
 <div class="barra">
@@ -7093,6 +7381,7 @@ async function imprimirRemision(id){
     <div><div class="rot">Entregado por</div><div class="linea">Nombre, firma y fecha</div></div>
     <div><div class="rot">Recibido por</div><div class="linea">Nombre, firma y fecha</div></div>
   </div>
+  ${r.anulada ? '' : `<div class="rotulos">${Array.from({ length: r.cajas }, (_, i) => rotuloHTML(r, i + 1, r.cajas)).join('')}</div>`}
 </div></body></html>`;
   if (w) { w.document.open(); w.document.write(html); w.document.close(); }
   else toast('El navegador bloqueó la ventana. Permite las ventanas emergentes.', 'err');
