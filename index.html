@@ -2804,14 +2804,33 @@ function stockPorTallaDe(ref) {
 function codigosDe(ref) { return codigosSku.filter(c => c.referencia === ref); }
 
 // ─── CONEXIÓN ─────────────────────────────────
+// Además del puntito, una franja visible: sin conexión, lo que se ve en pantalla puede
+// ser de antes y lo que se guarde no llega a la base. El caso típico es que Supabase
+// haya pausado el proyecto por días sin uso (plan gratuito).
 async function verificarConexion() {
+  let ok = false;
   try {
     const { error } = await sb.from('almacenes').select('id').limit(1);
-    const dot = document.getElementById('sync-dot');
-    const lbl = document.getElementById('sync-label');
-    if (error) { dot.className = 'sync-dot offline'; lbl.textContent = 'Sin conexión'; }
-    else { dot.className = 'sync-dot'; lbl.textContent = 'Conectado'; }
-  } catch { document.getElementById('sync-dot').className = 'sync-dot offline'; }
+    ok = !error;
+  } catch (e) { ok = false; }
+  const dot = document.getElementById('sync-dot');
+  const lbl = document.getElementById('sync-label');
+  if (dot) dot.className = ok ? 'sync-dot' : 'sync-dot offline';
+  if (lbl) lbl.textContent = ok ? 'Conectado' : 'Sin conexión';
+  let franja = document.getElementById('aviso-sin-conexion');
+  if (ok) { if (franja) franja.remove(); return; }
+  if (!franja) {
+    franja = document.createElement('div');
+    franja.id = 'aviso-sin-conexion';
+    franja.style.cssText = 'position:sticky;top:0;z-index:200;background:#7a1f1f;color:#fff;font-size:12.5px;'
+      + 'padding:9px 14px;line-height:1.45;text-align:center';
+    franja.innerHTML = '<strong>Sin conexión con la base de datos.</strong> Lo que ves puede estar desactualizado '
+      + 'y los cambios no se guardarán. Si revisaste tu internet y sigue así más de unos minutos, es probable que '
+      + 'Supabase haya pausado la base por falta de uso: hay que reactivarla en supabase.com. '
+      + '<button onclick="verificarConexion()" style="margin-left:6px;background:#fff;color:#7a1f1f;border:0;'
+      + 'border-radius:5px;padding:3px 9px;font-weight:700;cursor:pointer">Reintentar</button>';
+    document.body.prepend(franja);
+  }
 }
 
 // ─── NAVEGACIÓN ───────────────────────────────
