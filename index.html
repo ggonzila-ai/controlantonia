@@ -12046,10 +12046,19 @@ async function cargarVentasFeria(){
   const panel=document.getElementById('vf-panel'); if(!panel) return;
   panel.innerHTML='<div class="loader"><div class="spinner"></div></div>';
   const mes=periodoActual();
-  const { data: reps, error } = await sb.from('reportes_ventas_feria').select('*').eq('mes',mes).eq('estado','activo').order('created_at',{ascending:false}).limit(1);
+  // Un mes puede tener VARIOS reportes activos: Feria liquida del 26 al 25, así que
+  // septiembre llega en dos archivos (1–25 en uno, 26–30 en el siguiente). Se suman.
+  const { data: reps, error } = await sb.from('reportes_ventas_feria').select('*').eq('mes',mes).eq('estado','activo').order('periodo_desde');
   if(error){ panel.innerHTML='<div class="alert alert-warn" style="margin:14px">Faltan las tablas de reportes en Supabase. Corre el SQL que te pasé y recarga.</div>'; return; }
-  _vfReporte=(reps&&reps[0])||null;
-  if(_vfReporte){ const { data: det } = await sb.from('ventas_feria_detalle').select('*').eq('reporte_id',_vfReporte.id).limit(8000); _vfDetalle=det||[]; }
+  _vfReporte = (reps && reps.length) ? {
+    ids: reps.map(x=>x.id), mes, partes: reps,
+    tipo: reps.every(x=>x.tipo==='definitivo') ? 'definitivo' : 'parcial',
+    periodo_desde: reps[0].periodo_desde,
+    periodo_hasta: reps.reduce((m,x)=> (x.periodo_hasta||'') > m ? x.periodo_hasta : m, ''),
+    total_unidades: reps.reduce((t,x)=>t+(x.total_unidades||0),0),
+    total_ventas_sin_iva: reps.reduce((t,x)=>t+(x.total_ventas_sin_iva||0),0)
+  } : null;
+  if(_vfReporte){ const { data: det } = await sb.from('ventas_feria_detalle').select('*').in('reporte_id',_vfReporte.ids).limit(20000); _vfDetalle=det||[]; }
   else _vfDetalle=[];
   await loadCostosData();
   vfRender();
@@ -12062,7 +12071,9 @@ function vfRender(){
   let html=`<div class="section-card" style="margin:0 0 14px">
     <div style="font-size:13px;font-weight:700;margin-bottom:8px">📊 Reportes de ventas — Feria del Brasier</div>`;
   if(r){
-    html+=`<div style="font-size:12px;color:var(--gris-medio);margin-bottom:8px">Reporte activo ${mesNombre(mes)}:</div>
+    html+=`<div style="font-size:12px;color:var(--gris-medio);margin-bottom:8px">${r.partes.length>1
+        ? `${mesNombre(mes)} · ${r.partes.length} reportes sumados (${r.partes.map(x=>_fechaLargaVF(x.periodo_desde)+'–'+_fechaLargaVF(x.periodo_hasta)).join(' y ')}):`
+        : `Reporte activo ${mesNombre(mes)}:`}</div>
       <div style="font-size:13px">${r.tipo==='definitivo'?'✅ <strong>Definitivo</strong>':'✓ Parcial'} · ${_fechaLargaVF(r.periodo_desde)}–${_fechaLargaVF(r.periodo_hasta)} · <strong>${NUM(r.total_unidades)}</strong> uds · <strong>${COP(r.total_ventas_sin_iva)}</strong> sin IVA</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
         <button class="btn btn-sm btn-primary" onclick="document.getElementById('vf-file').click()">+ Cargar nuevo reporte</button>
@@ -12216,20 +12227,37 @@ async function vfImport(file){
     });
     if(!meses.length){ toast('No encontré fechas válidas en el archivo.','err'); return; }
     _vfPending={ meses, archivo:file.name };
-    // Reportes activos existentes de esos meses (para avisar qué se reemplaza y con cuánta cobertura)
-    const { data: acts } = await sb.from('reportes_ventas_feria').select('mes, periodo_desde, periodo_hasta, tipo').in('mes', meses.map(m=>m.mes)).eq('estado','activo');
-    const actPorMes={}; (acts||[]).forEach(a=>{ actPorMes[a.mes]=a; });
+    // Qué hacer en cada mes se decide por FECHAS, no por mes. Feria liquida del 26 al
+    // 25, así que un mismo mes llega en dos archivos: antes el segundo marcaba como
+    // superado al primero y se perdía, p. ej., del 1 al 25 de septiembre.
+    //   · fechas que no se cruzan con nada  → se SUMA al mes
+    //   · el archivo cubre por completo un reporte ya cargado → lo REEMPLAZA (re-subida corregida)
+    //   · se cruza a medias, o ya está dentro de uno cargado → NO se importa: duplicaría ventas
+    const { data: acts } = await sb.from('reportes_ventas_feria').select('id, mes, periodo_desde, periodo_hasta, tipo').in('mes', meses.map(m=>m.mes)).eq('estado','activo');
     const dstr=d=>`${d.getDate()} ${MESES[d.getMonth()].toLowerCase()}`;
+    const fl=f=>_fechaLargaVF(f);
     const multi = meses.length>1;
+    meses.forEach(M=>{
+      const d0=M.desde.toISOString().slice(0,10), h0=M.hasta.toISOString().slice(0,10);
+      const delMes=(acts||[]).filter(a=>a.mes===M.mes);
+      const cruzan=delMes.filter(a=> !(a.periodo_hasta < d0 || a.periodo_desde > h0));
+      const cubiertos=cruzan.filter(a=> a.periodo_desde >= d0 && a.periodo_hasta <= h0);
+      M.otros = delMes.filter(a=>!cruzan.includes(a));
+      if(!cruzan.length){ M.accion='sumar'; M.reemplaza=[]; }
+      else if(cubiertos.length===cruzan.length){ M.accion='reemplazar'; M.reemplaza=cruzan.map(a=>a.id); M.choques=cruzan; }
+      else { M.accion='bloquear'; M.reemplaza=[]; M.choques=cruzan; }
+    });
     const filas = meses.map(M=>{
-      const ex=actPorMes[M.mes];
-      const nuevaHasta=M.hasta.toISOString().slice(0,10);
-      // pre-marcado solo si aporta datos más recientes que el reporte existente (o no hay reporte)
-      const marcar = !ex || nuevaHasta > (ex.periodo_hasta||'');
-      const aviso = ex ? `<div style="font-size:11px;color:${marcar?'var(--gris-medio)':'#A32D2D'};margin-top:2px">⚠️ Reemplaza el reporte actual de ${mesNombre(M.mes)} (${ex.tipo==='definitivo'?'definitivo':'parcial'}, hasta ${ex.periodo_hasta||'?'})${marcar?'':' — el archivo cubre MENOS días, por eso viene desmarcado'}</div>` : '';
-      return `<div style="border:1px solid var(--borde);border-radius:10px;padding:10px 12px;margin-top:8px">
+      const marcar = M.accion!=='bloquear';
+      const rango = a=>`${fl(a.periodo_desde)}–${fl(a.periodo_hasta)}`;
+      const aviso = M.accion==='sumar'
+          ? (M.otros.length ? `<div style="font-size:11px;color:var(--verde);margin-top:2px">＋ Se suma a lo ya cargado de ${mesNombre(M.mes)} (${M.otros.map(rango).join(', ')}). No se borra nada.</div>` : '')
+        : M.accion==='reemplazar'
+          ? `<div style="font-size:11px;color:var(--gris-medio);margin-top:2px">↻ Reemplaza ${M.choques.map(rango).join(', ')}: este archivo cubre esas mismas fechas.${M.otros.length ? ' Lo demás del mes ('+M.otros.map(rango).join(', ')+') se conserva.' : ''}</div>`
+          : `<div style="font-size:11px;color:#A32D2D;margin-top:2px">⚠️ No se importa: se cruza con ${M.choques.map(rango).join(', ')}, que ya está cargado. Importarlo duplicaría esas ventas.</div>`;
+      return `<div style="border:1px solid var(--borde);border-radius:10px;padding:10px 12px;margin-top:8px${marcar?'':';opacity:.75'}">
         <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
-          ${multi?`<input type="checkbox" class="vf-mes-chk" data-mes="${M.mes}" ${marcar?'checked':''} style="width:auto;margin-top:3px">`:''}
+          ${multi?`<input type="checkbox" class="vf-mes-chk" data-mes="${M.mes}" ${marcar?'checked':'disabled'} style="width:auto;margin-top:3px">`:''}
           <div style="flex:1">
             <div style="font-size:13px"><strong>${mesNombre(M.mes)}</strong> · ${dstr(M.desde)} → ${dstr(M.hasta)}</div>
             <div style="font-size:12px;color:var(--gris-medio)">${NUM(M.rows.length)} transacciones · ${NUM(M.uds)} uds · ${COP(M.sin)} sin IVA</div>
@@ -12252,12 +12280,16 @@ async function vfGuardar(){
   // Meses elegidos (si el archivo cruza varios, hay checkboxes; si es uno, va directo)
   const chks=[...document.querySelectorAll('.vf-mes-chk')];
   const elegidos = chks.length ? new Set(chks.filter(c=>c.checked).map(c=>c.dataset.mes)) : null;
-  const partes = P.meses.filter(M => !elegidos || elegidos.has(M.mes));
-  if(!partes.length){ toast('Marca al menos un mes para importar','err'); return; }
+  const partes = P.meses.filter(M => (!elegidos || elegidos.has(M.mes)) && M.accion!=='bloquear');
+  if(!partes.length){ toast(P.meses.some(M=>M.accion==='bloquear')
+      ? 'Nada que importar: esas fechas ya están cargadas y se duplicarían'
+      : 'Marca al menos un mes para importar','err'); return; }
   const btn=document.getElementById('vf-confirm-btn'); btn.disabled=true; const prev=btn.textContent; btn.textContent='Importando…';
   const num=s=>parseFloat(String(s).replace(/[^\d.-]/g,''))||0;
   for (const M of partes) {
-    await sb.from('reportes_ventas_feria').update({estado:'superado'}).eq('mes',M.mes).eq('estado','activo');
+    // Solo se marcan como superados los reportes que este archivo cubre por completo.
+    if (M.reemplaza && M.reemplaza.length)
+      await sb.from('reportes_ventas_feria').update({estado:'superado'}).in('id',M.reemplaza).eq('estado','activo');
     const { data: rep, error } = await sb.from('reportes_ventas_feria').insert({ mes:M.mes, periodo_desde:M.desde.toISOString().slice(0,10), periodo_hasta:M.hasta.toISOString().slice(0,10), tipo:'parcial', total_unidades:M.uds, total_ventas_sin_iva:Math.round(M.sin), nombre_archivo:P.archivo }).select().single();
     if(error){ btn.disabled=false; btn.textContent=prev; toast(`No se pudo crear el reporte de ${mesNombre(M.mes)}: `+detalleError(error),'err'); console.error(error); return; }
     const detalle=M.rows.map(r=>{ const pr=vfParseRef(r[4]||''); const af=r[3]||''; return { reporte_id:rep.id, fecha:new Date(r[1]).toISOString().slice(0,10), almacen_feria:af, almacen:VF_ALMACENES[String(af).toUpperCase().trim()]||af, referencia_codigo:r[4]||null, referencia_base:pr.base||null, talla:pr.talla, desc_item:r[6]||null, cantidad:parseInt(r[7])||0, valor_sin_iva:num(r[8]), valor_con_iva:num(r[11]), valor_descuentos:num(r[9]), vendedor:r[12]||null, es_oferta:String(r[14]||'').includes('6002') }; });
@@ -12273,7 +12305,7 @@ async function vfGuardar(){
 async function vfMarcarDefinitivo(){
   if(!_vfReporte) return;
   if(!confirm(`¿Este es el reporte FINAL de ${mesNombre(_vfReporte.mes)}? Podrás cargar otro, pero quedará marcado como definitivo.`)) return;
-  await sb.from('reportes_ventas_feria').update({tipo:'definitivo'}).eq('id',_vfReporte.id);
+  await sb.from('reportes_ventas_feria').update({tipo:'definitivo'}).in('id',_vfReporte.ids);
   toast('✓ Marcado como definitivo'); cargarVentasFeria();
 }
 
