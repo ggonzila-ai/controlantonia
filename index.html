@@ -8235,8 +8235,15 @@ function fisicoDe(almId, periodo) {
   // Si una referencia se contó dos veces, manda el conteo más reciente.
   const cs = conteosDeCierre(almId, periodo);
   if (!cs.length) return null;
+  // Dentro de UN conteo, dos líneas que el alias une en la misma referencia se SUMAN
+  // (antes la segunda pisaba a la primera). Entre conteos distintos sigue mandando el más
+  // reciente. Ningún conteo repite un mismo nombre, así que sumar solo toca alias.
   const o = {};
-  cs.forEach(c => (c.items || []).forEach(it => { o[it.referencia] = it.cantidad_fisica || 0; }));
+  cs.forEach(c => {
+    const delConteo = {};
+    (c.items || []).forEach(it => { delConteo[it.referencia] = (delConteo[it.referencia] || 0) + (it.cantidad_fisica || 0); });
+    Object.assign(o, delConteo);
+  });
   return Object.keys(o).length ? o : null;
 }
 
@@ -8258,7 +8265,16 @@ function fechaConteoDe(almId, periodo) {
 function inventarioMensual(almId, periodo) {
   const c = invCache; if (!c) return [];
   const aperPR = {}, remPR = {}, remAjPR = {}, vtaPR = {}, ajPR = {}, catOf = {};
-  c.aperturas.filter(a => a.almacen_id === almId).forEach(a => { (aperPR[a.periodo] = aperPR[a.periodo]||{})[a.referencia] = { u:a.unidades, cat:a.categoria, org:a.origen||'manual' }; if (a.categoria) catOf[a.referencia]=a.categoria; });
+  // Dos nombres que el alias une en una sola referencia (p. ej. FALDA LARGA DE BAÑO →
+  // FALDA CORTA DE BAÑO) pueden tener cada uno su inicial en el mismo mes: se SUMAN.
+  // Antes la segunda fila pisaba a la primera y se perdían unidades. La base no permite
+  // dos iniciales con el mismo nombre en el mismo mes, así que solo un alias puede juntarlos.
+  c.aperturas.filter(a => a.almacen_id === almId).forEach(a => {
+    const pr = (aperPR[a.periodo] = aperPR[a.periodo] || {}), prev = pr[a.referencia];
+    pr[a.referencia] = prev
+      ? { u: (prev.u || 0) + (a.unidades || 0), cat: prev.cat || a.categoria, org: (prev.org === 'conteo' || a.origen === 'conteo') ? 'conteo' : prev.org }
+      : { u: a.unidades, cat: a.categoria, org: a.origen || 'manual' };
+    if (a.categoria) catOf[a.referencia] = a.categoria; });
   const pSig = periodoNext(periodo);
   const remFechas = {};   // fecha -> { remision, refs: { ref: uds } }  (solo del período pedido; alimenta las columnas)
   // Para medir contra el día del conteo hacen falta también los movimientos del mes
