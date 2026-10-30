@@ -33,6 +33,14 @@ ON CONFLICT (alias) DO UPDATE SET referencia = EXCLUDED.referencia;
 UPDATE public.variantes SET descontinuado = true
  WHERE referencia IN ('FALDA LARGA DE BAÑO', 'FALDA LARGA BOLERO');
 
+-- ─── 1b · Blusa básica tiras = Blusa básica Keira ─────────────────
+-- Son la misma blusa (Laura, 30 oct 2026). Queda el nombre BLUSA BASICA TIRAS; el
+-- inventario contado bajo KEIRA (Outlet 12, Malca 2 5 en septiembre) se suma a TIRAS.
+INSERT INTO public.referencia_alias (alias, referencia)
+VALUES ('BLUSA BASICA KEIRA', 'BLUSA BASICA TIRAS')
+ON CONFLICT (alias) DO UPDATE SET referencia = EXCLUDED.referencia;
+UPDATE public.variantes SET descontinuado = true WHERE referencia = 'BLUSA BASICA KEIRA';
+
 -- ─── 2 · Momento del conteo ──────────────────────────────────────
 ALTER TABLE public.conteos_fisicos
   ADD COLUMN IF NOT EXISTS momento text NOT NULL DEFAULT 'cierre';
@@ -49,12 +57,16 @@ SELECT alias, referencia FROM public.referencia_alias
 -- Esperado: FALDA BOLEROS · FALDA CORTA BOLERO · FALDA LARGA BOLERO · FALDA LARGA DE BAÑO
 --           · FALDA MALLA VELO SURTIDA  (todas → FALDA CORTA DE BAÑO)
 
+SELECT alias, referencia FROM public.referencia_alias WHERE alias = 'BLUSA BASICA KEIRA';
+-- Esperado: BLUSA BASICA KEIRA → BLUSA BASICA TIRAS
+
 SELECT momento, count(*) FROM public.conteos_fisicos GROUP BY momento;
 -- Esperado: cierre · 11
 
 -- ══════════════════════════════════════════════════════════════════
 -- ROLLBACK
---   DELETE FROM public.referencia_alias WHERE alias = 'FALDA LARGA DE BAÑO';
+--   DELETE FROM public.referencia_alias WHERE alias IN ('FALDA LARGA DE BAÑO','BLUSA BASICA KEIRA');
+--   UPDATE public.variantes SET descontinuado = false WHERE referencia = 'BLUSA BASICA KEIRA';
 --   UPDATE public.referencia_alias SET referencia = 'FALDA LARGA DE BAÑO' WHERE alias = 'FALDA LARGA BOLERO';
 --   UPDATE public.variantes SET descontinuado = false WHERE referencia IN ('FALDA LARGA DE BAÑO','FALDA LARGA BOLERO');
 --   ALTER TABLE public.conteos_fisicos DROP CONSTRAINT IF EXISTS conteos_fisicos_momento_chk;
