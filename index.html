@@ -188,6 +188,9 @@
   /* INV FISICO */
   .conteo-row { display: grid; grid-template-columns: 1fr 80px 80px 70px; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--borde); }
   .conteo-row:last-child { border-bottom: none; }
+  /* Conteo a ciegas para asesoras: sin la columna Sistema ni la diferencia */
+  .ciego .conteo-row { grid-template-columns: 1fr 110px; }
+  .ciego .conteo-row > :nth-child(2), .ciego .conteo-row > :nth-child(4) { display: none; }
   .conteo-row.header { background: var(--gris-claro); font-size: 10px; font-weight: 600; color: var(--gris-medio); text-transform: uppercase; letter-spacing: .04em; padding: 8px 12px; }
   .conteo-row input { width: 100%; padding: 8px; text-align: center; font-size: 15px; border: 1.5px solid var(--borde); border-radius: var(--radius-sm); background: var(--blanco); }
   .conteo-row input:focus { outline: none; border-color: var(--rosa-oscuro); }
@@ -1033,7 +1036,7 @@
         <div class="form-section">
           <div class="alert alert-info">
             <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-            Selecciona la tienda y registra cuántas unidades hay físicamente de cada referencia. El admin puede contar <strong>cualquier</strong> referencia (aunque el sistema diga 0) y usar <strong>"Inventario inicial"</strong> para tiendas nuevas.
+            Selecciona la tienda y anota cuántas unidades hay físicamente de cada referencia. <strong>Si una referencia no está en la tienda, escribe 0</strong>: las que quedan vacías no se cuentan. Administración puede además usar <strong>"Inventario inicial"</strong> para fijar el inventario desde cero.
           </div>
           <div class="form-group">
             <label>Almacén</label>
@@ -1042,11 +1045,21 @@
           <div class="form-row">
             <div class="form-group">
               <label>Fecha del conteo</label>
-              <input type="date" id="if-fecha">
+              <input type="date" id="if-fecha" onchange="actualizarCierreConteo()">
+              <div id="if-cierre" style="font-size:11.5px;margin-top:4px"></div>
             </div>
             <div class="form-group">
-              <label>Contado por</label>
-              <input type="text" id="if-quien" placeholder="Nombre vendedora">
+              <label>Contado por <span style="color:var(--rojo)">*</span></label>
+              <input type="text" id="if-quien" placeholder="Nombre de quien cuenta" autocomplete="off">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Se contó <span style="color:var(--rojo)">*</span></label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <label style="display:inline-flex;align-items:center;gap:6px;border:1.5px solid var(--borde);border-radius:8px;padding:8px 12px;cursor:pointer;font-weight:600;font-size:13px">
+                <input type="radio" name="if-momento" value="apertura" style="width:auto"> al abrir la tienda</label>
+              <label style="display:inline-flex;align-items:center;gap:6px;border:1.5px solid var(--borde);border-radius:8px;padding:8px 12px;cursor:pointer;font-weight:600;font-size:13px">
+                <input type="radio" name="if-momento" value="cierre" style="width:auto"> al cerrar la tienda</label>
             </div>
           </div>
         </div>
@@ -2902,6 +2915,7 @@ function showTab(tabId) {
   if (tabId === 'tab-prod-catalogo') renderCatalogo();
   if (tabId === 'tab-inv-fisico') {
     const f = document.getElementById('if-fecha'); if (f && !f.value) f.value = hoy();
+    actualizarCierreConteo();
     cargarItemsConteo();
   }
   if (tabId === 'tab-cont-ingresos') cargarIngresos();
@@ -7643,9 +7657,11 @@ async function cargarItemsConteo() {
   await cargarAliasRef();                                  // para no listar nombres viejos
   const invRows = inventarioActual(almId).rows;            // motor: inicial + remisiones − ventas + ajustes
   const sysMap = {}; invRows.forEach(r => { sysMap[r.ref] = r.final; });
+  // Todos —administradoras y asesoras— cuentan sobre TODAS las referencias activas del
+  // catálogo. Antes la asesora solo veía lo que el sistema creía que había, y en los
+  // locales con el sistema desactualizado no podía anotar lo que sí estaba en la tienda.
   let items;
-  if (admin) {
-    // ADMIN: TODAS las referencias del catálogo (bodega) + cualquiera con movimiento, con su stock de sistema (0 si no hay)
+  {
     const m = new Map();
     // Se omiten los nombres viejos: aparecerían como un producto aparte y al guardar
     // chocarían con su referencia real.
@@ -7654,12 +7670,12 @@ async function cargarItemsConteo() {
     invRows.forEach(r => { if (!m.has(r.ref) && !esAliasRef(r.ref))
       m.set(r.ref, { ref: r.ref, cat: r.cat || '', esperado: r.final }); });
     items = [...m.values()];
-  } else {
-    // VENDEDORA: solo referencias con stock en su almacén (sin cambios)
-    items = invRows.filter(r => r.final > 0 && !esAliasRef(r.ref)).map(r => ({ ref: r.ref, cat: r.cat || '', esperado: r.final }));
   }
-  // con stock primero; luego por categoría y referencia (las de stock 0 quedan al final)
-  items.sort((a, b) => (a.esperado > 0 ? 0 : 1) - (b.esperado > 0 ? 0 : 1) || (a.cat || '').localeCompare(b.cat || '') || a.ref.localeCompare(b.ref));
+  // Administración: con stock primero. Asesoras: solo por categoría y nombre, para que el
+  // orden no delate lo que el sistema espera (el conteo es a ciegas).
+  items.sort((a, b) => (admin ? ((a.esperado > 0 ? 0 : 1) - (b.esperado > 0 ? 0 : 1)) : 0)
+    || (a.cat || '').localeCompare(b.cat || '') || a.ref.localeCompare(b.ref));
+  wrap.classList.toggle('ciego', !admin);
   _conteoItems = items;
   const borr = leerBorradorConteo(almId);
   _conteoFisico = (borr && borr.datos) ? { ...borr.datos } : {};
@@ -7674,6 +7690,29 @@ async function cargarItemsConteo() {
   const ich = document.getElementById('if-inicial'); if (ich) ich.checked = false;
   const bus = document.getElementById('if-buscar'); if (bus) bus.value = '';
   renderConteoItems();
+}
+
+// Avisos junto a una referencia en el formulario de conteo.
+const NOTA_CONTEO = {
+  'FALDA CORTA DE BAÑO': 'Cuenta aquí todas las faldas bolero, cortas y largas'
+};
+
+// Misma regla que periodo_cierre_sugerido() en la base: del 25 en adelante cierra ese
+// mes; del 1 al 10, el mes anterior; del 11 al 24 no cierra ninguno (conteo intermedio).
+function periodoCierreDe(fecha){
+  if (!fecha) return null;
+  const [y, m, d] = fecha.split('-').map(Number);
+  if (d >= 25) return `${y}-${String(m).padStart(2,'0')}`;
+  if (d <= 10) { const py = m === 1 ? y - 1 : y, pm = m === 1 ? 12 : m - 1; return `${py}-${String(pm).padStart(2,'0')}`; }
+  return null;
+}
+function actualizarCierreConteo(){
+  const el = document.getElementById('if-cierre'); if (!el) return;
+  const f = (document.getElementById('if-fecha') || {}).value;
+  if (!f) { el.textContent = ''; return; }
+  const p = periodoCierreDe(f);
+  el.style.color = p ? 'var(--verde)' : 'var(--ambar)';
+  el.textContent = p ? `Este conteo cierra ${mesNombre(p)}` : 'Este conteo no cierra ningún mes (conteo intermedio)';
 }
 
 function renderConteoItems() {
@@ -7691,7 +7730,8 @@ function renderConteoItems() {
     return `<div class="conteo-row" data-ref="${ea(it.ref)}" data-esp="${it.esperado}">
       <div>
         <div style="font-size:13px;font-weight:600">${it.ref}</div>
-        <div style="font-size:11px;color:var(--gris-medio)">${it.cat || '—'}${it.esperado === 0 ? ' · sin stock' : ''}</div>
+        <div style="font-size:11px;color:var(--gris-medio)">${it.cat || '—'}${(!esVendedora() && it.esperado === 0) ? ' · sin stock' : ''}</div>
+        ${NOTA_CONTEO[it.ref] ? `<div style="font-size:11px;color:var(--brand-mid);font-weight:600">${NOTA_CONTEO[it.ref]}</div>` : ''}
       </div>
       <div style="text-align:center;font-weight:600;color:var(--gris-medio)">${inicial ? '—' : NUM(it.esperado)}</div>
       <input type="text" inputmode="numeric" pattern="[0-9]*" class="if-c" data-ref="${ea(it.ref)}" placeholder="0" value="${has ? ea(raw) : ''}" oninput="onConteoInput(this)" onkeydown="bloquearFlechas(event)" autocomplete="off">
@@ -7734,9 +7774,12 @@ async function enviarConteo() {
   const almId = document.getElementById('if-almacen').value;
   const almNombre = document.querySelector('#if-almacen option:checked')?.dataset?.nombre || (almacenes.find(a => a.id === almId) || {}).nombre || '';
   const fecha = document.getElementById('if-fecha').value;
-  const quien = document.getElementById('if-quien').value;
+  const quien = (document.getElementById('if-quien').value || '').trim();
+  const momento = (document.querySelector('input[name="if-momento"]:checked') || {}).value || '';
   if (!almId || !fecha) { toast('Selecciona almacén y fecha', 'err'); return; }
+  if (!quien) { toast('Escribe quién hizo el conteo', 'err'); document.getElementById('if-quien').focus(); return; }
   const inicial = !esVendedora() && !!document.getElementById('if-inicial')?.checked;
+  if (!momento && !inicial) { toast('Indica si se contó al abrir o al cerrar la tienda', 'err'); return; }
 
   // Recoger lo ingresado (de TODAS las referencias, no solo las visibles tras filtrar)
   const counted = _conteoItems.map(it => { const raw = _conteoFisico[it.ref]; const v = parseInt(raw); return { it, v, has: raw != null && raw !== '' && !isNaN(v) }; }).filter(x => x.has);
@@ -7779,7 +7822,8 @@ async function enviarConteo() {
   }
 
   // Conteo físico normal: registra físico vs sistema (diferencias)
-  if (faltan > 0 && !confirm(`Se registrarán ${counted.length} referencia(s) contadas. ${faltan} sin contar no se modifican.\n\n¿Enviar?`)) return;
+  if (faltan > 0 && !confirm(`Se registrarán ${counted.length} referencia(s) contadas.\n\n`
+      + `${faltan} quedaron vacías y NO se cuentan. Si alguna no está en la tienda, vuelve y escribe 0.\n\n¿Enviar así?`)) return;
   // `diferencia` la calcula Postgres (columna generada): mandarla hace fallar el INSERT entero.
   // Se unifican los nombres viejos y, si dos caen en la misma referencia, se suman.
   const porRef = {};
@@ -7789,7 +7833,12 @@ async function enviarConteo() {
     else porRef[ref] = { referencia: ref, categoria: x.it.cat || '', cantidad_sistema: x.it.esperado, cantidad_fisica: x.v };
   });
   const items = Object.values(porRef);
-  const { data: conteo, error } = await sb.from('conteos_fisicos').insert({ fecha, almacen_id: almId, almacen_nombre: almNombre, contado_por: quien }).select().single();
+  // `momento` existe desde sql/017. Si la base todavía no lo tiene, se guarda sin él
+  // en vez de perder el conteo.
+  let { data: conteo, error } = await sb.from('conteos_fisicos').insert({ fecha, almacen_id: almId, almacen_nombre: almNombre, contado_por: quien, momento }).select().single();
+  if (error && /momento/.test(error.message || '')) {
+    ({ data: conteo, error } = await sb.from('conteos_fisicos').insert({ fecha, almacen_id: almId, almacen_nombre: almNombre, contado_por: quien }).select().single());
+  }
   if (error) { toast('Error al guardar conteo: ' + detalleError(error), 'err'); console.error(error); return; }
   const { error: errItems } = await sb.from('conteo_items').insert(items.map(i => ({ ...i, conteo_id: conteo.id })));
   if (errItems) {
