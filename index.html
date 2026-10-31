@@ -1070,6 +1070,7 @@
             <select id="if-cat" onchange="renderConteoItems()" style="padding:8px;border:1.5px solid var(--borde);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--blanco)"><option value="">Todas las categorías</option></select>
             <label id="if-inicial-wrap" style="display:none;align-items:center;gap:6px;font-size:12px;color:var(--gris-medio);cursor:pointer;white-space:nowrap"><input type="checkbox" id="if-inicial" onchange="renderConteoItems()" style="width:16px;height:16px"> Inventario inicial</label>
           </div>
+          <div id="if-surtido"></div>
           <div id="if-count-nota" style="padding:6px 16px 0;font-size:11px;color:var(--gris-medio)"></div>
           <div class="conteo-row header">
             <div>Referencia</div><div style="text-align:center">Sistema</div><div style="text-align:center">Físico</div><div style="text-align:center">Dif.</div>
@@ -7677,6 +7678,23 @@ async function cargarItemsConteo() {
   items.sort((a, b) => (admin ? ((a.esperado > 0 ? 0 : 1) - (b.esperado > 0 ? 0 : 1)) : 0)
     || (a.cat || '').localeCompare(b.cat || '') || a.ref.localeCompare(b.ref));
   wrap.classList.toggle('ciego', !admin);
+  // Surtido reducido de la tienda: se muestra solo eso y el resto queda para registrarse en 0.
+  const almObj = (almacenes || []).find(a => a.id === almId) || {};
+  const surt = SURTIDO_CONTEO[almObj.codigo];
+  const verTodas = admin && !!document.getElementById('if-todas')?.checked;
+  _conteoOcultas = [];
+  if (surt && !verTodas) {
+    const entra = it => (surt.categorias || []).includes(it.cat) || (surt.refs || []).includes(it.ref);
+    _conteoOcultas = items.filter(it => !entra(it));
+    items = items.filter(entra);
+  }
+  const avSurt = document.getElementById('if-surtido');
+  if (avSurt) avSurt.innerHTML = surt
+    ? `<div class="alert alert-info" style="margin:8px 16px 0;font-size:12px">${verTodas
+        ? 'Mostrando todas las referencias.'
+        : `En esta tienda solo se cuenta <strong>${surt.etiqueta}</strong>. Las demás referencias se registran en 0 al enviar.`}
+       ${admin ? `<label style="display:inline-flex;align-items:center;gap:5px;margin-left:6px;cursor:pointer"><input type="checkbox" id="if-todas" ${verTodas ? 'checked' : ''} onchange="cargarItemsConteo()" style="width:auto"> Mostrar todas</label>` : ''}</div>`
+    : '';
   _conteoItems = items;
   const borr = leerBorradorConteo(almId);
   _conteoFisico = (borr && borr.datos) ? { ...borr.datos } : {};
@@ -7698,6 +7716,18 @@ async function cargarItemsConteo() {
 // común de ANT6215 (BLUSA DE MODA CHALIS HINDU, $39.900) y ANT2001 (BLUSA JUVENIL VELO,
 // $49.900): esas blusas se cuentan en su referencia propia.
 const REF_RETIRADAS_CONTEO = ['BLUSA 39900 & 49900'];
+
+// Tiendas con surtido reducido: el conteo solo muestra lo que manejan, y todo lo demás
+// se registra en 0 al enviar, para no obligar a escribir ceros en veinte referencias.
+// "Pijamas" es la categoría PIJAMERIA entera (batolas incluidas): BATOLA TIRAS es lo que
+// más venden las tres. Llave: código del almacén. (Laura, 31 oct 2026)
+const SURTIDO_CONTEO = {
+  '171': { etiqueta: 'pijamería',                              categorias: ['PIJAMERIA'] },                       // Unicentro
+  '056': { etiqueta: 'pijamería',                              categorias: ['PIJAMERIA'] },                       // Único 5
+  '055': { etiqueta: 'pijamería, short en licra y capri en licra', categorias: ['PIJAMERIA'],
+           refs: ['SHORTS EN LICRA', 'CAPRIS EN LICRA'] }                                                          // Valle del Lili
+};
+let _conteoOcultas = [];   // referencias fuera del surtido de la tienda: se guardan en 0
 
 // Avisos junto a una referencia en el formulario de conteo.
 const NOTA_CONTEO = {
@@ -7810,6 +7840,10 @@ async function enviarConteo() {
     REF_RETIRADAS_CONTEO.forEach(ref => {
       if (!porRefIni[ref]) porRefIni[ref] = { almacen_id: almId, almacen_nombre: almNombre, referencia: ref, categoria: '', periodo, unidades: 0 };
     });
+    _conteoOcultas.forEach(it => {
+      const ref = refCanon(it.ref);
+      if (!porRefIni[ref]) porRefIni[ref] = { almacen_id: almId, almacen_nombre: almNombre, referencia: ref, categoria: it.cat || '', periodo, unidades: 0 };
+    });
     const rows = Object.values(porRefIni);
     const fusionadas = counted.length - rows.length;
     if (fusionadas > 0 && !confirm(`${fusionadas} referencia(s) que contaste son el mismo producto con `
@@ -7845,6 +7879,10 @@ async function enviarConteo() {
   });
   REF_RETIRADAS_CONTEO.forEach(ref => {
     if (!porRef[ref]) porRef[ref] = { referencia: ref, categoria: '', cantidad_sistema: _conteoSistema[ref] || 0, cantidad_fisica: 0 };
+  });
+  _conteoOcultas.forEach(it => {
+    const ref = refCanon(it.ref);
+    if (!porRef[ref]) porRef[ref] = { referencia: ref, categoria: it.cat || '', cantidad_sistema: it.esperado || 0, cantidad_fisica: 0 };
   });
   const items = Object.values(porRef);
   // `momento` existe desde sql/017. Si la base todavía no lo tiene, se guarda sin él
