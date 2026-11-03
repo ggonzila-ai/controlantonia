@@ -10144,15 +10144,21 @@ async function loadHist25() {
 
 async function cargarHistoricoVentas() {
   await Promise.all([ llenarSelectAlmacenes(), loadHist25() ]);
-  // Comparativo: solo datos COMPLETOS (ventas manuales + reportes Feria definitivos), sin parciales.
-  const { rows: dataAll } = await ventasShapedDelPeriodo('', { soloDefinitivo: true });
+  // Antes solo entraban los reportes de Feria marcados "definitivo", y ninguno lo está:
+  // Feria liquida del 26 al 25, así que cada mes llega en dos reportes parciales y nunca
+  // queda uno definitivo. Septiembre y octubre, que solo existen en esos reportes, no
+  // aparecían. Ahora entran todos los reportes activos, y el mes que aún no llega a su
+  // último día se marca como parcial, con la fecha hasta la que hay ventas.
+  const { rows: dataAll } = await ventasShapedDelPeriodo('');
   const data = dataAll.filter(v => v.periodo && v.periodo >= '2026-01' && v.periodo <= '2026-12');
-  _real2026 = {}; _real2026Alm = {};
+  _real2026 = {}; _real2026Alm = {}; _real2026Hasta = {};
   data.forEach(v => {
     const m = +v.periodo.split('-')[1];
     _real2026[m] = (_real2026[m]||0) + ventaTotal(v);
     const a = (_real2026Alm[v.almacen_nombre] = _real2026Alm[v.almacen_nombre] || {});
     a[m] = (a[m]||0) + ventaTotal(v);
+    const f = v.fecha ? String(v.fecha).slice(0, 10) : null;
+    if (f && (!_real2026Hasta[m] || f > _real2026Hasta[m])) _real2026Hasta[m] = f;
   });
   const hsel = document.getElementById('hist-almacen');
   if (hsel && !hsel.options.length) {
@@ -10168,6 +10174,14 @@ async function cargarHistoricoVentas() {
   cargarMetas();
 }
 
+let _real2026Hasta = {};   // mes → última fecha con ventas cargadas
+// Un mes está completo si hay ventas hasta su último día (un día de margen). Sin fechas
+// no se puede saber: se toma como completo en vez de inventar un "parcial".
+function mesCompleto2026(m){
+  const h = _real2026Hasta[m]; if (!h) return true;
+  return +h.slice(8, 10) >= new Date(2026, m, 0).getDate() - 1;
+}
+
 function renderComparativo() {
   const scope = document.getElementById('hist-almacen')?.value || '';
   const serie25 = scope ? (HIST25.alm[scope] || Array(12).fill(0)) : HIST25.cons;
@@ -10179,14 +10193,16 @@ function renderComparativo() {
     const v26 = scope ? ((_real2026Alm[scope]||{})[m]||0) : (_real2026[m]||0);
     t25+=v25; tMeta+=meta; t26+=v26;
     const has = v26>0;
+    const parcial = has && !mesCompleto2026(m);
     const cumpl = (has && meta>0) ? Math.round(v26/meta*100) : null;
-    const cumplCol = cumpl==null ? '' : (cumpl>=100?'diff-pos':cumpl>=80?'':'diff-neg');
+    // En un mes parcial el cumplimiento no se colorea: son pocos días contra un mes entero.
+    const cumplCol = (cumpl==null || parcial) ? '' : (cumpl>=100?'diff-pos':cumpl>=80?'':'diff-neg');
     rows += `<tr>
       <td>${MESES[m-1]}</td>
       <td style="text-align:right"><span onclick="editarHist(${m}, this.dataset.scope, ${v25})" data-scope="${scope}" style="cursor:pointer;border-bottom:1px dashed var(--rosa-oscuro);color:${v25?'inherit':'var(--gris-medio)'}" title="Editar venta 2025">${v25?COP(v25):'+ editar'}</span></td>
       <td style="text-align:right;color:var(--brand-dark)">${meta?COP(meta):'—'}</td>
-      <td style="text-align:right;font-weight:700">${has?COP(v26):'—'}</td>
-      <td style="text-align:right;font-weight:700" class="${cumplCol}">${cumpl!=null?cumpl+'%':'—'}</td>
+      <td style="text-align:right;font-weight:700">${has?COP(v26):'—'}${parcial ? `<div style="font-size:10px;font-weight:400;color:var(--gris-medio)">parcial · hasta ${hdFecha(_real2026Hasta[m])}</div>` : ''}</td>
+      <td style="text-align:right;font-weight:700${parcial?';color:var(--gris-medio)':''}" class="${cumplCol}">${cumpl!=null?cumpl+'%':'—'}${parcial ? '<div style="font-size:10px;font-weight:400">parcial</div>' : ''}</td>
     </tr>`;
   }
   const cumplT = (t26>0 && tMeta>0) ? Math.round(t26/tMeta*100) : null;
@@ -10216,7 +10232,8 @@ function factorCrecimiento() {
   let r26=0, r25=0;
   Object.keys(HIST25.alm).forEach(nombre => {
     const a26 = _real2026Alm[nombre] || {};
-    Object.keys(a26).forEach(m => { r26 += a26[m]; r25 += HIST25.alm[nombre][(+m)-1] || 0; });
+    // Los meses parciales no entran: comparar 25 días contra un mes entero de 2025 bajaría el crecimiento.
+    Object.keys(a26).forEach(m => { if (!mesCompleto2026(+m)) return; r26 += a26[m]; r25 += HIST25.alm[nombre][(+m)-1] || 0; });
   });
   return r25 > 0 ? (r26/r25) : 1;
 }
