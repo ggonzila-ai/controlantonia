@@ -733,10 +733,12 @@
           </div>
         </div>
         <div style="padding:0 16px 6px;font-size:11px;color:var(--gris-medio)">Toca un valor de <strong>2025</strong> para editarlo. <strong>Meta de Venta</strong> = 2025 × crecimiento (ajusta el escenario abajo en "Metas inteligentes"). <strong>Cumpl.</strong> = real 2026 ÷ meta.</div>
+        <div id="hist-crec" style="padding:0 16px 10px"></div>
         <div class="tabla-wrap">
           <table>
-            <thead><tr><th>Mes</th><th style="text-align:right">2025</th><th style="text-align:right">Meta de Venta</th><th style="text-align:right">2026</th><th style="text-align:right">Cumpl.</th></tr></thead>
-            <tbody id="hist-comp-tbody"><tr><td colspan="5"><div class="loader"><div class="spinner"></div></div></td></tr></tbody>
+            <thead><tr><th>Mes</th><th style="text-align:right">2025</th><th style="text-align:right">Meta de Venta</th><th style="text-align:right">2026</th><th style="text-align:right">Cumpl.</th>
+              <th style="text-align:right;border-left:1px solid var(--borde)">Uds 2025</th><th style="text-align:right">Uds 2026</th><th style="text-align:right">Var. uds</th></tr></thead>
+            <tbody id="hist-comp-tbody"><tr><td colspan="8"><div class="loader"><div class="spinner"></div></div></td></tr></tbody>
           </table>
         </div>
 
@@ -10129,7 +10131,20 @@ const HIST = {
     'Feria del Brasier Valle del Lili':      [0,0,0,0,1039300,1360300,1379500,1070000,645100,571400,575030,5669100]
   }
 };
-let _real2026 = {}, _real2026Alm = {};
+// Unidades vendidas en 2025, de los archivos mensuales de Feria en Drive (carpeta VENTAS 2025,
+// columna "Cantidad inv."). Son la misma fuente de los pesos de HIST: enero a julio cuadran
+// al peso y agosto difiere $54.000 (0,2 por ciento). Octubre a diciembre de 2025 no tienen
+// archivo en Drive, así que van en null: sin dato, no se compara. El total incluye La Ermita.
+HIST.uds2025 = [658,464,444,457,766,653,787,642,521,null,null,null];
+HIST.udsAlm2025 = {
+    'Feria del Brasier Malca 2':             [317,203,225,190,282,289,356,275,208,null,null,null],
+    'Feria del Brasier Outlet Íntimo Cra 1': [182,150,126,130,247,168,194,160,146,null,null,null],
+    'Feria del Brasier Cra 8':               [105,65,50,66,112,83,98,73,59,null,null,null],
+    'Feria del Brasier Calle 13':            [0,0,4,31,24,31,32,43,37,null,null,null],
+    'Feria del Brasier Valle del Lili':      [0,0,0,0,27,37,35,30,19,null,null,null]
+};
+
+let _real2026 = {}, _real2026Alm = {}, _real2026Uds = {}, _real2026UdsAlm = {};
 // 2025 fusionado: arranca de los valores embebidos y se sobreescribe con la tabla editable ventas_hist
 let HIST25 = { cons: HIST.totalAnual[2025].slice(), alm: Object.fromEntries(Object.entries(HIST.alm2025).map(([k,v])=>[k, v.slice()])) };
 
@@ -10151,10 +10166,13 @@ async function cargarHistoricoVentas() {
   // último día se marca como parcial, con la fecha hasta la que hay ventas.
   const { rows: dataAll } = await ventasShapedDelPeriodo('');
   const data = dataAll.filter(v => v.periodo && v.periodo >= '2026-01' && v.periodo <= '2026-12');
-  _real2026 = {}; _real2026Alm = {}; _real2026Hasta = {};
+  _real2026 = {}; _real2026Alm = {}; _real2026Hasta = {}; _real2026Uds = {}; _real2026UdsAlm = {};
   data.forEach(v => {
     const m = +v.periodo.split('-')[1];
     _real2026[m] = (_real2026[m]||0) + ventaTotal(v);
+    _real2026Uds[m] = (_real2026Uds[m]||0) + (v.cantidad||0);
+    const ua = (_real2026UdsAlm[v.almacen_nombre] = _real2026UdsAlm[v.almacen_nombre] || {});
+    ua[m] = (ua[m]||0) + (v.cantidad||0);
     const a = (_real2026Alm[v.almacen_nombre] = _real2026Alm[v.almacen_nombre] || {});
     a[m] = (a[m]||0) + ventaTotal(v);
     const f = v.fecha ? String(v.fecha).slice(0, 10) : null;
@@ -10164,6 +10182,10 @@ async function cargarHistoricoVentas() {
   if (hsel && !hsel.options.length) {
     hsel.innerHTML = `<option value="">Consolidado (toda la empresa)</option>` + almacenes.map(a=>`<option value="${a.nombre}">${limpiarAlm(a.nombre)}</option>`).join('');
   }
+  try {
+    const { data: inf } = await sb.from('app_config').select('valor').eq('clave', 'inflacion_anual_pct').maybeSingle();
+    _inflacionPct = (inf && inf.valor != null && inf.valor !== '') ? +inf.valor : null;
+  } catch (e) { _inflacionPct = null; }
   renderComparativo();
   const mSel = document.getElementById('meta-mes');
   if (!mSel.options.length) {
@@ -10182,9 +10204,47 @@ function mesCompleto2026(m){
   return +h.slice(8, 10) >= new Date(2026, m, 0).getDate() - 1;
 }
 
+let _inflacionPct = null;   // IPC anual que escribe Laura; sin él no se calcula el crecimiento real
+
+async function guardarInflacion(el){
+  const v = String(el.value || '').replace(',', '.').trim();
+  const n = v === '' ? null : Number(v);
+  if (v !== '' && (!isFinite(n) || n < -50 || n > 100)) { toast('Escribe la inflación como un porcentaje, p. ej. 5,2', 'err'); return; }
+  const { error } = await sb.from('app_config').upsert({ clave: 'inflacion_anual_pct', valor: n }, { onConflict: 'clave' });
+  if (error) { toast('No se pudo guardar la inflación: ' + detalleError(error), 'err'); return; }
+  _inflacionPct = n; renderComparativo();
+  toast(n == null ? 'Inflación borrada' : `✓ Inflación ${String(n).replace('.', ',')}% guardada`);
+}
+
+// Crecimiento con dos referencias: PESOS (nominal y, si hay inflación, real) y UNIDADES.
+// Solo entran los meses completos que existen en los dos años; si no, se compararía
+// medio mes contra uno entero, o un mes con datos contra uno sin archivo.
+function resumenCrecimiento(scope){
+  const v25 = scope ? (HIST25.alm[scope] || []) : HIST25.cons;
+  const u25 = scope ? (HIST.udsAlm2025[scope] || []) : HIST.uds2025;
+  const v26 = scope ? (_real2026Alm[scope] || {}) : _real2026;
+  const u26 = scope ? (_real2026UdsAlm[scope] || {}) : _real2026Uds;
+  let p25 = 0, p26 = 0, q25 = 0, q26 = 0; const mesesP = [], mesesU = [];
+  for (let m = 1; m <= 12; m++) {
+    if (!mesCompleto2026(m) || !(v26[m] > 0)) continue;
+    if (v25[m-1] > 0) { p25 += v25[m-1]; p26 += v26[m]; mesesP.push(m); }
+    if (u25[m-1] != null && u25[m-1] > 0 && u26[m] > 0) { q25 += u25[m-1]; q26 += u26[m]; mesesU.push(m); }
+  }
+  const g = (a, b) => b > 0 ? a / b - 1 : null;
+  const gp = g(p26, p25), gu = g(q26, q25);
+  const real = (gp != null && _inflacionPct != null) ? (1 + gp) / (1 + _inflacionPct / 100) - 1 : null;
+  // precio promedio por unidad, en los meses que tienen pesos y unidades en ambos años
+  let pp25 = 0, pp26 = 0, qq25 = 0, qq26 = 0;
+  mesesU.forEach(m => { pp25 += v25[m-1] || 0; pp26 += v26[m] || 0; qq25 += u25[m-1]; qq26 += u26[m]; });
+  return { gp, gu, real, mesesP, mesesU, q25, q26,
+           precio25: qq25 ? pp25 / qq25 : null, precio26: qq26 ? pp26 / qq26 : null };
+}
+
 function renderComparativo() {
   const scope = document.getElementById('hist-almacen')?.value || '';
   const serie25 = scope ? (HIST25.alm[scope] || Array(12).fill(0)) : HIST25.cons;
+  const useries25 = scope ? (HIST.udsAlm2025[scope] || Array(12).fill(null)) : HIST.uds2025;
+  const useries26 = scope ? (_real2026UdsAlm[scope] || {}) : _real2026Uds;
   const factor = factorCrecimiento();
   let t25=0, tMeta=0, t26=0, rows='';
   for (let m=1; m<=12; m++) {
@@ -10203,6 +10263,9 @@ function renderComparativo() {
       <td style="text-align:right;color:var(--brand-dark)">${meta?COP(meta):'—'}</td>
       <td style="text-align:right;font-weight:700">${has?COP(v26):'—'}${parcial ? `<div style="font-size:10px;font-weight:400;color:var(--gris-medio)">parcial · hasta ${hdFecha(_real2026Hasta[m])}</div>` : ''}</td>
       <td style="text-align:right;font-weight:700${parcial?';color:var(--gris-medio)':''}" class="${cumplCol}">${cumpl!=null?cumpl+'%':'—'}${parcial ? '<div style="font-size:10px;font-weight:400">parcial</div>' : ''}</td>
+      <td style="text-align:right;border-left:1px solid var(--borde);color:var(--gris-medio)">${useries25[m-1] != null ? NUM(useries25[m-1]) : '<span title="No hay archivo de 2025 de este mes en Drive">sin dato</span>'}</td>
+      <td style="text-align:right">${useries26[m] ? NUM(useries26[m]) : '—'}</td>
+      <td style="text-align:right;font-weight:700${parcial?';color:var(--gris-medio)':''}" class="${(parcial || !(useries25[m-1] > 0) || !useries26[m]) ? '' : (useries26[m] >= useries25[m-1] ? 'diff-pos' : 'diff-neg')}">${(useries25[m-1] > 0 && useries26[m]) ? ((useries26[m] >= useries25[m-1] ? '+' : '') + Math.round((useries26[m] / useries25[m-1] - 1) * 100) + '%') : '—'}</td>
     </tr>`;
   }
   const cumplT = (t26>0 && tMeta>0) ? Math.round(t26/tMeta*100) : null;
@@ -10210,8 +10273,37 @@ function renderComparativo() {
     <td>TOTAL</td><td style="text-align:right">${COP(t25)}</td>
     <td style="text-align:right;color:var(--brand-dark)">${COP(tMeta)}</td>
     <td style="text-align:right">${t26?COP(t26):'—'}</td>
-    <td style="text-align:right">${cumplT!=null?cumplT+'%':'—'}</td></tr>`;
+    <td style="text-align:right">${cumplT!=null?cumplT+'%':'—'}</td>
+    <td style="text-align:right;border-left:1px solid var(--borde)">${NUM(useries25.reduce((a, x) => a + (x || 0), 0))}</td>
+    <td style="text-align:right">${NUM(Object.values(useries26).reduce((a, x) => a + (x || 0), 0))}</td>
+    <td></td></tr>`;
   document.getElementById('hist-comp-tbody').innerHTML = rows;
+
+  // ── Resumen del crecimiento: pesos (nominal y real) y unidades ──
+  const r = resumenCrecimiento(scope);
+  const pct = x => x == null ? '—' : (x >= 0 ? '+' : '') + (Math.round(x * 1000) / 10).toString().replace('.', ',') + '%';
+  const col = x => x == null ? 'var(--gris-medio)' : x >= 0 ? 'var(--verde)' : 'var(--rojo)';
+  const rango = ms => ms.length ? `${MESES[ms[0]-1]}–${MESES[ms[ms.length-1]-1]}` : 'sin meses comparables';
+  const caja = document.getElementById('hist-crec');
+  if (caja) caja.innerHTML = `<div class="metrics" style="margin:0 0 6px">
+      <div class="metric-card"><div class="m-label">Crecimiento en pesos</div>
+        <div class="m-val" style="color:${col(r.gp)}">${pct(r.gp)}</div>
+        <div class="m-sub">nominal · ${rango(r.mesesP)}</div></div>
+      <div class="metric-card"><div class="m-label">Crecimiento real (sin inflación)</div>
+        <div class="m-val" style="color:${col(r.real)}">${pct(r.real)}</div>
+        <div class="m-sub" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">IPC anual
+          <input type="text" inputmode="decimal" value="${_inflacionPct == null ? '' : String(_inflacionPct).replace('.', ',')}"
+            placeholder="%" onchange="guardarInflacion(this)" style="width:54px;padding:2px 5px;font-size:12px;border:1px solid var(--borde);border-radius:5px">%
+          ${_inflacionPct == null ? '<span style="color:var(--ambar)">escríbelo para calcularlo</span>' : ''}</div></div>
+      <div class="metric-card"><div class="m-label">Crecimiento en unidades</div>
+        <div class="m-val" style="color:${col(r.gu)}">${pct(r.gu)}</div>
+        <div class="m-sub">${NUM(r.q26)} vs ${NUM(r.q25)} uds · ${rango(r.mesesU)}</div></div>
+      <div class="metric-card"><div class="m-label">Precio promedio por unidad</div>
+        <div class="m-val" style="font-size:16px">${r.precio26 ? COP(Math.round(r.precio26)) : '—'}</div>
+        <div class="m-sub">${r.precio25 ? 'en 2025: ' + COP(Math.round(r.precio25)) + ' · ' + pct(r.precio26 / r.precio25 - 1) : ''}</div></div>
+    </div>
+    <div style="font-size:11px;color:var(--gris-medio)">Solo meses completos en los dos años. El crecimiento en unidades mide cuántas prendas más se venden;
+      la diferencia con el de pesos es el efecto precio. Octubre a diciembre de 2025 no tienen unidades porque no hay archivo de esos meses en Drive.</div>`;
 }
 
 async function editarHist(mes, scope, current) {
