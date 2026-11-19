@@ -759,7 +759,7 @@
             </div>
             <button class="btn btn-primary btn-sm" onclick="guardarMetas()" style="height:38px">💾 Guardar metas</button>
           </div>
-          <div style="font-size:11px;color:var(--gris-medio);padding-bottom:6px">La <strong>meta sugerida</strong> = venta del mismo mes de 2025 × (1 + crecimiento). Puedes editar la <strong>meta final</strong> de cada almacén antes de guardar. Al guardar, cada vendedora ve su meta del mes.</div>
+          <div style="font-size:11px;color:var(--gris-medio);padding-bottom:6px">La <strong>meta sugerida</strong> = venta del mismo mes de 2025 × (1 + crecimiento). Los almacenes que abrieron en 2026 no tienen ese mes de 2025: su sugerida = su <strong>mes normal</strong> de 2026 (promedio de los meses completos, sin el de apertura) × cuánto sube ese mes en las tiendas que ya estaban abiertas, frente a los mismos meses. Puedes editar la <strong>meta final</strong> de cada almacén antes de guardar. Al guardar, cada vendedora ve su meta del mes.</div>
         </div>
         <div class="metrics" id="meta-kpis" style="margin:8px 16px"></div>
         <div style="padding:4px 16px 8px;font-size:12px;font-weight:600;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Meta por almacén (edita la meta final)</div>
@@ -770,6 +770,7 @@
             <tbody id="meta-tbody"></tbody>
           </table>
         </div>
+        <div id="meta-produccion"></div>
       </div>
       <div id="tab-content-ventas-rank">
         <div style="padding:12px 16px;border-bottom:1px solid var(--borde);display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
@@ -10147,6 +10148,7 @@ HIST.udsAlm2025 = {
 };
 
 let _real2026 = {}, _real2026Alm = {}, _real2026Uds = {}, _real2026UdsAlm = {};
+let _mixAlm2026 = {};   // almacén → referencia → unidades vendidas en 2026
 // 2025 fusionado: arranca de los valores embebidos y se sobreescribe con la tabla editable ventas_hist
 let HIST25 = { cons: HIST.totalAnual[2025].slice(), alm: Object.fromEntries(Object.entries(HIST.alm2025).map(([k,v])=>[k, v.slice()])) };
 
@@ -10168,9 +10170,11 @@ async function cargarHistoricoVentas() {
   // último día se marca como parcial, con la fecha hasta la que hay ventas.
   const { rows: dataAll } = await ventasShapedDelPeriodo('');
   const data = dataAll.filter(v => v.periodo && v.periodo >= '2026-01' && v.periodo <= '2026-12');
-  _real2026 = {}; _real2026Alm = {}; _real2026Hasta = {}; _real2026Uds = {}; _real2026UdsAlm = {};
+  _real2026 = {}; _real2026Alm = {}; _real2026Hasta = {}; _real2026Uds = {}; _real2026UdsAlm = {}; _mixAlm2026 = {};
   data.forEach(v => {
     const m = +v.periodo.split('-')[1];
+    const mx = (_mixAlm2026[v.almacen_nombre] = _mixAlm2026[v.almacen_nombre] || {});
+    const rf = refCanon(v.referencia || '—'); mx[rf] = (mx[rf] || 0) + (v.cantidad || 0);
     _real2026[m] = (_real2026[m]||0) + ventaTotal(v);
     _real2026Uds[m] = (_real2026Uds[m]||0) + (v.cantidad||0);
     const ua = (_real2026UdsAlm[v.almacen_nombre] = _real2026UdsAlm[v.almacen_nombre] || {});
@@ -10333,6 +10337,31 @@ function factorCrecimiento() {
 }
 
 let _metaFilas = [];
+
+// Almacén que abrió en 2026 (sin historia 2025): su meta = su "mes normal" de 2026 × cuánto
+// sube ese mes en las tiendas que ya estaban abiertas. Mes normal = promedio de sus meses
+// completos de 2026, sin el de apertura. El salto se mide contra los MISMOS meses en 2025,
+// y solo con tiendas que ya vendían el mes anterior: un mes de apertura engaña.
+function metaPorTemporada(nombre, m) {
+  const r = _real2026Alm[nombre] || {};
+  const conVenta = Object.keys(r).map(Number).filter(k => r[k] > 0).sort((a, b) => a - b);
+  if (!conVenta.length) return null;
+  const win = conVenta.filter(k => k > conVenta[0] && mesCompleto2026(k));
+  if (!win.length) return null;
+  const base = win.reduce((s, k) => s + r[k], 0) / win.length;
+  let num = 0, den = 0; const refs = [];
+  Object.entries(HIST25.alm).forEach(([alm, h]) => {
+    if (alm === nombre || !h) return;
+    const prev = win[0] - 1;
+    if (prev >= 1 && !(h[prev - 1] > 0)) return;
+    if (!(h[m - 1] > 0) || !win.every(k => h[k - 1] > 0)) return;
+    num += h[m - 1]; den += win.reduce((s, k) => s + h[k - 1], 0) / win.length; refs.push(alm);
+  });
+  if (!den) return null;
+  const factor = num / den;
+  return { base, factor, meta: Math.round(base * factor), win, refs };
+}
+
 // Precio promedio por unidad de un almacén en 2026 (con IVA), con los meses completos.
 // Sirve para traducir una meta en pesos a las prendas que hay que vender, y producir.
 function precioPromAlm2026(nombre){
@@ -10348,16 +10377,23 @@ async function cargarMetas() {
   const periodo = `2026-${String(m).padStart(2,'0')}`;
   const { data: guardadas } = await sb.from('metas_ventas').select('almacen_id, meta_valor').eq('periodo', periodo);
   const savedMap = {}; (guardadas||[]).forEach(g => savedMap[g.almacen_id] = g.meta_valor);
-  _metaFilas = almacenes.map(a => {
+  await cargarDic2025();
+  // Solo almacenes abiertos: uno cerrado (La Ermita) no lleva meta ni suma prendas.
+  _metaFilas = almacenes.filter(a => a.activo !== false).map(a => {
     const hist = (HIST25.alm[a.nombre]||[])[m-1] || 0;
     const real = (_real2026Alm[a.nombre]||{})[m] || 0;
-    let sugerida, nuevo=false;
+    let sugerida, nuevo=false, temporada=null;
     if (HIST25.alm[a.nombre]) sugerida = Math.round(hist*factor);
-    else { nuevo=true; const vals=Object.values(_real2026Alm[a.nombre]||{}); sugerida = vals.length?Math.round(vals.reduce((s,x)=>s+x,0)/vals.length):0; }
+    else {
+      nuevo = true;
+      temporada = metaPorTemporada(a.nombre, m);
+      if (temporada) sugerida = temporada.meta;
+      else { const vals=Object.values(_real2026Alm[a.nombre]||{}); sugerida = vals.length?Math.round(vals.reduce((s,x)=>s+x,0)/vals.length):0; }
+    }
     const final = (a.id in savedMap) ? savedMap[a.id] : sugerida;
     const udsHist = (HIST.udsAlm2025[a.nombre] || [])[m-1];
     const udsReal = (_real2026UdsAlm[a.nombre] || {})[m] || 0;
-    return { id:a.id, nombre:a.nombre, hist, sugerida, real, nuevo, final,
+    return { id:a.id, nombre:a.nombre, hist, sugerida, real, nuevo, final, temporada,
              udsHist: udsHist == null ? null : udsHist, udsReal, precio: precioPromAlm2026(a.nombre) };
   }).sort((a,b)=>cmpAlm(a.nombre,b.nombre));
   pintarMetas();
@@ -10386,7 +10422,7 @@ function pintarMetas() {
       return `<button type="button" onclick="aplicarEscenarioAlm(${i},${pct})" title="${nombre} +${pct}%" style="border:1px solid ${activo?'var(--brand)':'var(--borde)'};background:${activo?'var(--brand)':'#fff'};color:${activo?'#fff':'var(--gris-medio)'};border-radius:6px;font-size:10px;font-weight:800;width:24px;height:22px;cursor:pointer;padding:0">${nombre[0]}</button>`;
     }).join('') + `</div>` : '';
     return `<tr>
-      <td><strong>${limpiarAlm(f.nombre)}</strong>${f.nuevo?' <span class="badge badge-gray" style="font-size:9px">nuevo</span>':''}${escBtns}</td>
+      <td><strong>${limpiarAlm(f.nombre)}</strong>${f.nuevo?' <span class="badge badge-gray" style="font-size:9px">nuevo</span>':''}${escBtns}${f.temporada ? `<div style="font-size:10px;color:var(--gris-medio);margin-top:3px" title="Sugerida: su promedio de ${f.temporada.win.map(k => MESES[k-1].toLowerCase()).join(', ')} de 2026 × lo que subió ${MESES[m-1].toLowerCase()} frente a esos mismos meses en 2025 en ${f.temporada.refs.map(limpiarAlm).join(', ')}">mes normal ${COP(f.temporada.base)} × ${f.temporada.factor.toFixed(2).replace('.', ',')}</div>` : ''}</td>
       <td style="text-align:right;color:var(--gris-medio)">${f.hist?COP(f.hist):'—'}</td>
       <td style="text-align:right" id="crec-${f.id}">${crec!=null?((crec>0?'+':'')+crec+'%'):'—'}</td>
       <td style="text-align:right"><input type="number" id="metaf-${f.id}" value="${f.final}" oninput="onMetaInput(${i})" style="width:106px;padding:5px;text-align:right;font-size:13px;border:1px solid var(--borde);border-radius:6px;background:var(--blanco)"></td>
@@ -10413,6 +10449,148 @@ function actualizarMetaKpis() {
     <div class="metric-card"><div class="m-label">Meta ${MESES[m-1]}</div><div class="m-val">${COP(metaGen)}</div><div class="m-sub">factor ×${factor.toFixed(2)} vs 2025</div></div>
     <div class="metric-card"><div class="m-label">Venta real</div><div class="m-val">${COP(realGen)}</div><div class="m-sub">${(realGen-metaGen>=0?'+':'')+COP(realGen-metaGen)} dif.</div></div>
     <div class="metric-card accent" style="grid-column:1/-1"><div class="m-label">Cumplimiento general</div><div class="m-val">${cumpGen}%</div><div class="stock-bar" style="margin-top:8px;height:8px;background:rgba(255,255,255,.3)"><div class="stock-fill" style="width:${Math.min(100,cumpGen)}%;background:#fff"></div></div></div>`;
+  pintarProduccionDic();
+}
+
+// ─── PRODUCCIÓN PARA DICIEMBRE ───
+// Ventas de diciembre 2025 por almacén, referencia y talla, del archivo de Feria
+// "Diciembre 31 2025.xlsx" (1.833 prendas, $72.728.240). Viven en app_config
+// (clave ventas_ref_2025_12) y NO en ventas_feria_detalle: allá entrarían al inventario,
+// a la conciliación y al punto de equilibrio como si fueran ventas de este año.
+let _dic2025 = null;
+async function cargarDic2025() {
+  if (_dic2025) return _dic2025;
+  try {
+    const { data } = await sb.from('app_config').select('valor').eq('clave', 'ventas_ref_2025_12').maybeSingle();
+    const v = data && data.valor;
+    if (!v || !Array.isArray(v.filas)) return null;
+    if (!codigosSku.length) { try { await cargarCodigos(); } catch (e) {} }
+    if (!bodegaData.length) { try { const { data: b } = await sb.from('bodega').select('*'); bodegaData = b || []; } catch (e) {} }
+    try { await cargarTallasPorRef(); } catch (e) {}
+    await cargarAliasRef();
+    const codeMap = {}; codigosSku.forEach(c => { if (c.codigo) codeMap[String(c.codigo).toUpperCase().trim()] = c.referencia; });
+    const nomPorCo = {}; (almacenes || []).forEach(a => { if (a.codigo) nomPorCo[String(a.codigo)] = a.nombre; });
+    // Feria reutiliza códigos: el ANT#### de hace un año puede ser hoy otra prenda. Si el
+    // catálogo dice que ese código sigue siendo la MISMA prenda que Feria facturó en diciembre
+    // (mismo nombre), manda su referencia de inventario. Si no, se usa codigos_sku, como en
+    // el resto de las ventas de Feria, y si tampoco está, la descripción del ítem.
+    const norm = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+    const catPorCod = {};
+    try {
+      const { data: prods } = await sb.from('productos').select('referencia_base, nombre, referencia_inventario');
+      (prods || []).forEach(p => { if (p.referencia_base && p.referencia_inventario) catPorCod[String(p.referencia_base).toUpperCase().trim()] = p; });
+    } catch (e) {}
+    const refDe = (base, desc) => {
+      const cod = 'ANT' + base, cat = catPorCod[cod];
+      if (cat && norm(cat.nombre) === norm(desc)) return refCanon(cat.referencia_inventario);
+      return refCanon(codeMap[cod] || desc || base);
+    };
+    const filas = v.filas.map(([co, base, talla, desc, uds, valor]) => ({
+      almacen: nomPorCo[co] || co, referencia: refDe(base, desc), desc: desc || '',
+      talla: talla || null, uds: +uds || 0, valor: +valor || 0 }));
+    _dic2025 = { ...v, filas };
+  } catch (e) { console.warn('ventas diciembre 2025', e); return null; }
+  return _dic2025;
+}
+
+const ORDEN_TALLAS_PROD = ['XS','S','M','L','XL','2XL','3XL','4XL','5XL','U'];
+// Reparte un entero entre partes proporcionales sin que la suma se descuadre (mayor residuo).
+function repartirEntero(total, pesos) {
+  const sum = Object.values(pesos).reduce((s, x) => s + x, 0);
+  if (!sum || !total) return {};
+  const out = {}; let asignado = 0;
+  const rest = Object.entries(pesos).map(([k, w]) => { const x = total * w / sum; out[k] = Math.floor(x); asignado += out[k]; return [k, x - out[k]]; });
+  rest.sort((a, b) => b[1] - a[1]).slice(0, total - asignado).forEach(([k]) => out[k]++);
+  return out;
+}
+
+// Las prendas para la meta de cada almacén, repartidas como se vendió en diciembre 2025 en
+// ese mismo almacén. Los que abrieron en 2026 se reparten como han vendido este año.
+// Las tallas siguen la mezcla de diciembre 2025 de cada referencia.
+function pintarProduccionDic() {
+  const el = document.getElementById('meta-produccion'); if (!el) return;
+  const m = +document.getElementById('meta-mes').value;
+  if (m !== 12 || !_dic2025) { el.innerHTML = ''; return; }
+  const mixDic = {}, tallasRef = {}, dic25Ref = {}, descRef = {};
+  _dic2025.filas.forEach(f => {
+    if (f.desc && f.desc.toUpperCase() !== f.referencia.toUpperCase()) (descRef[f.referencia] = descRef[f.referencia] || new Set()).add(f.desc);
+    const mx = (mixDic[f.almacen] = mixDic[f.almacen] || {}); mx[f.referencia] = (mx[f.referencia] || 0) + f.uds;
+    const t = (tallasRef[f.referencia] = tallasRef[f.referencia] || {}); if (f.talla) t[f.talla] = (t[f.talla] || 0) + f.uds;
+    dic25Ref[f.referencia] = (dic25Ref[f.referencia] || 0) + f.uds;
+  });
+  const proj = {}, conMezcla2026 = [], sinMezcla = [];
+  _metaFilas.forEach(f => {
+    const prendas = f.precio ? f.final / f.precio : 0; if (!prendas) return;
+    let mix = mixDic[f.nombre];
+    if (!mix || !Object.values(mix).some(x => x > 0)) { mix = _mixAlm2026[f.nombre]; if (mix) conMezcla2026.push(limpiarAlm(f.nombre)); }
+    const tot = mix ? Object.values(mix).reduce((s, x) => s + Math.max(0, x), 0) : 0;
+    if (!tot) { sinMezcla.push(limpiarAlm(f.nombre)); return; }
+    Object.entries(mix).forEach(([ref, u]) => { if (u > 0) proj[ref] = (proj[ref] || 0) + prendas * u / tot; });
+  });
+  const enBodega = new Set((bodegaData || []).map(b => b.referencia));
+  const esOferta = r => r === 'OFERTAS';
+  // Lo que falta producir = venta proyectada − lo que hay hoy en bodega, talla por talla
+  // (sobrar XL no tapa que falte M). Lo que ya está en las tiendas no se resta.
+  // Si diciembre 2025 trae tallas que la referencia ya no tiene (Feria reutiliza códigos),
+  // talla por talla no se puede cruzar: se descuenta la bodega en total.
+  const tallasHoy = ref => {
+    const st = new Set();
+    ((_tallasRef || {})[ref] || []).forEach(p => (p.tallas || []).forEach(x => { if (x.talla) st.add(x.talla); }));
+    Object.keys(stockPorTallaDe(ref)).forEach(k => { if (k && k !== '—') st.add(k); });
+    return st;
+  };
+  const filas = Object.entries(proj).map(([ref, x]) => {
+    const uds = Math.round(x), t = tallasRef[ref];
+    const stock = esOferta(ref) ? {} : stockPorTallaDe(ref);
+    const enBod = Object.values(stock).reduce((s, n) => s + Math.max(0, +n || 0), 0);
+    let producir = 0, porTalla = null, tallasNoCruzan = null;
+    const hoy = (t && enBod) ? tallasHoy(ref) : null;
+    if (hoy && Object.keys(t).some(k => t[k] > 0 && !hoy.has(k))) tallasNoCruzan = Object.keys(t).filter(k => t[k] > 0 && !hoy.has(k));
+    if (esOferta(ref)) producir = 0;
+    else if (t && Object.keys(t).length && !tallasNoCruzan) {
+      porTalla = {};
+      Object.entries(repartirEntero(uds, t)).forEach(([k, n]) => {
+        const f = Math.max(0, n - Math.max(0, +stock[k] || 0)); if (f) { porTalla[k] = f; producir += f; }
+      });
+    } else producir = Math.max(0, uds - enBod);
+    return { ref, uds, dic25: dic25Ref[ref] || 0, enBod, producir, porTalla, t, tallasNoCruzan };
+  }).filter(r => r.uds > 0).sort((a, b) => b.uds - a.uds);
+  if (!filas.length) { el.innerHTML = ''; return; }
+  const sum = (arr, k) => arr.reduce((s, r) => s + r[k], 0);
+  const normales = filas.filter(r => !esOferta(r.ref));
+  const totVenta = sum(normales, 'uds'), totProd = sum(normales, 'producir'), totOfer = sum(filas.filter(r => esOferta(r.ref)), 'uds');
+  const tallasTxt = r => {
+    if (esOferta(r.ref)) return '<span style="color:var(--gris-medio)">se surte con ofertas</span>';
+    if (r.tallasNoCruzan) return `<span style="color:var(--gris-medio)">en dic 2025 se vendió en ${escHtml(r.tallasNoCruzan.join(', '))}, que hoy no tiene: la bodega se descuenta en total</span>`;
+    if (!r.porTalla) return r.t ? '' : '<span style="color:var(--gris-medio)">sin tallas de dic 2025</span>';
+    const ks = ORDEN_TALLAS_PROD.filter(k => r.porTalla[k]).concat(Object.keys(r.porTalla).filter(k => !ORDEN_TALLAS_PROD.includes(k)));
+    const tot = Object.values(r.t).reduce((s, x) => s + x, 0), top = Math.max(...Object.values(r.t));
+    const aviso = tot >= 20 && top / tot >= 0.85
+      ? ` <span title="En diciembre 2025 Feria registró ${Math.round(top / tot * 100)}% en una sola talla: puede ser cómo se marcaba en caja, no la curva real" style="color:var(--rosa-oscuro);cursor:help">⚠ casi todo en una talla</span>` : '';
+    return (ks.length ? ks.map(k => `<span style="white-space:nowrap">${k} <strong>${r.porTalla[k]}</strong></span>`).join(' · ') : '<span style="color:var(--gris-medio)">cubierto con bodega</span>') + aviso;
+  };
+  el.innerHTML = `
+    <div style="padding:16px 16px 6px;border-top:1px solid var(--borde);margin-top:8px">
+      <div style="font-size:12px;font-weight:700;color:var(--carbon)">🧵 Producción para diciembre 2026</div>
+      <div style="font-size:11px;color:var(--gris-medio);margin-top:4px;line-height:1.5">Venta proyectada = las prendas para la meta de cada almacén, repartidas como se vendió en diciembre 2025 en ese mismo almacén${conMezcla2026.length ? `. ${conMezcla2026.join(', ')} no tienen diciembre 2025: se reparten como han vendido en 2026` : ''}. Las tallas siguen lo que se vendió de cada referencia en diciembre 2025. <strong>Por producir</strong> = venta proyectada − lo que hay hoy en bodega, talla por talla; lo que ya está en las tiendas no se resta. Cambia una meta y esto se recalcula.${sinMezcla.length ? ` Sin ventas para repartir: ${sinMezcla.join(', ')}.` : ''}</div>
+    </div>
+    <div class="metrics" style="margin:8px 16px">
+      <div class="metric-card"><div class="m-label">Venta proyectada</div><div class="m-val">${NUM(totVenta)}</div><div class="m-sub">prendas · diciembre 2025 vendió ${NUM(_dic2025.total_uds || 0)} con La Ermita</div></div>
+      <div class="metric-card accent"><div class="m-label">Por producir</div><div class="m-val">${NUM(totProd)}</div><div class="m-sub">descontando bodega</div></div>
+      <div class="metric-card"><div class="m-label">Se surten con ofertas</div><div class="m-val">${NUM(totOfer)}</div><div class="m-sub">no se producen</div></div>
+    </div>
+    <div class="tabla-wrap">
+      <table>
+        <thead><tr><th>Referencia</th><th style="text-align:right">Dic 2025</th><th style="text-align:right">Venta proy.</th><th style="text-align:right">En bodega</th><th style="text-align:right">Por producir</th><th>Por talla (por producir)</th></tr></thead>
+        <tbody>${filas.map(r => `<tr${esOferta(r.ref) ? ' style="opacity:.6"' : ''}>
+          <td><strong>${escHtml(r.ref)}</strong>${esOferta(r.ref) ? ' <span class="badge badge-gray" style="font-size:9px">oferta</span>' : ''}${!esOferta(r.ref) && enBodega.size && !enBodega.has(r.ref) ? ' <span class="badge badge-gray" style="font-size:9px" title="No aparece en bodega: puede que ya no se produzca">no está en bodega</span>' : ''}${descRef[r.ref] && !esOferta(r.ref) ? `<div style="font-size:10px;color:var(--gris-medio);margin-top:2px">en Feria dic 2025: ${escHtml([...descRef[r.ref]].slice(0, 3).join(', '))}</div>` : ''}</td>
+          <td style="text-align:right;color:var(--gris-medio)">${r.dic25 ? NUM(r.dic25) : '—'}</td>
+          <td style="text-align:right">${NUM(r.uds)}</td>
+          <td style="text-align:right;color:var(--gris-medio)">${esOferta(r.ref) ? '' : (r.enBod ? NUM(r.enBod) : '0')}</td>
+          <td style="text-align:right;font-weight:700">${esOferta(r.ref) ? '—' : NUM(r.producir)}</td>
+          <td style="font-size:12px">${tallasTxt(r)}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>`;
 }
 
 // Cambiar el escenario global → recalcula la meta final de todos los almacenes (con base 2025)
