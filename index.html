@@ -765,7 +765,8 @@
         <div style="padding:4px 16px 8px;font-size:12px;font-weight:600;color:var(--gris-medio);text-transform:uppercase;letter-spacing:.04em">Meta por almacén (edita la meta final)</div>
         <div class="tabla-wrap">
           <table>
-            <thead><tr><th>Almacén</th><th style="text-align:right">Hist. 2025</th><th style="text-align:right">% crec</th><th style="text-align:right">Meta final</th><th style="text-align:right">Real</th></tr></thead>
+            <thead><tr><th>Almacén</th><th style="text-align:right">Hist. 2025</th><th style="text-align:right">% crec</th><th style="text-align:right">Meta final</th><th style="text-align:right">Real</th>
+              <th style="text-align:right;border-left:1px solid var(--borde)">Uds 2025</th><th style="text-align:right" title="Meta en pesos ÷ precio promedio por prenda de 2026 en ese almacén">Prendas para la meta</th><th style="text-align:right">Uds reales</th></tr></thead>
             <tbody id="meta-tbody"></tbody>
           </table>
         </div>
@@ -10133,15 +10134,16 @@ const HIST = {
 };
 // Unidades vendidas en 2025, de los archivos mensuales de Feria en Drive (carpeta VENTAS 2025,
 // columna "Cantidad inv."). Son la misma fuente de los pesos de HIST: enero a julio cuadran
-// al peso y agosto difiere $54.000 (0,2 por ciento). Octubre a diciembre de 2025 no tienen
-// archivo en Drive, así que van en null: sin dato, no se compara. El total incluye La Ermita.
-HIST.uds2025 = [658,464,444,457,766,653,787,642,521,null,null,null];
+// al peso y agosto difiere $54.000 (0,2 por ciento). Diciembre sale de "Diciembre 31 2025.xlsx"
+// (subido el 19 nov 2026) y cuadra al peso: $72.728.240. Octubre y noviembre de 2025 no tienen
+// archivo, así que van en null: sin dato, no se compara. El total incluye La Ermita.
+HIST.uds2025 = [658,464,444,457,766,653,787,642,521,null,null,1833];
 HIST.udsAlm2025 = {
-    'Feria del Brasier Malca 2':             [317,203,225,190,282,289,356,275,208,null,null,null],
-    'Feria del Brasier Outlet Íntimo Cra 1': [182,150,126,130,247,168,194,160,146,null,null,null],
-    'Feria del Brasier Cra 8':               [105,65,50,66,112,83,98,73,59,null,null,null],
-    'Feria del Brasier Calle 13':            [0,0,4,31,24,31,32,43,37,null,null,null],
-    'Feria del Brasier Valle del Lili':      [0,0,0,0,27,37,35,30,19,null,null,null]
+    'Feria del Brasier Malca 2':             [317,203,225,190,282,289,356,275,208,null,null,540],
+    'Feria del Brasier Outlet Íntimo Cra 1': [182,150,126,130,247,168,194,160,146,null,null,641],
+    'Feria del Brasier Cra 8':               [105,65,50,66,112,83,98,73,59,null,null,238],
+    'Feria del Brasier Calle 13':            [0,0,4,31,24,31,32,43,37,null,null,83],
+    'Feria del Brasier Valle del Lili':      [0,0,0,0,27,37,35,30,19,null,null,149]
 };
 
 let _real2026 = {}, _real2026Alm = {}, _real2026Uds = {}, _real2026UdsAlm = {};
@@ -10303,7 +10305,7 @@ function renderComparativo() {
         <div class="m-sub">${r.precio25 ? 'en 2025: ' + COP(Math.round(r.precio25)) + ' · ' + pct(r.precio26 / r.precio25 - 1) : ''}</div></div>
     </div>
     <div style="font-size:11px;color:var(--gris-medio)">Solo meses completos en los dos años. El crecimiento en unidades mide cuántas prendas más se venden;
-      la diferencia con el de pesos es el efecto precio. Octubre a diciembre de 2025 no tienen unidades porque no hay archivo de esos meses en Drive.</div>`;
+      la diferencia con el de pesos es el efecto precio. Octubre y noviembre de 2025 no tienen unidades porque no hay archivo de esos meses.</div>`;
 }
 
 async function editarHist(mes, scope, current) {
@@ -10331,6 +10333,15 @@ function factorCrecimiento() {
 }
 
 let _metaFilas = [];
+// Precio promedio por unidad de un almacén en 2026 (con IVA), con los meses completos.
+// Sirve para traducir una meta en pesos a las prendas que hay que vender, y producir.
+function precioPromAlm2026(nombre){
+  const v = _real2026Alm[nombre] || {}, u = _real2026UdsAlm[nombre] || {};
+  let pv = 0, pu = 0;
+  for (let m = 1; m <= 12; m++) if (mesCompleto2026(m) && v[m] > 0 && u[m] > 0) { pv += v[m]; pu += u[m]; }
+  return pu ? pv / pu : null;
+}
+
 async function cargarMetas() {
   const m = +document.getElementById('meta-mes').value;
   const factor = factorCrecimiento();
@@ -10344,7 +10355,10 @@ async function cargarMetas() {
     if (HIST25.alm[a.nombre]) sugerida = Math.round(hist*factor);
     else { nuevo=true; const vals=Object.values(_real2026Alm[a.nombre]||{}); sugerida = vals.length?Math.round(vals.reduce((s,x)=>s+x,0)/vals.length):0; }
     const final = (a.id in savedMap) ? savedMap[a.id] : sugerida;
-    return { id:a.id, nombre:a.nombre, hist, sugerida, real, nuevo, final };
+    const udsHist = (HIST.udsAlm2025[a.nombre] || [])[m-1];
+    const udsReal = (_real2026UdsAlm[a.nombre] || {})[m] || 0;
+    return { id:a.id, nombre:a.nombre, hist, sugerida, real, nuevo, final,
+             udsHist: udsHist == null ? null : udsHist, udsReal, precio: precioPromAlm2026(a.nombre) };
   }).sort((a,b)=>cmpAlm(a.nombre,b.nombre));
   pintarMetas();
 }
@@ -10377,6 +10391,9 @@ function pintarMetas() {
       <td style="text-align:right" id="crec-${f.id}">${crec!=null?((crec>0?'+':'')+crec+'%'):'—'}</td>
       <td style="text-align:right"><input type="number" id="metaf-${f.id}" value="${f.final}" oninput="onMetaInput(${i})" style="width:106px;padding:5px;text-align:right;font-size:13px;border:1px solid var(--borde);border-radius:6px;background:var(--blanco)"></td>
       <td style="text-align:right;font-weight:700">${COP(f.real)}</td>
+      <td style="text-align:right;border-left:1px solid var(--borde);color:var(--gris-medio)">${f.udsHist != null ? NUM(f.udsHist) : '—'}</td>
+      <td style="text-align:right;font-weight:700" id="metau-${f.id}" title="${f.precio ? 'precio promedio ' + COP(Math.round(f.precio)) + ' por prenda' : 'sin ventas 2026 completas para calcular el precio'}">${f.precio ? NUM(Math.round(f.final / f.precio)) : '—'}</td>
+      <td style="text-align:right">${f.udsReal ? NUM(f.udsReal) : '—'}</td>
     </tr>`;
   }).join('');
 }
@@ -10384,9 +10401,15 @@ function pintarMetas() {
 function actualizarMetaKpis() {
   const m = +document.getElementById('meta-mes').value;
   const factor = factorCrecimiento();
-  let metaGen=0, realGen=0; _metaFilas.forEach(f=>{ metaGen+=f.final; realGen+=f.real; });
+  let metaGen=0, realGen=0, udsMeta=0, udsHist=0, udsReal=0, sinPrecio=0;
+  _metaFilas.forEach(f=>{ metaGen+=f.final; realGen+=f.real; udsReal+=f.udsReal||0; udsHist+=f.udsHist||0;
+    if (f.precio) udsMeta += Math.round(f.final / f.precio); else if (f.final) sinPrecio++; });
   const cumpGen = metaGen ? Math.round(realGen/metaGen*100) : 0;
   document.getElementById('meta-kpis').innerHTML = `
+    <div class="metric-card"><div class="m-label">Prendas para la meta</div><div class="m-val">${NUM(udsMeta)}</div>
+      <div class="m-sub">${udsHist ? 'en ' + MESES[m-1] + ' 2025 se vendieron ' + NUM(udsHist) : ''}${sinPrecio ? ' · ' + sinPrecio + ' almacén(es) sin precio de referencia' : ''}</div></div>
+    <div class="metric-card"><div class="m-label">Prendas vendidas</div><div class="m-val">${NUM(udsReal)}</div>
+      <div class="m-sub">${udsMeta ? Math.round(udsReal / udsMeta * 100) + '% de las necesarias' : ''}</div></div>
     <div class="metric-card"><div class="m-label">Meta ${MESES[m-1]}</div><div class="m-val">${COP(metaGen)}</div><div class="m-sub">factor ×${factor.toFixed(2)} vs 2025</div></div>
     <div class="metric-card"><div class="m-label">Venta real</div><div class="m-val">${COP(realGen)}</div><div class="m-sub">${(realGen-metaGen>=0?'+':'')+COP(realGen-metaGen)} dif.</div></div>
     <div class="metric-card accent" style="grid-column:1/-1"><div class="m-label">Cumplimiento general</div><div class="m-val">${cumpGen}%</div><div class="stock-bar" style="margin-top:8px;height:8px;background:rgba(255,255,255,.3)"><div class="stock-fill" style="width:${Math.min(100,cumpGen)}%;background:#fff"></div></div></div>`;
@@ -10411,6 +10434,7 @@ function onMetaInput(i) {
   f.final = parseInt(document.getElementById('metaf-'+f.id).value) || 0;
   const crec = f.hist>0 ? Math.round((f.final-f.hist)/f.hist*100) : null;
   const cc = document.getElementById('crec-'+f.id); if (cc) cc.textContent = crec!=null?((crec>0?'+':'')+crec+'%'):'—';
+  const cu = document.getElementById('metau-'+f.id); if (cu && f.precio) cu.textContent = NUM(Math.round(f.final / f.precio));
   actualizarMetaKpis();
 }
 
