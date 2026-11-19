@@ -12459,6 +12459,12 @@ async function guardarCierreDesdeDoc(docId){
 // ─── REPORTES DE VENTAS FERIA DEL BRASIER ───
 const VF_ALMACENES = { 'FERIA DEL BRASIER MALCA 2':'Malca 2','FERIA DEL BRASIER OUTLET INTIMO CRA 1':'Outlet Íntimo Cra 1','FERIA DEL BRASIER UNICO 5':'Único 5','FERIA DEL BRASIER VALLE DEL LILI':'Valle del Lili','FERIA DEL BRASIER CRA 8':'Cra 8','FERIA DEL BRASIER UNICENTRO CALI':'Unicentro','FERIA DEL BRASIER COSMOCENTRO 3':'Cosmocentro','FERIA DEL BRASIER CALLE 13':'Calle 13' };
 function vfParseRef(codigo){
+  // ANT + referencia de 4 dígitos + talla + sufijo de lista de precios (2600, 1200…).
+  // La referencia va primero y siempre tiene 4 dígitos: así "8063XL2600" es la 8063 en XL
+  // y no la 806 en 3XL, y "53044XL2600" es la 5304 en 4XL. Antes se leía la talla desde
+  // el final y se comía el último dígito de la referencia cuando era 2 o 3.
+  const m4 = String(codigo||'').toUpperCase().trim().match(/^ANT(\d{4})(5XL|4XL|3XL|2XL|XS|XL|L|M|S|U)(\d{4})?$/);
+  if (m4) return { base: m4[1], talla: m4[2] };
   let s=String(codigo||'').toUpperCase().trim().replace(/^ANT/,'');
   s=s.replace(/(U|3XL|2XL|XL|L|M|S)\d{4}$/,'$1');   // sufijo de lista de precios tras la talla (2600, 1200, …)
   s=s.replace(/2600$/,'');                           // legado: sufijo sin talla
